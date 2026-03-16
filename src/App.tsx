@@ -1,0 +1,311 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useMemo } from 'react';
+import { usePersistentState } from './hooks/usePersistentState';
+import { MOCK_INVENTORY } from './mockData';
+import { processInventory } from './logic';
+import { InventoryTable } from './components/InventoryTable';
+import { TransferRequest } from './components/TransferRequest';
+import { VBACodeDisplay } from './components/VBACodeDisplay';
+import { CsvUploader } from './components/CsvUploader';
+import { ValidityUploader } from './components/ValidityUploader';
+import { LayoutDashboard, FileSpreadsheet, Code, Pill, Database, Filter, AlertCircle, PieChart, Download, ListTodo, Activity, ClipboardList, Menu, X, ChevronRight, Clock, Ban, Package, LineChart, Calculator, BarChart2, ShieldAlert } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Dashboard } from './components/Dashboard';
+import { FollowUp } from './components/FollowUp';
+import { FollowUpUploader } from './components/FollowUpUploader';
+import { Product, UnitType, ProductCategory, AlertStatus, FollowUpItem } from './types';
+import { MOCK_FOLLOW_UP } from './data/mockFollowUp';
+import { DispensaryAnalysis } from './components/DispensaryAnalysis';
+import { AnalysePendencies } from './components/AnalysePendencies';
+import { DashboardPrevisibilidade, PredictabilityData } from './components/DashboardPrevisibilidade';
+import { DashboardEquivalencia } from './components/DashboardEquivalencia';
+import { DispensaryProject } from './components/DispensaryProject';
+import Pedido24h from './components/Pedido24h';
+import { DailyTracking } from './components/DailyTracking';
+import { ConciliacaoEmprestimo } from './components/ConciliacaoEmprestimo';
+import { DashboardRastreio } from './components/DashboardRastreio';
+import { ProductivityTab } from './components/ProductivityTab';
+import { PainelCAF } from './components/PainelCAF';
+import { IndicadoresCAF } from './components/IndicadoresCAF';
+import { AnaliseDispensacao } from './components/AnaliseDispensacao';
+import { InteligenciaDevolucoes } from './components/InteligenciaDevolucoes';
+import { Criticidade } from './components/Criticidade';
+import { MobileHeader } from './components/layout/MobileHeader';
+import { Sidebar, NavItem, TabId } from './components/layout/Sidebar';
+import { exportInventoryToPDF } from './utils/pdfExport';
+import { EQUIVALENCE_MAP } from './data/equivalenceMap';
+import { LandingPage } from './components/LandingPage';
+
+function App() {
+  const [showApp, setShowApp] = usePersistentState<boolean>('logistica_farma_show_app', false);
+  const [activeTab, setActiveTab] = useState<TabId>('dispensaryProject');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [inventoryData, setInventoryData] = usePersistentState<Product[]>('logistica_farma_inventory', MOCK_INVENTORY);
+  const [followUpData, setFollowUpData] = usePersistentState<FollowUpItem[]>('logistica_farma_followup', MOCK_FOLLOW_UP);
+  const [selectedCategory, setSelectedCategory] = useState<ProductCategory | 'Todos'>('Todos');
+  const [selectedStatus, setSelectedStatus] = useState<AlertStatus | 'Todos'>('Todos');
+  const [equivalenceMap, setEquivalenceMap] = usePersistentState<Record<string, string[]>>('logistica_farma_equivalence_map', EQUIVALENCE_MAP);
+  const [predictabilityData, setPredictabilityData] = usePersistentState<PredictabilityData[]>('logistica_farma_predictability_data', []);
+  const [predictabilityFiles, setPredictabilityFiles] = usePersistentState<{demandas: boolean, itens: boolean, estoque: boolean, equivalencias: boolean}>('logistica_farma_predictability_files', {
+    demandas: false,
+    itens: false,
+    estoque: false,
+    equivalencias: false
+  });
+  const [predictabilityRawSource, setPredictabilityRawSource] = usePersistentState<any | null>('logistica_farma_predictability_raw_source', null);
+  
+  const processedData = useMemo(() => processInventory(inventoryData), [inventoryData]);
+  
+  // Filter out 501 for display, and filter by category and status
+  const displayData = useMemo(() => {
+    return processedData.filter(p => {
+      const isNot501 = p.unit !== '501';
+      const matchesCategory = selectedCategory === 'Todos' || p.category === selectedCategory;
+      const matchesStatus = selectedStatus === 'Todos' || p.status === selectedStatus;
+      return isNot501 && matchesCategory && matchesStatus;
+    });
+  }, [processedData, selectedCategory, selectedStatus]);
+
+  const handleDataLoaded = (newData: Product[]) => {
+    // Replace entire inventory with new data (since it contains units)
+    setInventoryData(newData);
+    // Don't switch tab immediately, let user import validity if they want
+  };
+
+  const handleValidityLoaded = (validityMap: Record<string, { date: string, batch: string }>) => {
+    setInventoryData(prev => prev.map(item => {
+      if (validityMap[item.id]) {
+        return { 
+          ...item, 
+          expiryDate: validityMap[item.id].date,
+          batch: validityMap[item.id].batch
+        };
+      }
+      return item;
+    }));
+  };
+
+  const handleFollowUpLoaded = (data: FollowUpItem[], isMerge: boolean = false) => {
+    if (isMerge) {
+      setFollowUpData(prev => {
+        // Remove duplicates by ID natively
+        const newIds = new Set(data.map(item => item.id));
+        const filteredPrev = prev.filter(item => !newIds.has(item.id));
+        return [...filteredPrev, ...data];
+      });
+    } else {
+      setFollowUpData(data);
+    }
+  };
+
+  const handleUpdateStock = (id: string, unit: string, newStock: number) => {
+    setInventoryData(prev => prev.map(item => {
+      if (item.id === id && item.unit === unit) {
+        return { ...item, physicalStock: newStock };
+      }
+      return item;
+    }));
+  };
+
+  const handleResetData = () => {
+    setInventoryData(MOCK_INVENTORY);
+  };
+
+  const stats = {
+    total: displayData.length,
+    critical: displayData.filter(p => p.status === 'URGENTE!').length,
+    warning: displayData.filter(p => p.status === 'VERIFICAR INVENTÁRIO').length,
+    order: displayData.filter(p => p.status === 'PEDIR AO RECEBIMENTO').length,
+    expiry: displayData.filter(p => p.status === 'REMANEJAR (VALIDADE)').length,
+  };
+
+  const exportToPDF = () => {
+    exportInventoryToPDF(displayData, stats);
+  };
+
+  const navItems = [
+    { id: 'analise_dispensacao', label: 'Análise Dispensação', icon: <BarChart2 className="w-5 h-5" />, classes: { activeBg: 'bg-blue-50', activeText: 'text-blue-700', activeBorder: 'border-blue-100', iconActive: 'text-blue-600', badgeBg: 'bg-blue-200', badgeText: 'text-blue-800' } },
+    { id: 'dispensary', label: 'Análise Dispensários', icon: <Activity className="w-5 h-5" />, classes: { activeBg: 'bg-indigo-50', activeText: 'text-indigo-700', activeBorder: 'border-indigo-100', iconActive: 'text-indigo-600', badgeBg: 'bg-indigo-200', badgeText: 'text-indigo-800' } },
+    { id: 'conciliacao', label: 'Conciliação Empréstimo', icon: <Calculator className="w-5 h-5" />, classes: { activeBg: 'bg-indigo-50', activeText: 'text-indigo-700', activeBorder: 'border-indigo-100', iconActive: 'text-indigo-600', badgeBg: 'bg-indigo-200', badgeText: 'text-indigo-800' } },
+    { id: 'equivalencia', label: 'Equivalência', icon: <Database className="w-5 h-5" />, classes: { activeBg: 'bg-teal-50', activeText: 'text-teal-700', activeBorder: 'border-teal-100', iconActive: 'text-teal-600', badgeBg: 'bg-teal-200', badgeText: 'text-teal-800' } },
+    { id: 'indicadores_caf', label: 'Indicadores CAF', icon: <LineChart className="w-5 h-5" />, classes: { activeBg: 'bg-emerald-50', activeText: 'text-emerald-700', activeBorder: 'border-emerald-100', iconActive: 'text-emerald-600', badgeBg: 'bg-emerald-200', badgeText: 'text-emerald-800' } },
+    { id: 'analytics', label: 'Insights do Farma', icon: <PieChart className="w-5 h-5" />, classes: { activeBg: 'bg-purple-50', activeText: 'text-purple-700', activeBorder: 'border-purple-100', iconActive: 'text-purple-600', badgeBg: 'bg-purple-200', badgeText: 'text-purple-800' } },
+    { id: 'inteligencia_devolucoes', label: 'Inteligência Devoluções', icon: <FileSpreadsheet className="w-5 h-5" />, classes: { activeBg: 'bg-indigo-50', activeText: 'text-indigo-700', activeBorder: 'border-indigo-100', iconActive: 'text-indigo-600', badgeBg: 'bg-indigo-200', badgeText: 'text-indigo-800' } },
+    { id: 'vba', label: 'Macro VBA', icon: <Code className="w-5 h-5" />, classes: { activeBg: 'bg-slate-100', activeText: 'text-slate-900', activeBorder: 'border-slate-200', iconActive: 'text-slate-800', badgeBg: 'bg-slate-200', badgeText: 'text-slate-800' } },
+    { id: 'painel_caf', label: 'Painel CAF', icon: <Package className="w-5 h-5" />, classes: { activeBg: 'bg-blue-50', activeText: 'text-blue-700', activeBorder: 'border-blue-100', iconActive: 'text-blue-600', badgeBg: 'bg-blue-200', badgeText: 'text-blue-800' } },
+    { id: 'pedido24h', label: 'Pedido 24h', icon: <Clock className="w-5 h-5" />, classes: { activeBg: 'bg-amber-50', activeText: 'text-amber-700', activeBorder: 'border-amber-100', iconActive: 'text-amber-600', badgeBg: 'bg-amber-200', badgeText: 'text-amber-800' } },
+    { id: 'previsibilidade', label: 'Previsibilidade', icon: <AlertCircle className="w-5 h-5" />, classes: { activeBg: 'bg-rose-50', activeText: 'text-rose-700', activeBorder: 'border-rose-100', iconActive: 'text-rose-600', badgeBg: 'bg-rose-200', badgeText: 'text-rose-800' } },
+    { id: 'productivity', label: 'Produtividade', icon: <Activity className="w-5 h-5" />, classes: { activeBg: 'bg-indigo-50', activeText: 'text-indigo-700', activeBorder: 'border-indigo-100', iconActive: 'text-indigo-600', badgeBg: 'bg-indigo-200', badgeText: 'text-indigo-800' } },
+    { id: 'dispensaryProject', label: 'Projeto Dispensário', icon: <ClipboardList className="w-5 h-5" />, classes: { activeBg: 'bg-emerald-50', activeText: 'text-emerald-700', activeBorder: 'border-emerald-100', iconActive: 'text-emerald-600', badgeBg: 'bg-emerald-200', badgeText: 'text-emerald-800' } },
+    { id: 'genesis', label: 'Projeto Genesis', icon: <FileSpreadsheet className="w-5 h-5" />, classes: { activeBg: 'bg-cyan-50', activeText: 'text-cyan-700', activeBorder: 'border-cyan-100', iconActive: 'text-cyan-600', badgeBg: 'bg-cyan-200', badgeText: 'text-cyan-800' } },
+    { id: 'rastreio', label: 'Rastreio Cancelamento', icon: <Ban className="w-5 h-5" />, classes: { activeBg: 'bg-red-50', activeText: 'text-red-700', activeBorder: 'border-red-100', iconActive: 'text-red-600', badgeBg: 'bg-red-200', badgeText: 'text-red-800' } },
+    { id: 'transfer', label: 'Requisição', icon: <FileSpreadsheet className="w-5 h-5" />, badge: stats.order, classes: { activeBg: 'bg-indigo-50', activeText: 'text-indigo-700', activeBorder: 'border-indigo-100', iconActive: 'text-indigo-600', badgeBg: 'bg-indigo-200', badgeText: 'text-indigo-800' } },
+    { id: 'daily_tracking', label: 'Tracking Diário SV', icon: <Activity className="w-5 h-5" />, classes: { activeBg: 'bg-indigo-50', activeText: 'text-indigo-700', activeBorder: 'border-indigo-100', iconActive: 'text-indigo-600', badgeBg: 'bg-indigo-200', badgeText: 'text-indigo-800' } },
+    { id: 'criticidade', label: 'Criticidade', icon: <ShieldAlert className="w-5 h-5" />, classes: { activeBg: 'bg-rose-50', activeText: 'text-rose-700', activeBorder: 'border-rose-100', iconActive: 'text-rose-600', badgeBg: 'bg-rose-200', badgeText: 'text-rose-800' } },
+  ] as const;
+
+  if (!showApp) {
+    return <LandingPage onEnter={() => setShowApp(true)} />;
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-900 flex flex-col md:flex-row">
+      <MobileHeader 
+        isSidebarOpen={isSidebarOpen} 
+        setIsSidebarOpen={setIsSidebarOpen} 
+      />
+
+      <Sidebar 
+        isSidebarOpen={isSidebarOpen}
+        setIsSidebarOpen={setIsSidebarOpen}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        navItems={navItems}
+      />
+
+      <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 md:py-10">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activeTab}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.3, ease: "easeOut" }}
+            className="w-full"
+          >
+        {activeTab === 'dispensaryProject' && (
+          <div className="max-w-7xl mx-auto">
+             <DispensaryProject />
+          </div>
+        )}
+
+        {activeTab === 'pedido24h' && (
+          <div className="max-w-7xl mx-auto">
+             <Pedido24h />
+          </div>
+        )}
+
+        {activeTab === 'daily_tracking' as TabId && (
+          <div className="max-w-7xl mx-auto">
+             <DailyTracking />
+          </div>
+        )}
+
+
+        {activeTab === 'analytics' && (
+          <div className="max-w-6xl mx-auto">
+             <Dashboard data={displayData} />
+          </div>
+        )}
+
+        {activeTab === 'dispensary' && (
+          <div className="max-w-6xl mx-auto">
+             <DispensaryAnalysis />
+          </div>
+        )}
+
+
+        {activeTab === 'genesis' && (
+          <div className="max-w-6xl mx-auto">
+            <AnalysePendencies />
+          </div>
+        )}
+
+        {activeTab === 'previsibilidade' && (
+          <div className="max-w-6xl mx-auto">
+            <DashboardPrevisibilidade 
+              equivalenceMap={equivalenceMap} 
+              setEquivalenceMap={setEquivalenceMap}
+              data={predictabilityData}
+              setData={setPredictabilityData}
+              filesLoaded={predictabilityFiles}
+              setFilesLoaded={setPredictabilityFiles}
+              rawSource={predictabilityRawSource}
+              setRawSource={setPredictabilityRawSource}
+            />
+          </div>
+        )}
+
+        {activeTab === 'equivalencia' && (
+          <div className="max-w-6xl mx-auto">
+            <DashboardEquivalencia Map={equivalenceMap} setMap={setEquivalenceMap} />
+          </div>
+        )}
+
+        {activeTab === 'rastreio' && (
+          <div className="w-full">
+            <DashboardRastreio />
+          </div>
+        )}
+
+        {activeTab === 'productivity' && (
+          <div className="w-full">
+            <ProductivityTab />
+          </div>
+        )}
+
+        {activeTab === 'transfer' && (
+          <div className="max-w-full mx-auto">
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm mb-6">
+              <h2 className="text-xl font-bold text-slate-900 mb-2">Requisição Interna de Transferência</h2>
+              <p className="text-slate-500 text-sm">
+                Geração automática de sugestão de pedido com base na cobertura de estoque e disponibilidade no estoque central (CSV).
+                Utiliza a mesma lógica da Macro VBA (padrão 7 dias), com opção de ajuste.
+              </p>
+            </div>
+            <TransferRequest />
+          </div>
+        )}
+
+        {activeTab === 'painel_caf' && (
+          <div className="max-w-full mx-auto">
+            <PainelCAF />
+          </div>
+        )}
+
+        {activeTab === 'indicadores_caf' && (
+          <div className="max-w-full mx-auto">
+            <IndicadoresCAF />
+          </div>
+        )}
+
+
+        {activeTab === 'vba' && (
+          <div className="max-w-4xl mx-auto">
+            <VBACodeDisplay />
+          </div>
+        )}
+
+        {activeTab === 'conciliacao' && (
+          <div className="max-w-7xl mx-auto">
+            <ConciliacaoEmprestimo />
+          </div>
+        )}
+            {activeTab === 'analise_dispensacao' && (
+          <div className="max-w-7xl mx-auto">
+            <AnaliseDispensacao />
+          </div>
+        )}
+        {activeTab === 'inteligencia_devolucoes' && (
+          <div className="max-w-7xl mx-auto">
+            <InteligenciaDevolucoes />
+          </div>
+        )}
+        {activeTab === 'criticidade' && (
+          <div className="max-w-6xl mx-auto">
+            <Criticidade />
+          </div>
+        )}
+      </motion.div>
+        </AnimatePresence>
+      </main>
+    </div>
+  );
+}
+
+export default App;
+
