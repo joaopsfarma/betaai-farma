@@ -68,28 +68,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </AnimatePresence>
 
       {/* Sidebar */}
-      <aside 
+      <aside
         className={`
-          fixed md:sticky top-0 left-0 h-screen bg-white border-r border-slate-200 z-50
-          w-72 flex-shrink-0 flex flex-col transition-transform duration-300 ease-in-out shadow-xl md:shadow-none
+          fixed md:sticky top-0 left-0 h-screen bg-white border-r border-violet-100 z-50
+          w-72 flex-shrink-0 flex flex-col transition-transform duration-300 ease-in-out shadow-xl shadow-violet-100/50 md:shadow-none
           ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
         `}
       >
-        <div className="p-6 border-b border-slate-100 hidden md:block">
+        <div className="p-6 border-b border-violet-100 hidden md:block bg-gradient-to-br from-emerald-50 to-violet-50">
           <div className="flex items-center gap-3">
-            <div className="bg-gradient-to-br from-emerald-500 to-emerald-700 p-2.5 rounded-xl shadow-md shadow-emerald-200">
+            <div className="bg-gradient-to-br from-emerald-500 to-violet-600 p-2.5 rounded-xl shadow-md shadow-violet-200">
               <Pill className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-slate-900 leading-tight">FarmaIA</h1>
-              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mt-1">FarmaIA</p>
+              <h1 className="text-xl font-bold bg-gradient-to-r from-emerald-600 to-violet-700 bg-clip-text text-transparent leading-tight">FarmaIA</h1>
+              <p className="text-[10px] font-semibold text-violet-400 uppercase tracking-wider mt-1">Sistema Farmacêutico</p>
             </div>
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto py-6 px-4 custom-scrollbar">
           <div className="space-y-1">
-            <p className="px-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3">Menu Principal</p>
+            <p className="px-4 text-[10px] font-bold text-violet-400 uppercase tracking-wider mb-3">Menu Principal</p>
             {navItems.map((item) => {
               const isActive = activeTab === item.id;
               return (
@@ -142,10 +142,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
         
-        <div className="p-4 border-t border-slate-100">
-           <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 text-center">
-             <p className="text-xs text-slate-500 font-medium">Sistema Atualizado</p>
-             <p className="text-[10px] text-slate-400 mt-1">v2.0.0 • Hoje</p>
+        <div className="p-4 border-t border-violet-100">
+           <div className="bg-gradient-to-r from-emerald-50 to-violet-50 p-4 rounded-2xl border border-violet-100 text-center">
+             <p className="text-xs text-violet-600 font-medium">Sistema Atualizado</p>
+             <p className="text-[10px] text-violet-400 mt-1">v2.0.0 • Hoje</p>
            </div>
         </div>
       </aside>
