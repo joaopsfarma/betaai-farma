@@ -127,25 +127,28 @@ function App() {
     exportInventoryToPDF(displayData, stats);
   };
 
+  const G = { activeBg: 'bg-emerald-50', activeText: 'text-emerald-700', activeBorder: 'border-emerald-100', iconActive: 'text-emerald-600', badgeBg: 'bg-emerald-200', badgeText: 'text-emerald-800' };
+  const V = { activeBg: 'bg-violet-50',  activeText: 'text-violet-700',  activeBorder: 'border-violet-100',  iconActive: 'text-violet-600',  badgeBg: 'bg-violet-200',  badgeText: 'text-violet-800'  };
+
   const navItems = [
-    { id: 'analise_dispensacao', label: 'Análise Dispensação', icon: <BarChart2 className="w-5 h-5" />, classes: { activeBg: 'bg-blue-50', activeText: 'text-blue-700', activeBorder: 'border-blue-100', iconActive: 'text-blue-600', badgeBg: 'bg-blue-200', badgeText: 'text-blue-800' } },
-    { id: 'dispensary', label: 'Análise Dispensários', icon: <Activity className="w-5 h-5" />, classes: { activeBg: 'bg-indigo-50', activeText: 'text-indigo-700', activeBorder: 'border-indigo-100', iconActive: 'text-indigo-600', badgeBg: 'bg-indigo-200', badgeText: 'text-indigo-800' } },
-    { id: 'conciliacao', label: 'Conciliação Empréstimo', icon: <Calculator className="w-5 h-5" />, classes: { activeBg: 'bg-indigo-50', activeText: 'text-indigo-700', activeBorder: 'border-indigo-100', iconActive: 'text-indigo-600', badgeBg: 'bg-indigo-200', badgeText: 'text-indigo-800' } },
-    { id: 'equivalencia', label: 'Equivalência', icon: <Database className="w-5 h-5" />, classes: { activeBg: 'bg-teal-50', activeText: 'text-teal-700', activeBorder: 'border-teal-100', iconActive: 'text-teal-600', badgeBg: 'bg-teal-200', badgeText: 'text-teal-800' } },
-    { id: 'indicadores_caf', label: 'Indicadores CAF', icon: <LineChart className="w-5 h-5" />, classes: { activeBg: 'bg-emerald-50', activeText: 'text-emerald-700', activeBorder: 'border-emerald-100', iconActive: 'text-emerald-600', badgeBg: 'bg-emerald-200', badgeText: 'text-emerald-800' } },
-    { id: 'analytics', label: 'Insights do Farma', icon: <PieChart className="w-5 h-5" />, classes: { activeBg: 'bg-purple-50', activeText: 'text-purple-700', activeBorder: 'border-purple-100', iconActive: 'text-purple-600', badgeBg: 'bg-purple-200', badgeText: 'text-purple-800' } },
-    { id: 'inteligencia_devolucoes', label: 'Inteligência Devoluções', icon: <FileSpreadsheet className="w-5 h-5" />, classes: { activeBg: 'bg-indigo-50', activeText: 'text-indigo-700', activeBorder: 'border-indigo-100', iconActive: 'text-indigo-600', badgeBg: 'bg-indigo-200', badgeText: 'text-indigo-800' } },
-    { id: 'vba', label: 'Macro VBA', icon: <Code className="w-5 h-5" />, classes: { activeBg: 'bg-slate-100', activeText: 'text-slate-900', activeBorder: 'border-slate-200', iconActive: 'text-slate-800', badgeBg: 'bg-slate-200', badgeText: 'text-slate-800' } },
-    { id: 'painel_caf', label: 'Painel CAF', icon: <Package className="w-5 h-5" />, classes: { activeBg: 'bg-blue-50', activeText: 'text-blue-700', activeBorder: 'border-blue-100', iconActive: 'text-blue-600', badgeBg: 'bg-blue-200', badgeText: 'text-blue-800' } },
-    { id: 'pedido24h', label: 'Pedido 24h', icon: <Clock className="w-5 h-5" />, classes: { activeBg: 'bg-amber-50', activeText: 'text-amber-700', activeBorder: 'border-amber-100', iconActive: 'text-amber-600', badgeBg: 'bg-amber-200', badgeText: 'text-amber-800' } },
-    { id: 'previsibilidade', label: 'Previsibilidade', icon: <AlertCircle className="w-5 h-5" />, classes: { activeBg: 'bg-rose-50', activeText: 'text-rose-700', activeBorder: 'border-rose-100', iconActive: 'text-rose-600', badgeBg: 'bg-rose-200', badgeText: 'text-rose-800' } },
-    { id: 'productivity', label: 'Produtividade', icon: <Activity className="w-5 h-5" />, classes: { activeBg: 'bg-indigo-50', activeText: 'text-indigo-700', activeBorder: 'border-indigo-100', iconActive: 'text-indigo-600', badgeBg: 'bg-indigo-200', badgeText: 'text-indigo-800' } },
-    { id: 'dispensaryProject', label: 'Projeto Dispensário', icon: <ClipboardList className="w-5 h-5" />, classes: { activeBg: 'bg-emerald-50', activeText: 'text-emerald-700', activeBorder: 'border-emerald-100', iconActive: 'text-emerald-600', badgeBg: 'bg-emerald-200', badgeText: 'text-emerald-800' } },
-    { id: 'genesis', label: 'Projeto Genesis', icon: <FileSpreadsheet className="w-5 h-5" />, classes: { activeBg: 'bg-cyan-50', activeText: 'text-cyan-700', activeBorder: 'border-cyan-100', iconActive: 'text-cyan-600', badgeBg: 'bg-cyan-200', badgeText: 'text-cyan-800' } },
-    { id: 'rastreio', label: 'Rastreio Cancelamento', icon: <Ban className="w-5 h-5" />, classes: { activeBg: 'bg-red-50', activeText: 'text-red-700', activeBorder: 'border-red-100', iconActive: 'text-red-600', badgeBg: 'bg-red-200', badgeText: 'text-red-800' } },
-    { id: 'transfer', label: 'Requisição', icon: <FileSpreadsheet className="w-5 h-5" />, badge: stats.order, classes: { activeBg: 'bg-indigo-50', activeText: 'text-indigo-700', activeBorder: 'border-indigo-100', iconActive: 'text-indigo-600', badgeBg: 'bg-indigo-200', badgeText: 'text-indigo-800' } },
-    { id: 'daily_tracking', label: 'Tracking Diário SV', icon: <Activity className="w-5 h-5" />, classes: { activeBg: 'bg-indigo-50', activeText: 'text-indigo-700', activeBorder: 'border-indigo-100', iconActive: 'text-indigo-600', badgeBg: 'bg-indigo-200', badgeText: 'text-indigo-800' } },
-    { id: 'criticidade', label: 'Criticidade', icon: <ShieldAlert className="w-5 h-5" />, classes: { activeBg: 'bg-rose-50', activeText: 'text-rose-700', activeBorder: 'border-rose-100', iconActive: 'text-rose-600', badgeBg: 'bg-rose-200', badgeText: 'text-rose-800' } },
+    { id: 'analise_dispensacao',   label: 'Análise Dispensação',    icon: <BarChart2 className="w-5 h-5" />,     classes: V },
+    { id: 'dispensary',            label: 'Análise Dispensários',   icon: <Activity className="w-5 h-5" />,      classes: G },
+    { id: 'conciliacao',           label: 'Conciliação Empréstimo', icon: <Calculator className="w-5 h-5" />,    classes: V },
+    { id: 'equivalencia',          label: 'Equivalência',           icon: <Database className="w-5 h-5" />,      classes: G },
+    { id: 'indicadores_caf',       label: 'Indicadores CAF',        icon: <LineChart className="w-5 h-5" />,     classes: V },
+    { id: 'analytics',             label: 'Insights do Farma',      icon: <PieChart className="w-5 h-5" />,      classes: G },
+    { id: 'inteligencia_devolucoes', label: 'Inteligência Devoluções', icon: <FileSpreadsheet className="w-5 h-5" />, classes: V },
+    { id: 'vba',                   label: 'Macro VBA',              icon: <Code className="w-5 h-5" />,          classes: G },
+    { id: 'painel_caf',            label: 'Painel CAF',             icon: <Package className="w-5 h-5" />,       classes: V },
+    { id: 'pedido24h',             label: 'Pedido 24h',             icon: <Clock className="w-5 h-5" />,         classes: G },
+    { id: 'previsibilidade',       label: 'Previsibilidade',        icon: <AlertCircle className="w-5 h-5" />,   classes: V },
+    { id: 'productivity',          label: 'Produtividade',          icon: <Activity className="w-5 h-5" />,      classes: G },
+    { id: 'dispensaryProject',     label: 'Projeto Dispensário',    icon: <ClipboardList className="w-5 h-5" />, classes: V },
+    { id: 'genesis',               label: 'Projeto Genesis',        icon: <FileSpreadsheet className="w-5 h-5" />, classes: G },
+    { id: 'rastreio',              label: 'Rastreio Cancelamento',  icon: <Ban className="w-5 h-5" />,           classes: V },
+    { id: 'transfer',              label: 'Requisição',             icon: <FileSpreadsheet className="w-5 h-5" />, badge: stats.order, classes: G },
+    { id: 'daily_tracking',        label: 'Tracking Diário SV',     icon: <Activity className="w-5 h-5" />,      classes: V },
+    { id: 'criticidade',           label: 'Criticidade',            icon: <ShieldAlert className="w-5 h-5" />,   classes: G },
   ] as const;
 
   if (!showApp) {
