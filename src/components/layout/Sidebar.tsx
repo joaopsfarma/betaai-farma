@@ -81,8 +81,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <Pill className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-slate-900 leading-tight">Logística Farma</h1>
-              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mt-1">Gestão Inteligente</p>
+              <h1 className="text-xl font-bold text-slate-900 leading-tight">FarmaIA</h1>
+              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mt-1">FarmaIA</p>
             </div>
           </div>
         </div>

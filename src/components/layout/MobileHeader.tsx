@@ -14,7 +14,7 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({ isSidebarOpen, setIs
           <Pill className="w-5 h-5 text-white" />
         </div>
         <div>
-          <h1 className="text-lg font-bold text-slate-900 leading-tight">Logística Farma</h1>
+          <h1 className="text-lg font-bold text-slate-900 leading-tight">FarmaIA</h1>
         </div>
       </div>
       <button 
