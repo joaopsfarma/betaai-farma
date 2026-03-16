@@ -1,19 +1,15 @@
 name: Deploy to GitHub Pages
 
 on:
-  # Dispara o deploy sempre que houver um push na branch main ou master
   push:
     branches: ["main", "master"]
-  # Permite rodar o workflow manualmente na aba Actions
   workflow_dispatch:
 
-# Define as permissões necessárias para o GITHUB_TOKEN
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Permite apenas um deploy concorrente, ignorando runs em progresso
 concurrency:
   group: "pages"
   cancel-in-progress: true
@@ -39,6 +35,10 @@ jobs:
 
       - name: Build do projeto
         run: npm run build
+
+      # Copia index.html como 404.html para suporte a rotas SPA no GitHub Pages
+      - name: Criar 404.html para SPA routing
+        run: cp dist/index.html dist/404.html
 
       - name: Configurar GitHub Pages
         uses: actions/configure-pages@v4
