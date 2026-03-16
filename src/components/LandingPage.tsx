@@ -52,7 +52,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
             transition={{ duration: 0.5 }}
           >
             <h1 className="text-5xl sm:text-6xl font-extrabold tracking-tight text-slate-900 mb-6">
-              Gestão Inteligente de <br className="hidden sm:block" />
+              FarmaIA — <br className="hidden sm:block" />
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-500 to-teal-500">
                 Farmácia Hospitalar
               </span>
