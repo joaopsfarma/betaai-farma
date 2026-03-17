@@ -33,9 +33,9 @@ function parseCSV(text: string) {
       const c = line.split(";");
       return {
         atendimento: c[0] || "",
-        paciente: c[1] || "",
-        codProduto: c[2] || "",
-        produto: (c[3] || "").replace(/\xa0/g, " ").trim(),
+        paciente: c[2] ? `${c[1] || ""} ${c[2] || ""}`.trim() : c[1] || "",
+        codProduto: c[3] || "",
+        produto: (c[4] || "").replace(/\xa0/g, " ").trim(),
         totalNaoAdm: parseInt(c[5]) || 0,
         totalDevolvido: parseInt(c[6]) || 0,
         qtdePendente: parseInt(c[7]) || 0,
