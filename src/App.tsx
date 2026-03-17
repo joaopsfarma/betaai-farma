@@ -32,6 +32,7 @@ import { ProductivityTab } from './components/ProductivityTab';
 import { PainelCAF } from './components/PainelCAF';
 import { IndicadoresCAF } from './components/IndicadoresCAF';
 import { AnaliseDispensacao } from './components/AnaliseDispensacao';
+import { AnaliseDispensacaoV2 } from './components/AnaliseDispensacaoV2';
 import { InteligenciaDevolucoes } from './components/InteligenciaDevolucoes';
 import { Criticidade } from './components/Criticidade';
 import { MobileHeader } from './components/layout/MobileHeader';
@@ -131,7 +132,8 @@ function App() {
   const V = { activeBg: 'bg-violet-50',  activeText: 'text-violet-700',  activeBorder: 'border-violet-100',  iconActive: 'text-violet-600',  badgeBg: 'bg-violet-200',  badgeText: 'text-violet-800'  };
 
   const navItems = [
-    { id: 'analise_dispensacao',   label: 'Análise Dispensação',    icon: <BarChart2 className="w-5 h-5" />,     classes: V },
+    { id: 'analise_dispensacao',    label: 'Análise Dispensação',    icon: <BarChart2 className="w-5 h-5" />,     classes: V },
+    { id: 'analise_dispensacao_v2', label: 'Análise Dispensação V2', icon: <BarChart2 className="w-5 h-5" />,     classes: G },
     { id: 'dispensary',            label: 'Análise Dispensários',   icon: <Activity className="w-5 h-5" />,      classes: G },
     { id: 'conciliacao',           label: 'Conciliação Empréstimo', icon: <Calculator className="w-5 h-5" />,    classes: V },
     { id: 'equivalencia',          label: 'Equivalência',           icon: <Database className="w-5 h-5" />,      classes: G },
@@ -291,6 +293,11 @@ function App() {
             {activeTab === 'analise_dispensacao' && (
           <div className="max-w-7xl mx-auto">
             <AnaliseDispensacao />
+          </div>
+        )}
+        {activeTab === 'analise_dispensacao_v2' && (
+          <div className="max-w-7xl mx-auto">
+            <AnaliseDispensacaoV2 />
           </div>
         )}
         {activeTab === 'inteligencia_devolucoes' && (
