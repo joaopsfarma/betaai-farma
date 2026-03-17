@@ -52,15 +52,19 @@ type RowData = ReturnType<typeof parseCSV>[number];
 
 // ─── Parse Solicitações ───────────────────────────────────────────────────────
 function parseSolicitacoes(raw: string) {
-  if (!raw || raw.includes("SEM SOLICITACAO")) return [];
-  return raw.split("||").map((s) => s.trim()).filter(Boolean).map((s) => {
-    const id = (s.match(/SOLICITAC.O:\((\d+)\)/) || [])[1] || "";
-    const qtde = (s.match(/QTDE:\((\d+)\)/) || [])[1] || "";
-    const status = (s.match(/STATUS:\s*([A-ZÁÉÍÓÚ ]+)/) || [])[1]?.trim() || "";
-    const data = (s.match(/DATA:(\d{2}\/\d{2}\/\d{4})/) || [])[1] || "";
-    const usuario = (s.match(/USUARIO:([A-Z0-9]+)/) || [])[1] || "";
-    return { id, qtde, status, data, usuario };
-  });
+  if (!raw) return [];
+  return raw.split("||")
+    .map((s) => s.trim())
+    .filter((s) => s && !s.includes("SEM SOLICITACAO"))
+    .map((s) => {
+      const id = (s.match(/SOLICITAC.O:\((\d+)\)/) || [])[1] || "";
+      const qtde = (s.match(/QTDE:\((\d+)\)/) || [])[1] || "";
+      const status = (s.match(/STATUS:\s*([A-ZÁÉÍÓÚ ]+)/) || [])[1]?.trim() || "";
+      const data = (s.match(/DATA:(\d{2}\/\d{2}\/\d{4})/) || [])[1] || "";
+      const usuario = (s.match(/USUARIO:([A-Z0-9]+)/) || [])[1] || "";
+      return { id, qtde, status, data, usuario };
+    })
+    .filter((s) => s.id);
 }
 
 // ─── Parse Prescrições ────────────────────────────────────────────────────────
@@ -178,19 +182,6 @@ function StatusModal({ row, onClose }: { row: RowData; onClose: () => void }) {
           )}
           <div style={{ marginBottom: 20 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: T.text, letterSpacing: 1, textTransform: "uppercase", marginBottom: 10 }}>📋 Solicitações de Devolução</div>
-            {/* DEBUG — remover após confirmar formato */}
-            {row.solicitacoes && (
-              <details style={{ marginBottom: 8 }}>
-                <summary style={{ fontSize: 10, color: T.muted, cursor: "pointer" }}>🔍 raw solicitacoes</summary>
-                <pre style={{ fontSize: 9, background: "#F1F5F9", padding: 8, borderRadius: 6, overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{row.solicitacoes}</pre>
-              </details>
-            )}
-            {row.prescricao && (
-              <details style={{ marginBottom: 8 }}>
-                <summary style={{ fontSize: 10, color: T.muted, cursor: "pointer" }}>🔍 raw prescricao</summary>
-                <pre style={{ fontSize: 9, background: "#F1F5F9", padding: 8, borderRadius: 6, overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{row.prescricao}</pre>
-              </details>
-            )}
             {sols.length === 0 ? (
               <div style={{ background: T.warnBg, border: `1px solid ${T.warn}33`, borderRadius: 10, padding: "12px 16px", fontSize: 13, color: T.warn, fontWeight: 600 }}>⚠ Nenhuma solicitação registrada para este item</div>
             ) : sols.map((sol, i) => (
