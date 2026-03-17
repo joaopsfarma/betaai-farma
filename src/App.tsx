@@ -35,6 +35,7 @@ import { AnaliseDispensacao } from './components/AnaliseDispensacao';
 import { AnaliseDispensacaoV2 } from './components/AnaliseDispensacaoV2';
 import { InteligenciaDevolucoes } from './components/InteligenciaDevolucoes';
 import { Criticidade } from './components/Criticidade';
+import { CheckagemDevolucao } from './components/CheckagemDevolucao';
 import { MobileHeader } from './components/layout/MobileHeader';
 import { Sidebar, NavItem, TabId } from './components/layout/Sidebar';
 import { exportInventoryToPDF } from './utils/pdfExport';
@@ -151,6 +152,7 @@ function App() {
     { id: 'transfer',              label: 'Requisição',             icon: <FileSpreadsheet className="w-5 h-5" />, badge: stats.order, classes: G },
     { id: 'daily_tracking',        label: 'Tracking Diário SV',     icon: <Activity className="w-5 h-5" />,      classes: V },
     { id: 'criticidade',           label: 'Criticidade',            icon: <ShieldAlert className="w-5 h-5" />,   classes: G },
+    { id: 'checagem_devolucao',    label: 'Checagem e Devolução',   icon: <ClipboardList className="w-5 h-5" />, classes: V },
   ] as const;
 
   if (!showApp) {
@@ -308,6 +310,11 @@ function App() {
         {activeTab === 'criticidade' && (
           <div className="max-w-6xl mx-auto">
             <Criticidade />
+          </div>
+        )}
+        {activeTab === 'checagem_devolucao' && (
+          <div className="max-w-full mx-auto">
+            <CheckagemDevolucao />
           </div>
         )}
       </motion.div>
