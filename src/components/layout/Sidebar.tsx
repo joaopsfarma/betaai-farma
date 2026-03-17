@@ -18,6 +18,7 @@ export type TabId =
   | 'indicadores_caf' 
   | 'conciliacao' 
   | 'analise_dispensacao'
+  | 'analise_dispensacao_v2'
   | 'inteligencia_devolucoes'
   | 'criticidade';
 
