@@ -52,15 +52,19 @@ type RowData = ReturnType<typeof parseCSV>[number];
 
 // ─── Parse Solicitações ───────────────────────────────────────────────────────
 function parseSolicitacoes(raw: string) {
-  if (!raw || raw.includes("SEM SOLICITACAO")) return [];
-  return raw.split("||").map((s) => s.trim()).filter(Boolean).map((s) => {
-    const id = (s.match(/SOLICITAC.O:\((\d+)\)/) || [])[1] || "";
-    const qtde = (s.match(/QTDE:\((\d+)\)/) || [])[1] || "";
-    const status = (s.match(/STATUS:\s*([A-ZÁÉÍÓÚ ]+)/) || [])[1]?.trim() || "";
-    const data = (s.match(/DATA:(\d{2}\/\d{2}\/\d{4})/) || [])[1] || "";
-    const usuario = (s.match(/USUARIO:([A-Z0-9]+)/) || [])[1] || "";
-    return { id, qtde, status, data, usuario };
-  });
+  if (!raw) return [];
+  return raw.split("||")
+    .map((s) => s.trim())
+    .filter((s) => s && !s.includes("SEM SOLICITACAO"))
+    .map((s) => {
+      const id = (s.match(/SOLICITAC.O:\((\d+)\)/) || [])[1] || "";
+      const qtde = (s.match(/QTDE:\((\d+)\)/) || [])[1] || "";
+      const status = (s.match(/STATUS:\s*([A-ZÁÉÍÓÚ ]+)/) || [])[1]?.trim() || "";
+      const data = (s.match(/DATA:(\d{2}\/\d{2}\/\d{4})/) || [])[1] || "";
+      const usuario = (s.match(/USUARIO:([A-Z0-9]+)/) || [])[1] || "";
+      return { id, qtde, status, data, usuario };
+    })
+    .filter((s) => s.id);
 }
 
 // ─── Parse Prescrições ────────────────────────────────────────────────────────
