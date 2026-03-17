@@ -549,12 +549,16 @@ export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> =
       { label: 'Saúde do Atend.', value: `${healthScore}%`, color: healthScore >= 90 ? PDF_COLORS.emerald : healthScore >= 70 ? PDF_COLORS.amber : PDF_COLORS.red },
     ], currentY);
 
-    const tableColumn = ['ID', 'Produto', 'Estoque', 'Pedido', 'Projeção', 'Status', 'Substituto / Saldo', 'Lote Rec.', 'Ação'];
+    // col indexes: 0=ID, 1=Produto, 2=Estoque, 3=Pedido, 4=Projeção, 5=Status,
+    //              6=Sol. Pendentes, 7=Substituto/Saldo, 8=Lote Rec.
+    const tableColumn = ['ID', 'Produto', 'Estoque', 'Pedido', 'Projeção', 'Status', 'Sol. Pendentes', 'Substituto / Saldo', 'Lote Rec.'];
     const tableRows = dataToExport.map(item => {
       const loteRec = item.Lotes?.length > 0
         ? `${item.Lotes[0].lote} (${item.Lotes[0].validade})`
         : '-';
-      const isCritical = item.Status !== 'Suficiente';
+      const solicitacoesPendentes = item.Solicitacoes?.length > 0
+        ? item.Solicitacoes.map(s => `${s.id} — ${s.qt}un`).join('\n')
+        : '-';
       return [
         item.Produto_ID,
         item.Produto_Nome,
@@ -562,11 +566,11 @@ export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> =
         item.Total_Solicitado.toLocaleString('pt-BR'),
         item.Saldo_Projetado.toLocaleString('pt-BR'),
         item.Status,
+        solicitacoesPendentes,
         item.Sugestao_Substituicao
           ? `${item.Sugestao_Substituicao.nome}\nSaldo: ${item.Sugestao_Substituicao.saldo}`
           : '-',
         loteRec,
-        isCritical ? '' : '-',
       ];
     });
 
@@ -580,14 +584,14 @@ export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> =
       headStyles: { fillColor: color, textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center' },
       alternateRowStyles: { fillColor: [248, 250, 252] },
       columnStyles: {
-        0: { cellWidth: 18, halign: 'center' },
-        1: { cellWidth: 60, fontStyle: 'bold' },
-        2: { cellWidth: 18, halign: 'right' },
-        3: { cellWidth: 18, halign: 'right' },
-        4: { cellWidth: 20, halign: 'right', fontStyle: 'bold' },
-        5: { cellWidth: 38, fontStyle: 'bold', halign: 'center' },
-        6: { cellWidth: 'auto' },
-        7: { cellWidth: 32 },
+        0: { cellWidth: 16, halign: 'center' },
+        1: { cellWidth: 55, fontStyle: 'bold' },
+        2: { cellWidth: 16, halign: 'right' },
+        3: { cellWidth: 16, halign: 'right' },
+        4: { cellWidth: 18, halign: 'right', fontStyle: 'bold' },
+        5: { cellWidth: 36, fontStyle: 'bold', halign: 'center' },
+        6: { cellWidth: 40 },
+        7: { cellWidth: 'auto' },
         8: { cellWidth: 30 },
       },
       didParseCell(data) {
@@ -600,12 +604,10 @@ export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> =
           const val = Number(String(data.cell.raw).replace(/\./g, '').replace(',', '.'));
           if (val < 0) data.cell.styles.textColor = [220, 38, 38];
         }
-      },
-      didDrawCell(data) {
-        if (data.section === 'body' && data.column.index === 8 && data.cell.raw === '') {
-          doc.setDrawColor(200, 200, 200);
-          const yLine = data.cell.y + data.cell.height - 2;
-          doc.line(data.cell.x + 2, yLine, data.cell.x + data.cell.width - 2, yLine);
+        // Destaca a coluna de solicitações pendentes
+        if (data.section === 'body' && data.column.index === 6 && data.cell.raw !== '-') {
+          data.cell.styles.textColor = [79, 70, 229];
+          data.cell.styles.fontStyle = 'bold';
         }
       },
     });
