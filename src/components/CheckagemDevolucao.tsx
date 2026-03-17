@@ -178,6 +178,19 @@ function StatusModal({ row, onClose }: { row: RowData; onClose: () => void }) {
           )}
           <div style={{ marginBottom: 20 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: T.text, letterSpacing: 1, textTransform: "uppercase", marginBottom: 10 }}>📋 Solicitações de Devolução</div>
+            {/* DEBUG — remover após confirmar formato */}
+            {row.solicitacoes && (
+              <details style={{ marginBottom: 8 }}>
+                <summary style={{ fontSize: 10, color: T.muted, cursor: "pointer" }}>🔍 raw solicitacoes</summary>
+                <pre style={{ fontSize: 9, background: "#F1F5F9", padding: 8, borderRadius: 6, overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{row.solicitacoes}</pre>
+              </details>
+            )}
+            {row.prescricao && (
+              <details style={{ marginBottom: 8 }}>
+                <summary style={{ fontSize: 10, color: T.muted, cursor: "pointer" }}>🔍 raw prescricao</summary>
+                <pre style={{ fontSize: 9, background: "#F1F5F9", padding: 8, borderRadius: 6, overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{row.prescricao}</pre>
+              </details>
+            )}
             {sols.length === 0 ? (
               <div style={{ background: T.warnBg, border: `1px solid ${T.warn}33`, borderRadius: 10, padding: "12px 16px", fontSize: 13, color: T.warn, fontWeight: 600 }}>⚠ Nenhuma solicitação registrada para este item</div>
             ) : sols.map((sol, i) => (
