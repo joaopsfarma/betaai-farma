@@ -557,7 +557,7 @@ export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> =
         ? `${item.Lotes[0].lote} (${item.Lotes[0].validade})`
         : '-';
       const solicitacoesPendentes = item.Solicitacoes?.length > 0
-        ? item.Solicitacoes.map(s => `${s.id} — ${s.qt}un`).join('\n')
+        ? item.Solicitacoes.map(s => `${s.id} — ${s.qt}un  ${s.data ? `(${s.data})` : ''}`).join('\n')
         : '-';
       return [
         item.Produto_ID,
