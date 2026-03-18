@@ -1,5 +1,8 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { drawPDFHeader, drawPDFFooters, drawKPICards, PDF_COLORS } from '../utils/pdfExport';
 
 // ─── THEME ───────────────────────────────────────────────────────────────────
 const T = {
@@ -317,6 +320,109 @@ export function PrevisibilidadeV2({ equivalenceMap = {} }: PrevisibilidadeV2Prop
   const pagedRows = filteredRows.slice(page * PAGE, (page + 1) * PAGE);
   const totalPages = Math.ceil(filteredRows.length / PAGE);
 
+  // ── PDF EXPORT ──
+  const exportCruzamentoPDF = useCallback(() => {
+    if (!data) return;
+    const color = PDF_COLORS.indigo;
+    const doc = new jsPDF('landscape' as any);
+
+    const filtroLabel =
+      filtroCob === 'total'       ? 'Filtro: Com Estoque' :
+      filtroCob === 'parcial'     ? 'Filtro: Parcial' :
+      filtroCob === 'sem_estoque' ? 'Filtro: Sem Estoque' :
+      filtroCob === 'equiv'       ? 'Filtro: Via Substituto' : 'Todos os itens';
+
+    const subtitle = `${filtroLabel}${search ? ` · Busca: "${search}"` : ''} · ${filteredRows.length} registros`;
+
+    let y = drawPDFHeader(doc, 'Cruzamento de Previsibilidade V2', subtitle, color);
+
+    y = drawKPICards(doc, [
+      { label: 'Total Itens',       value: String(kpis.total),    color: PDF_COLORS.indigo },
+      { label: 'Com Estoque',       value: String(kpis.cobTotal), color: PDF_COLORS.emerald },
+      { label: 'Parcial',           value: String(kpis.parcial),  color: PDF_COLORS.amber },
+      { label: 'Sem Estoque',       value: String(kpis.semEst),   color: PDF_COLORS.red },
+      { label: 'Via Substituto',    value: String(kpis.viaEquiv), color: PDF_COLORS.amber },
+      { label: 'Sol. Pendentes',    value: String(data.solics.length), color: PDF_COLORS.purple },
+    ], y);
+
+    const headers = ['Atendimento', 'Solicitação', 'Data', 'Código', 'Produto', 'Qtd Sol.', 'Qtd Atend.', 'Saldo', 'Est. Atual', 'Cobertura', 'Substituto'];
+
+    const rows = filteredRows.map(r => [
+      r.atendimento,
+      r.solicitacao,
+      r.data,
+      r.codProduto,
+      r.nomeProduto,
+      String(r.qtdSolicitada),
+      String(r.qtdAtendida),
+      String(r.saldo),
+      String(r.estoqueAtual),
+      r.cobertura === 'total'   ? 'Com Estoque' :
+      r.cobertura === 'parcial' ? 'Parcial'      :
+      r.coberturaEquiv          ? 'Substituto'   : 'Sem Estoque',
+      r.equivDisp.length > 0
+        ? `${r.equivDisp[0].nome} (${r.equivDisp[0].estoqueDisp} uni.)${r.equivDisp.length > 1 ? ` +${r.equivDisp.length - 1}` : ''}`
+        : '—',
+    ]);
+
+    autoTable(doc, {
+      head: [headers],
+      body: rows,
+      startY: y + 2,
+      theme: 'grid',
+      margin: { left: 10, right: 10, bottom: 20 },
+      styles: { fontSize: 7, cellPadding: 2.5, overflow: 'linebreak', valign: 'middle' },
+      headStyles: { fillColor: color, textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center' },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      columnStyles: {
+        0: { cellWidth: 22, halign: 'center' },
+        1: { cellWidth: 25, halign: 'center' },
+        2: { cellWidth: 20, halign: 'center' },
+        3: { cellWidth: 14, halign: 'center' },
+        4: { cellWidth: 55, fontStyle: 'bold' },
+        5: { cellWidth: 14, halign: 'right' },
+        6: { cellWidth: 16, halign: 'right' },
+        7: { cellWidth: 13, halign: 'right', fontStyle: 'bold' },
+        8: { cellWidth: 16, halign: 'right', fontStyle: 'bold' },
+        9: { cellWidth: 22, halign: 'center', fontStyle: 'bold' },
+        10: { cellWidth: 'auto' },
+      },
+      didParseCell(info) {
+        if (info.section !== 'body') return;
+        const cob = (info.row.raw as string[])[9];
+        // Row background by cobertura
+        if (cob === 'Com Estoque')  info.cell.styles.fillColor = [240, 253, 244];
+        if (cob === 'Parcial')      info.cell.styles.fillColor = [255, 251, 235];
+        if (cob === 'Substituto')   info.cell.styles.fillColor = [255, 251, 235];
+        if (cob === 'Sem Estoque')  info.cell.styles.fillColor = [255, 241, 242];
+        // Cobertura column color
+        if (info.column.index === 9) {
+          if (cob === 'Com Estoque')  { info.cell.styles.textColor = [4, 120, 87]; }
+          if (cob === 'Parcial')      { info.cell.styles.textColor = [180, 83, 9]; }
+          if (cob === 'Substituto')   { info.cell.styles.textColor = [180, 83, 9]; }
+          if (cob === 'Sem Estoque')  { info.cell.styles.textColor = [190, 18, 60]; }
+        }
+        // Saldo column red
+        if (info.column.index === 7) {
+          info.cell.styles.textColor = [220, 38, 38];
+        }
+        // Substituto column amber
+        if (info.column.index === 10 && (info.cell.raw as string) !== '—') {
+          info.cell.styles.textColor = [180, 83, 9];
+        }
+        // Solicitação indigo
+        if (info.column.index === 1) {
+          info.cell.styles.textColor = [79, 70, 229];
+        }
+      },
+    });
+
+    drawPDFFooters(doc, color);
+
+    const hoje = new Date().toLocaleDateString('pt-BR').replace(/\//g, '-');
+    doc.save(`cruzamento_previsibilidade_${hoje}.pdf`);
+  }, [filteredRows, kpis, filtroCob, search, data]);
+
   // ─── UPLOAD SCREEN ──
   if (!data) {
     const globalEquivCount = Object.keys(equivalenceMap).length;
@@ -529,6 +635,10 @@ export function PrevisibilidadeV2({ equivalenceMap = {} }: PrevisibilidadeV2Prop
                 placeholder="🔍  Produto, código, solicitação, atendimento..."
                 style={{ flex: 1, minWidth: 240, background: '#f1f5f9', border: `1px solid ${T.border}`, borderRadius: 10, padding: '8px 13px', fontSize: 13, color: T.text, outline: 'none' }} />
               <div style={{ fontSize: 12, color: T.text3 }}>{filteredRows.length} itens</div>
+              <button onClick={exportCruzamentoPDF}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'linear-gradient(135deg,#6366f1,#7c3aed)', border: 'none', borderRadius: 10, padding: '8px 16px', fontSize: 12, fontWeight: 700, color: '#fff', cursor: 'pointer', whiteSpace: 'nowrap', boxShadow: '0 2px 8px #6366f130' }}>
+                📄 Exportar PDF
+              </button>
             </div>
 
             {/* Tabela */}
