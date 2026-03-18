@@ -25,7 +25,8 @@ export type TabId =
   | 'analise_dispensarios_v2'
   | 'rastreio_falta'
   | 'requisicao_v2'
-  | 'cancelamento_v2';
+  | 'cancelamento_v2'
+  | 'previsibilidade_v2';
 
 // Define the nav item structure with classes specific to Sidebar
 export interface NavItem {

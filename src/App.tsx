@@ -40,6 +40,7 @@ import { AnaliseDispensariosV2 } from './components/AnaliseDispensariosV2';
 import { RastreioFalta } from './components/RastreioFalta';
 import { RequisicaoV2 } from './components/RequisicaoV2';
 import { CancelamentoV2 } from './components/CancelamentoV2';
+import { PrevisibilidadeV2 } from './components/PrevisibilidadeV2';
 import { MobileHeader } from './components/layout/MobileHeader';
 import { Sidebar, NavItem, TabId } from './components/layout/Sidebar';
 import { exportInventoryToPDF } from './utils/pdfExport';
@@ -170,6 +171,7 @@ function App() {
     { id: 'painel_caf',            label: 'Painel CAF',             icon: <Package className="w-5 h-5" />,       classes: V },
     { id: 'pedido24h',             label: 'Pedido 24h',             icon: <Clock className="w-5 h-5" />,         classes: G },
     { id: 'previsibilidade',       label: 'Previsibilidade',        icon: <AlertCircle className="w-5 h-5" />,   classes: V },
+    { id: 'previsibilidade_v2',    label: 'Previsibilidade V2',     icon: <LineChart className="w-5 h-5" />,     classes: G },
     { id: 'productivity',          label: 'Produtividade',          icon: <Activity className="w-5 h-5" />,      classes: G },
     { id: 'dispensaryProject',     label: 'Projeto Dispensário',    icon: <ClipboardList className="w-5 h-5" />, classes: V },
     { id: 'genesis',               label: 'Projeto Genesis',        icon: <FileSpreadsheet className="w-5 h-5" />, classes: G },
@@ -363,6 +365,11 @@ function App() {
         {activeTab === 'cancelamento_v2' && (
           <div className="max-w-7xl mx-auto">
             <CancelamentoV2 />
+          </div>
+        )}
+        {activeTab === 'previsibilidade_v2' && (
+          <div className="max-w-7xl mx-auto">
+            <PrevisibilidadeV2 />
           </div>
         )}
       </motion.div>
