@@ -550,6 +550,88 @@ function Dashboard({ data, onReset }: { data: any; onReset: () => void }) {
     return base.sort((a, b) => Math.abs(b.netSaldo) - Math.abs(a.netSaldo));
   }, [cruzSolic, cruzFiltro, cruzSearch]);
 
+  // ── INSIGHTS & RECOMENDAÇÕES ────────────────────────────────────────────────
+  const cruzInsights = useMemo(() => {
+    if (!cruzSolic || !cruzSolic.pares.length) return null;
+    const { pares, falsoResultado, desvioReal } = cruzSolic;
+
+    // Top produtos com mais pares
+    const prodMap: Record<string, { total:number; falso:number; real:number; saldoMais:number; saldoMenos:number }> = {};
+    pares.forEach(g => {
+      if (!prodMap[g.produto]) prodMap[g.produto] = { total:0, falso:0, real:0, saldoMais:0, saldoMenos:0 };
+      prodMap[g.produto].total++;
+      if (g.netSaldo <= 0) prodMap[g.produto].falso++; else prodMap[g.produto].real++;
+      prodMap[g.produto].saldoMais  += g.saldoMais;
+      prodMap[g.produto].saldoMenos += g.saldoMenos;
+    });
+    const topProdutos = Object.entries(prodMap)
+      .map(([produto, v]) => ({ produto, ...v }))
+      .sort((a, b) => b.total - a.total).slice(0, 8);
+
+    // Top atendimentos afetados
+    const atendMap: Record<string, { total:number; falso:number; real:number }> = {};
+    pares.forEach(g => {
+      const a = g.atendimento || "Sem atend.";
+      if (!atendMap[a]) atendMap[a] = { total:0, falso:0, real:0 };
+      atendMap[a].total++;
+      if (g.netSaldo <= 0) atendMap[a].falso++; else atendMap[a].real++;
+    });
+    const topAtend = Object.entries(atendMap)
+      .map(([atendimento, v]) => ({ atendimento, ...v }))
+      .sort((a, b) => b.total - a.total).slice(0, 8);
+
+    // Taxas e impacto
+    const taxaFalso        = pares.length > 0 ? (falsoResultado.length / pares.length * 100) : 0;
+    const taxaDesvio       = pares.length > 0 ? (desvioReal.length     / pares.length * 100) : 0;
+    const unidadesFantasma = falsoResultado.reduce((s, g) => s + g.saldoMais, 0);
+    const desvioLiqReal    = desvioReal.reduce((s, g) => s + g.netSaldo,  0);
+
+    // Recomendações dinâmicas
+    type Rec = { icon:string; titulo:string; descricao:string; tipo:"danger"|"warning"|"info"|"success" };
+    const recs: Rec[] = [];
+
+    if (taxaFalso >= 60) {
+      recs.push({ icon:"👻", tipo:"info", titulo:"Alta taxa de falsos resultados — possível duplicidade de lançamento",
+        descricao:`${taxaFalso.toFixed(0)}% dos pares se anulam (saldo ≤ 0). O mesmo produto está sendo lançado com sinais opostos na mesma solicitação, inflando artificialmente os indicadores de divergência. Recomendação: auditar o fluxo de gravação do sistema dispensador — verificar se há duplo lançamento no fechamento da solicitação.` });
+    } else if (taxaDesvio >= 60) {
+      recs.push({ icon:"⚠️", tipo:"warning", titulo:"Desvios reais predominantes — revisar processo de conferência",
+        descricao:`${taxaDesvio.toFixed(0)}% dos pares têm desvio líquido positivo — o excesso não compensa a falta. Indica erros de conferência ou substituição não registrada. Recomendação: reforçar o checklist de conferência dupla antes de fechar a solicitação.` });
+    }
+
+    if (unidadesFantasma >= 5) {
+      recs.push({ icon:"📉", tipo:"info", titulo:`${unidadesFantasma.toFixed(0)} unidades registradas como desvio são potencialmente ilusórias`,
+        descricao:`Essas unidades aparecem como "dispensado a mais" mas são compensadas por um "a menos" do mesmo produto na mesma solicitação. Considere excluí-las do cálculo do indicador de eficiência para não distorcer a taxa de acerto.` });
+    }
+
+    if (desvioLiqReal >= 5) {
+      recs.push({ icon:"🔺", tipo:"warning", titulo:`${desvioLiqReal.toFixed(0)} unidades de desvio líquido real confirmado`,
+        descricao:`Após compensar os pares, ainda restam ${desvioLiqReal.toFixed(0)} unidades com saldo positivo. Esse é o impacto real no estoque. Recomendação: priorizar a conferência das solicitações marcadas como "🟡 Desvio real" — são as que exigem correção de inventário.` });
+    }
+
+    if (topProdutos[0] && topProdutos[0].total >= 3) {
+      recs.push({ icon:"💊", tipo:"warning", titulo:`Produto recorrente: "${topProdutos[0].produto.slice(0, 55)}..."`,
+        descricao:`Aparece em ${topProdutos[0].total} pares (${topProdutos[0].falso} falsos / ${topProdutos[0].real} reais). Alta recorrência pode indicar problema de configuração no dispensário eletrônico, erro sistemático de separação ou substituição não padronizada. Recomendação: revisar a grade terapêutica e o cadastro desse produto no sistema.` });
+    }
+
+    if (topAtend[0] && topAtend[0].total >= 3) {
+      recs.push({ icon:"🏥", tipo:"warning", titulo:`Atendimento ${topAtend[0].atendimento} concentra ${topAtend[0].total} pares`,
+        descricao:`Essa unidade é responsável pela maior incidência de pares. Pode indicar problema localizado de grade terapêutica, alta rotatividade de produtos ou processo de dispensação diferente das demais unidades. Recomendação: visita técnica à unidade para mapeamento do fluxo de pedidos.` });
+    }
+
+    const prodComSoPares = topProdutos.filter(p => p.falso === p.total);
+    if (prodComSoPares.length >= 3) {
+      recs.push({ icon:"🔄", tipo:"info", titulo:`${prodComSoPares.length} produtos com 100% de falsos resultados`,
+        descricao:`Todos os pares desses produtos se anulam — nunca há desvio real. Isso é forte indício de lançamento duplo sistemático no sistema (bug de integração ou duplo clique no fechamento). Recomendação: abrir chamado técnico junto ao fornecedor do sistema indicando esses produtos.` });
+    }
+
+    if (recs.length === 0) {
+      recs.push({ icon:"✅", tipo:"success", titulo:"Nenhum padrão crítico detectado",
+        descricao:"Os pares identificados não apresentam recorrência preocupante. Continue monitorando periodicamente." });
+    }
+
+    return { topProdutos, topAtend, taxaFalso, taxaDesvio, unidadesFantasma, desvioLiqReal, recs };
+  }, [cruzSolic]);
+
   const tableRows = useMemo(()=>{
     let f=rows;
     if(statusFilter!=="todos") f=f.filter((r: any)=>r.Status===statusFilter);
@@ -1111,6 +1193,120 @@ function Dashboard({ data, onReset }: { data: any; onReset: () => void }) {
                       </div>
                     );
                   })}
+              </div>
+            )}
+
+            {/* ── INDICADORES & RECOMENDAÇÕES ── */}
+            {cruzInsights && (
+              <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+
+                {/* Indicadores de impacto */}
+                <div>
+                  <SecTitle accent="#0f172a">📊 Indicadores de Impacto</SecTitle>
+                  <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))", gap:12 }}>
+                    {/* Taxa falso resultado */}
+                    <div style={{ background:"#f5f3ff", border:"1px solid #c4b5fd", borderRadius:14, padding:"16px 18px" }}>
+                      <div style={{ fontSize:11, color:"#7c3aed", fontWeight:700, textTransform:"uppercase", letterSpacing:.5, marginBottom:6 }}>Taxa Falso Resultado</div>
+                      <div style={{ fontSize:32, fontWeight:800, color:"#4c1d95", fontFamily:"'Syne',sans-serif", lineHeight:1 }}>{cruzInsights.taxaFalso.toFixed(1)}<span style={{ fontSize:16 }}>%</span></div>
+                      <div style={{ marginTop:8, height:6, background:"#ede9fe", borderRadius:99, overflow:"hidden" }}>
+                        <div style={{ height:"100%", width:`${Math.min(cruzInsights.taxaFalso,100)}%`, background:"linear-gradient(90deg,#7c3aed,#a78bfa)", borderRadius:99, transition:"width .5s" }} />
+                      </div>
+                      <div style={{ fontSize:11, color:"#5b21b6", marginTop:4 }}>dos pares se anulam (saldo ≤ 0)</div>
+                    </div>
+                    {/* Taxa desvio real */}
+                    <div style={{ background:"#fffbeb", border:"1px solid #fcd34d", borderRadius:14, padding:"16px 18px" }}>
+                      <div style={{ fontSize:11, color:"#d97706", fontWeight:700, textTransform:"uppercase", letterSpacing:.5, marginBottom:6 }}>Taxa Desvio Real</div>
+                      <div style={{ fontSize:32, fontWeight:800, color:"#92400e", fontFamily:"'Syne',sans-serif", lineHeight:1 }}>{cruzInsights.taxaDesvio.toFixed(1)}<span style={{ fontSize:16 }}>%</span></div>
+                      <div style={{ marginTop:8, height:6, background:"#fef3c7", borderRadius:99, overflow:"hidden" }}>
+                        <div style={{ height:"100%", width:`${Math.min(cruzInsights.taxaDesvio,100)}%`, background:"linear-gradient(90deg,#d97706,#fbbf24)", borderRadius:99, transition:"width .5s" }} />
+                      </div>
+                      <div style={{ fontSize:11, color:"#b45309", marginTop:4 }}>dos pares têm desvio persistente</div>
+                    </div>
+                    {/* Unidades fantasma */}
+                    <div style={{ background:"#f0f9ff", border:"1px solid #bae6fd", borderRadius:14, padding:"16px 18px" }}>
+                      <div style={{ fontSize:11, color:"#0284c7", fontWeight:700, textTransform:"uppercase", letterSpacing:.5, marginBottom:6 }}>Unidades Fantasma</div>
+                      <div style={{ fontSize:32, fontWeight:800, color:"#0c4a6e", fontFamily:"'Syne',sans-serif", lineHeight:1 }}>{cruzInsights.unidadesFantasma.toFixed(0)}</div>
+                      <div style={{ fontSize:11, color:"#0369a1", marginTop:10 }}>unidades de desvio ilusório (falso resultado)</div>
+                    </div>
+                    {/* Desvio líquido real */}
+                    <div style={{ background:"#fff7ed", border:"1px solid #fed7aa", borderRadius:14, padding:"16px 18px" }}>
+                      <div style={{ fontSize:11, color:"#ea580c", fontWeight:700, textTransform:"uppercase", letterSpacing:.5, marginBottom:6 }}>Desvio Líquido Real</div>
+                      <div style={{ fontSize:32, fontWeight:800, color:"#7c2d12", fontFamily:"'Syne',sans-serif", lineHeight:1 }}>+{cruzInsights.desvioLiqReal.toFixed(0)}</div>
+                      <div style={{ fontSize:11, color:"#c2410c", marginTop:10 }}>unidades de desvio confirmado após compensação</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Top produtos + Top atendimentos */}
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
+
+                  {/* Top Produtos */}
+                  <div style={{ ...card }}>
+                    <SecTitle accent="#7c3aed">💊 Top Produtos nos Pares</SecTitle>
+                    {cruzInsights.topProdutos.map((p, i) => {
+                      const pct = cruzInsights.topProdutos[0].total > 0 ? (p.total / cruzInsights.topProdutos[0].total * 100) : 0;
+                      return (
+                        <div key={i} style={{ marginBottom:10 }}>
+                          <div style={{ display:"flex", justifyContent:"space-between", marginBottom:3 }}>
+                            <span style={{ fontSize:12, color:T.text, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:"75%" }} title={p.produto}>{i+1}. {p.produto}</span>
+                            <span style={{ fontSize:11, color:T.text2, whiteSpace:"nowrap", marginLeft:6 }}>{p.total} {p.total===1?"par":"pares"}</span>
+                          </div>
+                          <div style={{ height:5, background:"#f1f5f9", borderRadius:99, overflow:"hidden", marginBottom:3 }}>
+                            <div style={{ height:"100%", width:`${pct}%`, background: p.falso===p.total?"#a78bfa":p.real===p.total?"#fbbf24":"linear-gradient(90deg,#a78bfa,#fbbf24)", borderRadius:99 }} />
+                          </div>
+                          <div style={{ display:"flex", gap:6 }}>
+                            <span style={{ fontSize:10, background:"#ede9fe", color:"#7c3aed", borderRadius:20, padding:"1px 8px", fontWeight:700 }}>🟣 {p.falso} falso</span>
+                            <span style={{ fontSize:10, background:"#fef3c7", color:"#d97706", borderRadius:20, padding:"1px 8px", fontWeight:700 }}>🟡 {p.real} real</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Top Atendimentos */}
+                  <div style={{ ...card }}>
+                    <SecTitle accent="#0284c7">🏥 Top Atendimentos Afetados</SecTitle>
+                    {cruzInsights.topAtend.map((a, i) => {
+                      const pct = cruzInsights.topAtend[0].total > 0 ? (a.total / cruzInsights.topAtend[0].total * 100) : 0;
+                      return (
+                        <div key={i} style={{ marginBottom:10 }}>
+                          <div style={{ display:"flex", justifyContent:"space-between", marginBottom:3 }}>
+                            <span style={{ fontSize:12, color:T.text, fontWeight:600 }}>🏥 {a.atendimento}</span>
+                            <span style={{ fontSize:11, color:T.text2 }}>{a.total} {a.total===1?"par":"pares"}</span>
+                          </div>
+                          <div style={{ height:5, background:"#f1f5f9", borderRadius:99, overflow:"hidden", marginBottom:3 }}>
+                            <div style={{ height:"100%", width:`${pct}%`, background: a.falso===a.total?"#7dd3fc":a.real===a.total?"#fbbf24":"linear-gradient(90deg,#7dd3fc,#fbbf24)", borderRadius:99 }} />
+                          </div>
+                          <div style={{ display:"flex", gap:6 }}>
+                            <span style={{ fontSize:10, background:"#e0f2fe", color:"#0284c7", borderRadius:20, padding:"1px 8px", fontWeight:700 }}>🟣 {a.falso} falso</span>
+                            <span style={{ fontSize:10, background:"#fef3c7", color:"#d97706", borderRadius:20, padding:"1px 8px", fontWeight:700 }}>🟡 {a.real} real</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Recomendações dinâmicas */}
+                <div style={{ ...card }}>
+                  <SecTitle accent="#0f172a">💡 Diagnóstico & Recomendações</SecTitle>
+                  <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+                    {cruzInsights.recs.map((r, i) => {
+                      const colors = {
+                        danger:  { bg:"#fef2f2", border:"#fca5a5", title:"#991b1b", text:"#7f1d1d", bar:"#ef4444" },
+                        warning: { bg:"#fffbeb", border:"#fcd34d", title:"#92400e", text:"#78350f", bar:"#f59e0b" },
+                        info:    { bg:"#f0f9ff", border:"#bae6fd", title:"#0c4a6e", text:"#0369a1", bar:"#0284c7" },
+                        success: { bg:"#f0fdf4", border:"#86efac", title:"#14532d", text:"#166534", bar:"#22c55e" },
+                      }[r.tipo];
+                      return (
+                        <div key={i} style={{ background:colors.bg, border:`1px solid ${colors.border}`, borderRadius:12, padding:"14px 16px", borderLeft:`4px solid ${colors.bar}` }}>
+                          <div style={{ fontWeight:800, fontSize:13, color:colors.title, marginBottom:5 }}>{r.icon} {r.titulo}</div>
+                          <div style={{ fontSize:12, color:colors.text, lineHeight:1.65 }}>{r.descricao}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
             )}
           </div>
