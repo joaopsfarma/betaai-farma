@@ -46,8 +46,11 @@ const databaseUTI = [
   { id: "52369", desc: "SUCCITRAT 100MG FR/AMP", max: 5, min: 2, cat: "Intubação/Sedação", active: "SUCCINILCOLINA" },
   { id: "208909", desc: "DEX 100 MCG/ML-2ML FR/AMP EV (DEXMEDETOMIDINA)", max: 100, min: 30, cat: "Analgesia/Sedação", active: "DEXMEDETOMIDINA" },
   { id: "36811", desc: "DORMIRE 5MG/ML-10ML AMP IM/EV-MIDAZOLAM", max: 25, min: 10, cat: "Analgesia/Sedação", active: "MIDAZOLAM" },
+  { id: "2420", desc: "DORMIRE 5MG/ML-3ML AMP C/15MG IM/EV-MIDAZOLAM", max: 10, min: 5, cat: "Analgesia/Sedação", active: "MIDAZOLAM" },
+  { id: "1182", desc: "UNI-DIAZEPAX 5MG/ML-2ML AMP EV-DIAZEPAM", max: 2, min: 1, cat: "Analgesia/Sedação", active: "DIAZEPAM" },
   { id: "1175", desc: "KETAMIN 50MG/ML-2ML FR/AMP IM/EV ESCETAMINA", max: 30, min: 10, cat: "Analgesia/Sedação", active: "CETAMINA" },
   { id: "0000", desc: "FENTANEST 50MCG/ML 10ML AMP EV/IM FENTANILA", max: 200, min: 60, cat: "Analgesia/Sedação", active: "FENTANILA" },
+  { id: "11523", desc: "FENTANEST 50MCG/ML-10ML AMP C/500MCG IM/EV-FENTANILA", max: 200, min: 100, cat: "Analgesia/Sedação", active: "FENTANILA" },
   { id: "1524", desc: "FENTANEST 50MCG/ML 2ML AMP EV/IM FENTANILA", max: 25, min: 10, cat: "Analgesia/Sedação", active: "FENTANILA" },
   { id: "202099", desc: "AEROFRIN 100MCG/DOSE", max: 30, min: 10, cat: "Desconforto Respiratório", active: "SALBUTAMOL" },
   { id: "37098", desc: "SALBUTAMOL 0,5MG/ML-1ML", max: 20, min: 8, cat: "Desconforto Respiratório", active: "SALBUTAMOL" },
@@ -76,6 +79,15 @@ const databaseUTI = [
   { id: "113019", desc: "EQUIPO HEMODIALISE LINHA CALCIO", max: 5, min: 2, cat: "Materiais Críticos", active: "EQUIPO HEMODIALISE" },
   { id: "188851", desc: "SONDA NASOENTERAL ENFIT FREKA TUBE", max: 10, min: 4, cat: "Materiais Críticos", active: "SONDA NASOENTERAL" },
   { id: "8803", desc: "FIXADOR TUBO ENDOTRAQUEAL HOLLISTER", max: 20, min: 8, cat: "Materiais Críticos", active: "FIXADOR TUBO" },
+  // Antídotos / Reversão
+  { id: "12427", desc: "NARCAN 0,4MG/ML-1ML AMP IM/EV-NALOXONA", max: 10, min: 5, cat: "Antídotos/Reversão", active: "NALOXONA" },
+  { id: "1594", desc: "FLUMAZIL 0,1MG/ML-5ML AMP EV-FLUMAZENIL", max: 4, min: 2, cat: "Antídotos/Reversão", active: "FLUMAZENIL" },
+  // Anticonvulsivantes
+  { id: "202157", desc: "ANTARA IV 100MG/ML-5ML FR/AMP EV-LEVETIRACETAM", max: 4, min: 2, cat: "Anticonvulsivantes", active: "LEVETIRACETAM" },
+  // Sedação / Delírio
+  { id: "110545", desc: "UNI HALOPER 5MG/ML-1ML AMP IM-HALOPERIDOL", max: 2, min: 1, cat: "Sedação/Delírio", active: "HALOPERIDOL" },
+  // Suporte Nutricional
+  { id: "29396", desc: "GLYCOPHOS 216MG/ML-20ML FR/AMP EV-GLICEROFOSFATO", max: 20, min: 10, cat: "Suporte Nutricional", active: "GLICEROFOSFATO" },
 ];
 
 // --- DATABASE DE PROTOCOLOS PS ---
