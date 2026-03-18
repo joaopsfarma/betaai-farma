@@ -30,6 +30,7 @@ import { ConciliacaoEmprestimo } from './components/ConciliacaoEmprestimo';
 import { DashboardRastreio } from './components/DashboardRastreio';
 import { ProductivityTab } from './components/ProductivityTab';
 import { PainelCAF } from './components/PainelCAF';
+import { PainelCAFV2 } from './components/PainelCAFV2';
 import { IndicadoresCAF } from './components/IndicadoresCAF';
 import { AnaliseDispensacao } from './components/AnaliseDispensacao';
 import { AnaliseDispensacaoV2 } from './components/AnaliseDispensacaoV2';
@@ -169,6 +170,7 @@ function App() {
     { id: 'inteligencia_devolucoes', label: 'Inteligência Devoluções', icon: <FileSpreadsheet className="w-5 h-5" />, classes: V },
     { id: 'vba',                   label: 'Macro VBA',              icon: <Code className="w-5 h-5" />,          classes: G },
     { id: 'painel_caf',            label: 'Painel CAF',             icon: <Package className="w-5 h-5" />,       classes: V },
+    { id: 'painel_caf_v2',        label: 'Painel CAF V2',          icon: <BarChart2 className="w-5 h-5" />,     classes: G },
     { id: 'pedido24h',             label: 'Pedido 24h',             icon: <Clock className="w-5 h-5" />,         classes: G },
     { id: 'previsibilidade',       label: 'Previsibilidade',        icon: <AlertCircle className="w-5 h-5" />,   classes: V },
     { id: 'previsibilidade_v2',    label: 'Previsibilidade V2',     icon: <LineChart className="w-5 h-5" />,     classes: G },
@@ -301,6 +303,12 @@ function App() {
         {activeTab === 'painel_caf' && (
           <div className="max-w-full mx-auto">
             <PainelCAF />
+          </div>
+        )}
+
+        {activeTab === 'painel_caf_v2' && (
+          <div className="max-w-full mx-auto">
+            <PainelCAFV2 />
           </div>
         )}
 
