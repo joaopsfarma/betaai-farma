@@ -369,7 +369,7 @@ function App() {
         )}
         {activeTab === 'previsibilidade_v2' && (
           <div className="max-w-7xl mx-auto">
-            <PrevisibilidadeV2 />
+            <PrevisibilidadeV2 equivalenceMap={equivalenceMap} />
           </div>
         )}
       </motion.div>
