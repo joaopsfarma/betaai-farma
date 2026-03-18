@@ -36,14 +36,14 @@ function parseCSV(text: string) {
         paciente: c[2] ? `${c[1] || ""} ${c[2] || ""}`.trim() : c[1] || "",
         codProduto: c[3] || "",
         produto: (c[4] || "").replace(/\xa0/g, " ").trim(),
-        totalNaoAdm: parseInt(c[5]) || 0,
-        totalDevolvido: parseInt(c[6]) || 0,
-        qtdePendente: parseInt(c[7]) || 0,
-        solicitacoes: c[8] || "",
-        prescricao: c[9] || "",
-        unidade: c[10] || "",
-        leito: c[11] || "",
-        alta: (c[12] || "").trim(),
+        totalNaoAdm: parseInt(c[6]) || 0,
+        totalDevolvido: parseInt(c[7]) || 0,
+        qtdePendente: parseInt(c[8]) || 0,
+        solicitacoes: c[9] || "",
+        prescricao: c[10] || "",
+        unidade: c[11] || "",
+        leito: c[12] || "",
+        alta: (c[13] || "").trim(),
       };
     });
 }
