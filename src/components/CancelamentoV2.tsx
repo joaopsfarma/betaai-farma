@@ -22,6 +22,7 @@ interface CancelRow {
   dataSolic: string;
   tipo: string;
   dataCancel: string;
+  horaCancel: string; // HH:MM extraído de dataCancel
 }
 
 interface ProdutoRow {
@@ -115,18 +116,25 @@ function parseCancel(text: string): CancelRow[] {
     // Date row: col[0] empty, pending set
     if (!cols[0] && pending) {
       const joined = cols.join(',');
-      const dates = joined.match(/\d{2}\/\d{2}\/\d{4}/g) || [];
+      // Captura data + hora opcionais: "16/03/2026 00:16" ou "16/03/2026"
+      const datetimes = joined.match(/\d{2}\/\d{2}\/\d{4}(?:\s+\d{2}:\d{2})?/g) || [];
       // Find tipo solicitação
       const tipo = cols.find(c =>
         c.length > 5 && !/\d{2}\/\d{2}/.test(c) && !/^\d+$/.test(c)
       )?.trim() || '';
 
+      const dt1 = datetimes[0] || '';
+      const dt2 = datetimes[1] || datetimes[0] || '';
+      // Separa data e hora do cancelamento
+      const [cancelDate, cancelTime] = dt2.includes(' ') ? dt2.split(' ') : [dt2, ''];
+
       if (pending.solicit) {
         rows.push({
           ...(pending as CancelRow),
-          dataSolic: dates[0] || '',
+          dataSolic: dt1.split(' ')[0] || '',
           tipo,
-          dataCancel: dates[1] || dates[0] || '',
+          dataCancel: cancelDate,
+          horaCancel: cancelTime,
         });
       }
       pending = null;
@@ -470,13 +478,13 @@ export function CancelamentoV2() {
         { label: 'Unidades Afetadas',   value: String(new Set(cancelamentos.map(r => r.codUI)).size),     color: PDF_COLORS.amber  },
         { label: 'Setores Afetados',    value: String(new Set(cancelamentos.map(r => r.setor).filter(Boolean)).size), color: PDF_COLORS.slate },
       ],
-      headers: ['#', 'Solicitação', 'Cód. UI', 'Unidade Internação', 'Setor', 'Motivo', 'Tipo', 'Dt. Solic.', 'Dt. Cancel.'],
+      headers: ['#', 'Solicitação', 'Cód. UI', 'Unidade Internação', 'Setor', 'Motivo', 'Tipo', 'Dt. Solic.', 'Dt. Cancel.', 'Hora Cancel.'],
       data: filteredCancel.map((r, i) => [
         String(i + 1), r.solicit, r.codUI,
         r.nomeUI.length > 28 ? r.nomeUI.substring(0, 28) + '…' : r.nomeUI,
         r.setor.length > 24 ? r.setor.substring(0, 24) + '…' : r.setor,
         `${r.motivoCod} — ${r.motivo.length > 38 ? r.motivo.substring(0, 38) + '…' : r.motivo}`,
-        r.tipo, r.dataSolic, r.dataCancel,
+        r.tipo, r.dataSolic, r.dataCancel, r.horaCancel || '—',
       ]),
     });
   }, [filteredCancel, cancelStats, cancelamentos]);
@@ -835,6 +843,7 @@ export function CancelamentoV2() {
                     <th className="text-left text-[11px] font-bold text-slate-400 px-3 py-3">Tipo</th>
                     <th className="text-left text-[11px] font-bold text-slate-400 px-3 py-3">Dt. Solic.</th>
                     <th className="text-left text-[11px] font-bold text-slate-400 px-3 py-3">Dt. Cancel.</th>
+                    <th className="text-center text-[11px] font-bold text-red-400 px-3 py-3">Hora Cancel.</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -855,7 +864,16 @@ export function CancelamentoV2() {
                       </td>
                       <td className="px-3 py-2.5 text-[11px] text-slate-500">{row.tipo}</td>
                       <td className="px-3 py-2.5 text-xs font-mono text-slate-400">{row.dataSolic}</td>
-                      <td className="px-3 py-2.5 text-xs font-mono text-red-500 font-bold">{row.dataCancel}</td>
+                      <td className="px-3 py-2.5 text-xs font-mono text-slate-500">{row.dataCancel}</td>
+                      <td className="px-3 py-2.5 text-center">
+                        {row.horaCancel ? (
+                          <span className="text-xs font-black font-mono text-red-600 bg-red-50 border border-red-200 px-2 py-0.5 rounded-lg">
+                            {row.horaCancel}
+                          </span>
+                        ) : (
+                          <span className="text-slate-300 text-xs">—</span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
