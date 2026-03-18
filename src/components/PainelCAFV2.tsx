@@ -572,11 +572,21 @@ export const PainelCAFV2: React.FC = () => {
                         <td style={{ ...TD, fontWeight: 800, color: p.estoque === 0 ? '#dc2626' : '#059669', textAlign: 'right' }}>{p.estoque.toLocaleString('pt-BR')}</td>
                         <td style={{ ...TD, textAlign: 'center' }}>{p.lotes.length > 0 ? <span style={{ background: '#eff6ff', color: '#3b82f6', padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 700 }}>{p.lotes.length} lote(s)</span> : <span style={{ color: '#94a3b8', fontSize: 10 }}>—</span>}</td>
                         <td style={{ ...TD, background: vencCorGrade }}>
-                          {p.menorDiasVenc < 9999 && p.lotes.length > 0 ? (
-                            <span style={{ fontSize: 10, fontWeight: 700, color: p.menorDiasVenc <= 30 ? '#dc2626' : '#d97706' }}>
-                              {p.lotes.find(l => l.diasVenc === p.menorDiasVenc)?.validade || '—'} ({p.menorDiasVenc}d)
-                            </span>
-                          ) : <span style={{ color: '#94a3b8', fontSize: 10 }}>—</span>}
+                          {p.menorDiasVenc < 9999 && p.lotes.length > 0 ? (() => {
+                            const vl = p.lotes.find(l => l.diasVenc === p.menorDiasVenc);
+                            return (
+                              <div>
+                                <span style={{ fontSize: 10, fontWeight: 700, color: p.menorDiasVenc <= 30 ? '#dc2626' : '#d97706' }}>
+                                  {vl?.validade || '—'} ({p.menorDiasVenc}d)
+                                </span>
+                                {vl?.lote && (
+                                  <div style={{ fontSize: 9, color: '#94a3b8', fontFamily: 'monospace', marginTop: 2 }}>
+                                    Lote: {vl.lote}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })() : <span style={{ color: '#94a3b8', fontSize: 10 }}>—</span>}
                         </td>
                         <td style={TD}>{p.estoque === 0 ? <span style={{ background: '#fef2f2', color: '#dc2626', padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 800 }}>Sem Estoque</span> : p.menorDiasVenc <= 90 && p.menorDiasVenc >= 0 ? <span style={{ background: '#fefce8', color: '#d97706', padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 800 }}>Vencendo</span> : <span style={{ background: '#f0fdf4', color: '#059669', padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 800 }}>Ok</span>}</td>
                       </tr>
@@ -804,16 +814,17 @@ export const PainelCAFV2: React.FC = () => {
                 </div>
                 <div style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead><tr>{['Cód.', 'Produto', 'Estoque', 'Próx. Vencimento', 'Dias', 'Urgência'].map(h => <th key={h} style={TH}>{h}</th>)}</tr></thead>
+                    <thead><tr>{['Cód.', 'Produto', 'Estoque', 'Nº Lote', 'Vencimento', 'Dias', 'Urgência'].map(h => <th key={h} style={TH}>{h}</th>)}</tr></thead>
                     <tbody>
                       {alertas.lotesVenc.map((p, i) => {
                         const vencLote = p.lotes.find(l => l.diasVenc === p.menorDiasVenc);
                         return (
                           <tr key={i} style={{ background: p.menorDiasVenc <= 30 ? '#fef2f2' : p.menorDiasVenc <= 60 ? '#fff7ed' : '#fffbeb' }}>
                             <td style={{ ...TD, fontFamily: 'monospace', fontSize: 10, color: '#475569' }}>{p.id}</td>
-                            <td style={{ ...TD, fontWeight: 600 }}>{truncate(p.nome, 55)}</td>
+                            <td style={{ ...TD, fontWeight: 600 }}>{truncate(p.nome, 50)}</td>
                             <td style={{ ...TD, textAlign: 'right' }}>{p.estoque.toLocaleString('pt-BR')}</td>
-                            <td style={{ ...TD, fontWeight: 700, color: '#334155' }}>{vencLote?.validade || '—'}</td>
+                            <td style={{ ...TD, fontFamily: 'monospace', fontSize: 10, fontWeight: 700, color: '#334155' }}>{vencLote?.lote || '—'}</td>
+                            <td style={{ ...TD, fontWeight: 700, color: p.menorDiasVenc <= 30 ? '#dc2626' : '#d97706' }}>{vencLote?.validade || '—'}</td>
                             <td style={{ ...TD, fontWeight: 900, textAlign: 'right', color: p.menorDiasVenc <= 30 ? '#dc2626' : p.menorDiasVenc <= 60 ? '#ea580c' : '#d97706' }}>{p.menorDiasVenc}d</td>
                             <td style={TD}>
                               {p.menorDiasVenc <= 30
