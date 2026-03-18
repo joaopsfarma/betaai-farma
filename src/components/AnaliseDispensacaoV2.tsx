@@ -478,6 +478,53 @@ function Dashboard({ data, onReset }: { data: any; onReset: () => void }) {
       name: STATUS_CONFIG[k]?.short || k.replace("Item ",""), value: v as number, color: STATUS_CONFIG[k]?.color||"#94a3b8"
     })),[statusCount]);
 
+  // ── CRUZAMENTO POR SOLICITAÇÃO ──────────────────────────────────────────────
+  // Detecta solicitations que têm simultaneamente "a mais" E "a menos"
+  // → podem ser falsos resultados que se anulam
+  const cruzSolic = useMemo(() => {
+    if (!rows.length) return null;
+    type SolicGroup = {
+      solicitacao: string; atendimento: string; usuario: string;
+      itens: any[]; aMais: any[]; aMenos: any[]; naoDisp: any[];
+      superavit: number; deficit: number; netSaldo: number;
+    };
+    const map: Record<string, SolicGroup> = {};
+    rows.forEach((r: any) => {
+      const s = r["Código Solicitação"]; if (!s) return;
+      if (!map[s]) map[s] = { solicitacao: s, atendimento: r["Atendimento"]||"", usuario: r["Usuário Solicitação"]||"", itens: [], aMais: [], aMenos: [], naoDisp: [], superavit: 0, deficit: 0, netSaldo: 0 };
+      map[s].itens.push(r);
+      if (r.Status === "Item dispensado a mais")  map[s].aMais.push(r);
+      if (r.Status === "Item dispensado a menos") map[s].aMenos.push(r);
+      if (r.Status === "Item não dispensado")     map[s].naoDisp.push(r);
+    });
+    // Calcular superavit/déficit de cada solicitação
+    Object.values(map).forEach(g => {
+      g.superavit = g.aMais.reduce((acc: number, r: any) => acc + Math.abs(parseFloat(r.Saldo)||0), 0);
+      g.deficit   = g.aMenos.reduce((acc: number, r: any) => acc + Math.abs(parseFloat(r.Saldo)||0), 0)
+                  + g.naoDisp.reduce((acc: number, r: any) => acc + Math.abs(parseFloat(r.Saldo)||0), 0);
+      g.netSaldo  = g.superavit - g.deficit;
+    });
+    const all = Object.values(map);
+    const comAmbos    = all.filter(g => g.aMais.length > 0 && (g.aMenos.length > 0 || g.naoDisp.length > 0));
+    const soAMais     = all.filter(g => g.aMais.length > 0 && g.aMenos.length === 0 && g.naoDisp.length === 0);
+    const soAMenos    = all.filter(g => g.aMais.length === 0 && (g.aMenos.length > 0 || g.naoDisp.length > 0));
+    const totalUnidSuperavit = comAmbos.reduce((s, g) => s + g.superavit, 0);
+    const totalUnidDeficit   = comAmbos.reduce((s, g) => s + g.deficit,   0);
+    return { total: all.length, comAmbos, soAMais, soAMenos, totalUnidSuperavit, totalUnidDeficit };
+  }, [rows]);
+
+  const [cruzSearch, setCruzSearch] = useState("");
+  const [cruzFiltro, setCruzFiltro] = useState<"ambos"|"soAMais"|"soAMenos">("ambos");
+  const cruzRows = useMemo(() => {
+    if (!cruzSolic) return [];
+    let base = cruzFiltro === "ambos" ? cruzSolic.comAmbos : cruzFiltro === "soAMais" ? cruzSolic.soAMais : cruzSolic.soAMenos;
+    if (cruzSearch.trim()) {
+      const q = cruzSearch.toLowerCase();
+      base = base.filter(g => g.solicitacao.includes(q) || g.atendimento.toLowerCase().includes(q) || g.usuario.toLowerCase().includes(q) || g.itens.some((r: any) => r.Produto?.toLowerCase().includes(q)));
+    }
+    return base.sort((a, b) => b.itens.length - a.itens.length);
+  }, [cruzSolic, cruzFiltro, cruzSearch]);
+
   const tableRows = useMemo(()=>{
     let f=rows;
     if(statusFilter!=="todos") f=f.filter((r: any)=>r.Status===statusFilter);
@@ -537,10 +584,11 @@ function Dashboard({ data, onReset }: { data: any; onReset: () => void }) {
   };
 
   const TABS = [
-    { id: "visao-geral", label: "📊 Visão Geral" },
-    { id: "produtos",    label: "💊 Produtos" },
-    { id: "tempo",       label: "⏰ Tempo & Usuários" },
-    { id: "detalhes",    label: "🔍 Detalhes" },
+    { id: "visao-geral",  label: "📊 Visão Geral" },
+    { id: "produtos",     label: "💊 Produtos" },
+    { id: "tempo",        label: "⏰ Tempo & Usuários" },
+    { id: "cruzamento",   label: `🔀 Cruzamento Solic.${cruzSolic && cruzSolic.comAmbos.length > 0 ? ` (${cruzSolic.comAmbos.length})` : ""}` },
+    { id: "detalhes",     label: "🔍 Detalhes" },
   ];
 
   return (
@@ -851,6 +899,158 @@ function Dashboard({ data, onReset }: { data: any; onReset: () => void }) {
                 })}
               </div>
             </div>
+          </div>
+        )}
+
+        {/* ── CRUZAMENTO POR SOLICITAÇÃO ── */}
+        {activeTab === "cruzamento" && cruzSolic && (
+          <div style={{ display:"flex", flexDirection:"column", gap:20 }}>
+
+            {/* Callout explicativo */}
+            <div style={{ background:"#f5f3ff", border:"1px solid #c4b5fd", borderRadius:14, padding:"16px 20px", display:"flex", gap:14 }}>
+              <div style={{ fontSize:24, lineHeight:1 }}>🔀</div>
+              <div>
+                <div style={{ fontWeight:800, fontSize:14, color:"#4c1d95", marginBottom:4 }}>O que é o cruzamento por solicitação?</div>
+                <div style={{ fontSize:13, color:"#5b21b6", lineHeight:1.6 }}>
+                  Agrupa todas as linhas pelo <b>Código Solicitação</b> e detecta aquelas que têm simultaneamente
+                  itens <b style={{color:"#d97706"}}>dispensados a mais</b> e itens <b style={{color:"#7c3aed"}}>dispensados a menos</b> (ou não dispensados).
+                  Nesses casos o superávit de um produto pode mascarar o déficit de outro — <b>possível falso resultado</b>.
+                  O saldo líquido mostra se de fato houve desvio após compensação.
+                </div>
+              </div>
+            </div>
+
+            {/* KPIs */}
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))", gap:12 }}>
+              <KPICard label="Total Solicitações"    value={cruzSolic.total}              icon="📋" color="#0284c7" light="#e0f2fe" />
+              <KPICard label="Ambas Anomalias (⚠️)"  value={cruzSolic.comAmbos.length}   icon="🔀" color="#7c3aed" light="#ede9fe" sub="a mais E a menos/não disp." />
+              <KPICard label="Só Dispensado a Mais"  value={cruzSolic.soAMais.length}     icon="🔺" color="#d97706" light="#fef3c7" sub="sem compensação" />
+              <KPICard label="Só Déficit/Não Disp."  value={cruzSolic.soAMenos.length}    icon="🔻" color="#dc2626" light="#fee2e2" sub="sem superávit" />
+              <KPICard label="Superávit nas Ambas"   value={cruzSolic.totalUnidSuperavit} icon="➕" color="#d97706" light="#fef3c7" sub="unidades dispensadas a mais" />
+              <KPICard label="Déficit nas Ambas"     value={cruzSolic.totalUnidDeficit}   icon="➖" color="#7c3aed" light="#ede9fe" sub="unidades em falta/não disp." />
+            </div>
+
+            {/* Filtros */}
+            <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"center" }}>
+              <div style={{ display:"flex", gap:4, background:"#f1f5f9", padding:4, borderRadius:10 }}>
+                {([
+                  { id:"ambos",    label:`🔀 Com ambas anomalias (${cruzSolic.comAmbos.length})` },
+                  { id:"soAMais",  label:`🔺 Só a mais (${cruzSolic.soAMais.length})` },
+                  { id:"soAMenos", label:`🔻 Só déficit (${cruzSolic.soAMenos.length})` },
+                ] as const).map(f => (
+                  <button key={f.id} onClick={() => setCruzFiltro(f.id)}
+                    style={{ background: cruzFiltro === f.id ? "#fff" : "transparent", border:"none", borderRadius:7, padding:"6px 12px", fontSize:12, fontWeight:700, cursor:"pointer", color: cruzFiltro === f.id ? "#0f172a" : "#64748b", boxShadow: cruzFiltro === f.id ? "0 1px 4px #00000015" : "none" }}>
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+              <input value={cruzSearch} onChange={e => setCruzSearch(e.target.value)}
+                placeholder="🔍  Solicitação, atendimento, produto, usuário..."
+                style={{ flex:1, minWidth:240, background:"#f1f5f9", border:`1px solid ${T.border}`, borderRadius:10, padding:"8px 13px", fontSize:13, color:T.text, outline:"none" }} />
+              <div style={{ fontSize:12, color:T.text3, whiteSpace:"nowrap" }}>{cruzRows.length} solicitações</div>
+            </div>
+
+            {/* Tabela de solicitações */}
+            <div style={{ background:"#fff", border:`1px solid ${T.border}`, borderRadius:14, overflow:"hidden" }}>
+              <div style={{ overflowX:"auto" }}>
+                <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12 }}>
+                  <thead>
+                    <tr style={{ background:"#1e293b" }}>
+                      {["Solicitação","Atendimento","Usuário","Itens Total","A Mais","A Menos / Não Disp.","Superávit (un.)","Déficit (un.)","Saldo Líquido","Avaliação"].map(h => (
+                        <th key={h} style={{ padding:"10px 12px", textAlign:"left", color: h.includes("A Mais") ? "#fcd34d" : h.includes("A Menos") ? "#c4b5fd" : h.includes("Líquido") ? "#fff" : "#94a3b8", fontWeight:700, fontSize:11, whiteSpace:"nowrap" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cruzRows.slice(0, 200).map((g, i) => {
+                      const net = g.netSaldo;
+                      const isFalso  = g.aMais.length > 0 && (g.aMenos.length > 0 || g.naoDisp.length > 0) && net <= 0;
+                      const isDesvio = g.aMais.length > 0 && (g.aMenos.length > 0 || g.naoDisp.length > 0) && net > 0;
+                      const netColor = net === 0 ? "#059669" : net > 0 ? "#d97706" : "#7c3aed";
+                      const netLabel = net === 0 ? "= 0" : net > 0 ? `+${net.toFixed(0)}` : `${net.toFixed(0)}`;
+                      return (
+                        <tr key={i} style={{ borderBottom:`1px solid ${T.border2}`, background: i%2===0 ? T.rowAlt : "#fff", borderLeft:`3px solid ${isFalso?"#7c3aed":isDesvio?"#d97706":"#0284c7"}` }}>
+                          <td style={{ padding:"8px 12px", color:"#6366f1", fontWeight:700, whiteSpace:"nowrap" }}>{g.solicitacao}</td>
+                          <td style={{ padding:"8px 12px", color:"#0284c7", fontWeight:600, whiteSpace:"nowrap" }}>{g.atendimento||"—"}</td>
+                          <td style={{ padding:"8px 12px", color:T.text2, maxWidth:140, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }} title={g.usuario}>{g.usuario||"—"}</td>
+                          <td style={{ padding:"8px 12px", textAlign:"center", fontWeight:700, color:T.text }}>{g.itens.length}</td>
+                          <td style={{ padding:"8px 12px", textAlign:"center" }}>
+                            <span style={{ background:"#fef3c7", color:"#d97706", borderRadius:20, padding:"2px 10px", fontWeight:700 }}>{g.aMais.length}</span>
+                          </td>
+                          <td style={{ padding:"8px 12px", textAlign:"center" }}>
+                            <span style={{ background:"#ede9fe", color:"#7c3aed", borderRadius:20, padding:"2px 10px", fontWeight:700 }}>{g.aMenos.length + g.naoDisp.length}</span>
+                          </td>
+                          <td style={{ padding:"8px 12px", textAlign:"right", color:"#d97706", fontWeight:700 }}>{g.superavit > 0 ? `+${g.superavit.toFixed(0)}` : "—"}</td>
+                          <td style={{ padding:"8px 12px", textAlign:"right", color:"#7c3aed", fontWeight:700 }}>{g.deficit > 0 ? `-${g.deficit.toFixed(0)}` : "—"}</td>
+                          <td style={{ padding:"8px 12px", textAlign:"right" }}>
+                            <span style={{ background: net===0?"#d1fae5":net>0?"#fef3c7":"#ede9fe", color:netColor, borderRadius:6, padding:"3px 10px", fontWeight:800, fontSize:12 }}>{netLabel}</span>
+                          </td>
+                          <td style={{ padding:"8px 12px", whiteSpace:"nowrap" }}>
+                            {isFalso  && <span style={{ background:"#ede9fe", color:"#7c3aed", borderRadius:20, padding:"3px 10px", fontSize:11, fontWeight:700 }}>🟣 Possível falso resultado</span>}
+                            {isDesvio && <span style={{ background:"#fef3c7", color:"#d97706", borderRadius:20, padding:"3px 10px", fontSize:11, fontWeight:700 }}>🟡 Desvio líquido real</span>}
+                            {!isFalso && !isDesvio && g.aMais.length > 0 && <span style={{ background:"#fef3c7", color:"#d97706", borderRadius:20, padding:"3px 10px", fontSize:11, fontWeight:700 }}>🔺 Só a mais</span>}
+                            {!isFalso && !isDesvio && g.aMais.length === 0 && <span style={{ background:"#fee2e2", color:"#dc2626", borderRadius:20, padding:"3px 10px", fontSize:11, fontWeight:700 }}>🔻 Só déficit</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {cruzRows.length === 0 && (
+                      <tr><td colSpan={10} style={{ padding:32, textAlign:"center", color:T.text3 }}>Nenhuma solicitação encontrada com os filtros atuais.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {cruzRows.length > 200 && (
+                <div style={{ padding:"10px 16px", borderTop:`1px solid ${T.border}`, background:T.rowAlt, fontSize:12, color:T.text3, textAlign:"center" }}>
+                  Exibindo 200 de {cruzRows.length} — use a busca para refinar.
+                </div>
+              )}
+            </div>
+
+            {/* Detalhe dos produtos da solicitação selecionada — top 5 com ambas */}
+            {cruzFiltro === "ambos" && cruzSolic.comAmbos.length > 0 && (
+              <div style={{ ...card }}>
+                <SecTitle accent="#7c3aed">Top 5 solicitações com maior divergência (produtos detalhados)</SecTitle>
+                {cruzSolic.comAmbos.slice(0, 5).map((g, gi) => (
+                  <div key={gi} style={{ marginBottom:16, border:`1px solid ${T.border}`, borderRadius:10, overflow:"hidden" }}>
+                    <div style={{ background:"#f5f3ff", padding:"8px 14px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                      <span style={{ fontWeight:800, fontSize:13, color:"#4c1d95" }}>Solic. {g.solicitacao} · Atend. {g.atendimento||"—"}</span>
+                      <div style={{ display:"flex", gap:8 }}>
+                        <span style={{ background:"#fef3c7", color:"#d97706", borderRadius:20, padding:"2px 10px", fontSize:11, fontWeight:700 }}>+{g.superavit.toFixed(0)} un. a mais</span>
+                        <span style={{ background:"#ede9fe", color:"#7c3aed", borderRadius:20, padding:"2px 10px", fontSize:11, fontWeight:700 }}>-{g.deficit.toFixed(0)} un. em falta</span>
+                        <span style={{ background: g.netSaldo===0?"#d1fae5":g.netSaldo>0?"#fef3c7":"#ede9fe", color: g.netSaldo===0?"#059669":g.netSaldo>0?"#d97706":"#7c3aed", borderRadius:20, padding:"2px 10px", fontSize:11, fontWeight:800 }}>
+                          Net: {g.netSaldo===0?"0":g.netSaldo>0?"+"+g.netSaldo.toFixed(0):g.netSaldo.toFixed(0)}
+                        </span>
+                      </div>
+                    </div>
+                    <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12 }}>
+                      <thead>
+                        <tr style={{ background:"#f8fafc" }}>
+                          {["Produto","Qtd Sol.","Qtd Disp.","Saldo","Status"].map(h => (
+                            <th key={h} style={{ padding:"6px 12px", textAlign:"left", color:T.text3, fontWeight:700, fontSize:11 }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {g.itens.map((r: any, ri: number) => {
+                          const cfg = scfg(r.Status);
+                          const saldo = parseFloat(r.Saldo)||0;
+                          return (
+                            <tr key={ri} style={{ borderBottom:`1px solid ${T.border2}`, background: ri%2===0?"#fff":T.rowAlt }}>
+                              <td style={{ padding:"6px 12px", color:T.text, maxWidth:220, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }} title={r.Produto}>{r.Produto}</td>
+                              <td style={{ padding:"6px 12px", textAlign:"right", color:"#6366f1", fontWeight:700 }}>{r["Qtd Solicitada"]||"—"}</td>
+                              <td style={{ padding:"6px 12px", textAlign:"right", color:"#059669", fontWeight:700 }}>{r["Qtd Dispensada"]||"—"}</td>
+                              <td style={{ padding:"6px 12px", textAlign:"right", fontWeight:700, color: saldo>0?"#d97706":saldo<0?"#7c3aed":"#059669" }}>{saldo>0?"+"+saldo:saldo===0?"=":saldo}</td>
+                              <td style={{ padding:"6px 12px" }}><span style={{ background:cfg.light, color:cfg.color, borderRadius:20, padding:"2px 9px", fontSize:10, fontWeight:700, border:`1px solid ${cfg.border}` }}>{r.Status}</span></td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
