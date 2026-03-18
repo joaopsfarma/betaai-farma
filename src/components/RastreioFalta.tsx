@@ -2,8 +2,9 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import {
   Upload, AlertTriangle, Package, TrendingUp, TrendingDown,
-  CheckCircle, XCircle, Search, RefreshCw, Minus
+  CheckCircle, XCircle, Search, RefreshCw, Minus, Download
 } from 'lucide-react';
+import { exportToPDF, PDF_COLORS } from '../utils/pdfExport';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend
@@ -234,6 +235,42 @@ export function RastreioFalta() {
     return rows;
   }, [data, search, filterNivel, filterTend, sortBy]);
 
+  // ── PDF Export ───────────────────────────────────────────────────────────
+  const exportPDF = useCallback(() => {
+    if (!filtered.length || !stats || !data) return;
+    const date = new Date().toLocaleDateString('pt-BR');
+    const { dia1Label, dia2Label } = data;
+    exportToPDF({
+      title: 'Rastreio de Falta',
+      subtitle: `${filtered.length} produtos · Dias: ${dia1Label} e ${dia2Label} · ${date}`,
+      filename: `rastreio_falta_${date.replace(/\//g, '-')}.pdf`,
+      isLandscape: true,
+      accentColor: PDF_COLORS.red,
+      kpis: [
+        { label: 'Total Produtos',  value: String(data.rows.length),    color: PDF_COLORS.slate   },
+        { label: 'Crítico',         value: String(stats.critico),        color: PDF_COLORS.red     },
+        { label: 'Alerta',          value: String(stats.alerta),         color: PDF_COLORS.amber   },
+        { label: 'Atenção',         value: String(stats.atencao),        color: PDF_COLORS.blue    },
+        { label: 'OK',              value: String(stats.ok),             color: PDF_COLORS.emerald },
+        { label: 'Tend. Alta',      value: String(stats.tendAlta),       color: PDF_COLORS.purple  },
+      ],
+      headers: ['#', 'Código', 'Produto', 'Unidade', dia1Label, dia2Label, 'Média/dia', 'Saldo', 'Projeção (d)', 'Tend.', 'Status'],
+      data: filtered.map((r, i) => [
+        String(i + 1),
+        r.codigo,
+        r.comercial.length > 38 ? r.comercial.substring(0, 38) + '…' : r.comercial,
+        r.unidade,
+        String(r.dia1),
+        String(r.dia2),
+        r.media.toFixed(1),
+        r.saldo.toLocaleString('pt-BR'),
+        r.projecao <= 0 ? '—' : `${r.projecao.toFixed(0)}d`,
+        r.tendencia === 'alta' ? '↑ Alta' : r.tendencia === 'queda' ? '↓ Queda' : '→ Estável',
+        NIVEL_CONFIG[r.nivel].label,
+      ]),
+    });
+  }, [filtered, stats, data]);
+
   // ── Upload screen ────────────────────────────────────────────────────────
   if (!data) {
     return (
@@ -286,11 +323,18 @@ export function RastreioFalta() {
           <h2 className="text-xl font-black text-slate-900">Rastreio de Falta</h2>
           <p className="text-xs text-slate-400 mt-0.5">{rows.length} produtos monitorados · Dias analisados: {dia1Label} e {dia2Label}</p>
         </div>
-        <button onClick={() => { setData(null); setSearch(''); setFilterNivel('todos'); }}
-          className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-rose-500 transition-colors border border-slate-200 hover:border-rose-300 rounded-lg px-3 py-1.5">
-          <RefreshCw className="w-3.5 h-3.5" />
-          Novo arquivo
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={exportPDF}
+            className="flex items-center gap-1.5 text-xs text-white bg-rose-600 hover:bg-rose-700 transition-colors rounded-lg px-3 py-1.5 font-bold shadow-sm">
+            <Download className="w-3.5 h-3.5" />
+            Exportar PDF
+          </button>
+          <button onClick={() => { setData(null); setSearch(''); setFilterNivel('todos'); }}
+            className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-rose-500 transition-colors border border-slate-200 hover:border-rose-300 rounded-lg px-3 py-1.5">
+            <RefreshCw className="w-3.5 h-3.5" />
+            Novo arquivo
+          </button>
+        </div>
       </div>
 
       {/* ── KPIs ─────────────────────────────────────────────────────────────── */}
