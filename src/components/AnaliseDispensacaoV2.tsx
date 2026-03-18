@@ -520,18 +520,24 @@ function Dashboard({ data, onReset }: { data: any; onReset: () => void }) {
     const pares    = all.filter(g => g.rowAMais.length > 0 && (g.rowAMenos.length > 0 || g.rowNaoDisp.length > 0));
     const soAMais  = all.filter(g => g.rowAMais.length > 0 && g.rowAMenos.length === 0 && g.rowNaoDisp.length === 0);
     const soAMenos = all.filter(g => g.rowAMais.length === 0 && (g.rowAMenos.length > 0 || g.rowNaoDisp.length > 0));
+    const falsoResultado = pares.filter(g => g.netSaldo <= 0);
+    const desvioReal     = pares.filter(g => g.netSaldo > 0);
     const totalSuperavit = pares.reduce((s, g) => s + g.saldoMais,  0);
     const totalDeficit   = pares.reduce((s, g) => s + g.saldoMenos, 0);
     // Solicitações únicas que têm pelo menos 1 par
     const solicComPar = new Set(pares.map(g => g.solicitacao)).size;
-    return { total: all.length, pares, soAMais, soAMenos, totalSuperavit, totalDeficit, solicComPar };
+    return { total: all.length, pares, falsoResultado, desvioReal, soAMais, soAMenos, totalSuperavit, totalDeficit, solicComPar };
   }, [rows]);
 
   const [cruzSearch, setCruzSearch] = useState("");
-  const [cruzFiltro, setCruzFiltro] = useState<"pares"|"soAMais"|"soAMenos">("pares");
+  const [cruzFiltro, setCruzFiltro] = useState<"pares"|"falsoResultado"|"desvioReal"|"soAMais"|"soAMenos">("pares");
   const cruzRows = useMemo(() => {
     if (!cruzSolic) return [];
-    let base = cruzFiltro === "pares" ? cruzSolic.pares : cruzFiltro === "soAMais" ? cruzSolic.soAMais : cruzSolic.soAMenos;
+    let base = cruzFiltro === "pares"          ? cruzSolic.pares
+             : cruzFiltro === "falsoResultado" ? cruzSolic.falsoResultado
+             : cruzFiltro === "desvioReal"     ? cruzSolic.desvioReal
+             : cruzFiltro === "soAMais"        ? cruzSolic.soAMais
+             : cruzSolic.soAMenos;
     if (cruzSearch.trim()) {
       const q = cruzSearch.toLowerCase();
       base = base.filter(g =>
@@ -942,24 +948,32 @@ function Dashboard({ data, onReset }: { data: any; onReset: () => void }) {
 
             {/* KPIs */}
             <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))", gap:12 }}>
-              <KPICard label="Pares Identificados"   value={cruzSolic.pares.length}     icon="🔀" color="#7c3aed" light="#ede9fe" sub="mesmo produto, a mais e a menos" />
-              <KPICard label="Solicitações c/ Par"   value={cruzSolic.solicComPar}      icon="📋" color="#0284c7" light="#e0f2fe" sub="solicitações afetadas" />
-              <KPICard label="Só Dispensado a Mais"  value={cruzSolic.soAMais.length}   icon="🔺" color="#d97706" light="#fef3c7" sub="sem par compensatório" />
-              <KPICard label="Só Déficit/Não Disp."  value={cruzSolic.soAMenos.length}  icon="🔻" color="#dc2626" light="#fee2e2" sub="sem par compensatório" />
-              <KPICard label="Superávit nos Pares"   value={cruzSolic.totalSuperavit}   icon="➕" color="#d97706" light="#fef3c7" sub="un. dispensadas a mais" />
-              <KPICard label="Déficit nos Pares"     value={cruzSolic.totalDeficit}     icon="➖" color="#7c3aed" light="#ede9fe" sub="un. em falta / não disp." />
+              <KPICard label="Total de Pares"        value={cruzSolic.pares.length}          icon="🔀" color="#7c3aed" light="#ede9fe" sub="mesmo produto, a mais e a menos" />
+              <KPICard label="🟣 Falso Resultado"    value={cruzSolic.falsoResultado.length} icon="🟣" color="#7c3aed" light="#f5f3ff" sub="saldo líquido ≤ 0 — se anulam" />
+              <KPICard label="🟡 Desvio Real"        value={cruzSolic.desvioReal.length}     icon="🟡" color="#d97706" light="#fffbeb" sub="saldo líquido > 0 — desvio persiste" />
+              <KPICard label="Solicitações c/ Par"   value={cruzSolic.solicComPar}           icon="📋" color="#0284c7" light="#e0f2fe" sub="solicitações afetadas" />
+              <KPICard label="Só Dispensado a Mais"  value={cruzSolic.soAMais.length}        icon="🔺" color="#f59e0b" light="#fef3c7" sub="sem par compensatório" />
+              <KPICard label="Só Déficit/Não Disp."  value={cruzSolic.soAMenos.length}       icon="🔻" color="#dc2626" light="#fee2e2" sub="sem par compensatório" />
             </div>
 
             {/* Filtros */}
             <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"center" }}>
-              <div style={{ display:"flex", gap:4, background:"#f1f5f9", padding:4, borderRadius:10 }}>
+              <div style={{ display:"flex", gap:4, background:"#f1f5f9", padding:4, borderRadius:10, flexWrap:"wrap" }}>
                 {([
-                  { id:"pares",    label:`🔀 Pares (${cruzSolic.pares.length})` },
-                  { id:"soAMais",  label:`🔺 Só a mais (${cruzSolic.soAMais.length})` },
-                  { id:"soAMenos", label:`🔻 Só déficit (${cruzSolic.soAMenos.length})` },
+                  { id:"pares",          label:`🔀 Todos os pares (${cruzSolic.pares.length})`,           activeColor:"#7c3aed" },
+                  { id:"falsoResultado", label:`🟣 Falso resultado (${cruzSolic.falsoResultado.length})`, activeColor:"#7c3aed" },
+                  { id:"desvioReal",     label:`🟡 Desvio real (${cruzSolic.desvioReal.length})`,         activeColor:"#d97706" },
+                  { id:"soAMais",        label:`🔺 Só a mais (${cruzSolic.soAMais.length})`,              activeColor:"#f59e0b" },
+                  { id:"soAMenos",       label:`🔻 Só déficit (${cruzSolic.soAMenos.length})`,            activeColor:"#dc2626" },
                 ] as const).map(f => (
                   <button key={f.id} onClick={() => setCruzFiltro(f.id)}
-                    style={{ background: cruzFiltro === f.id ? "#fff" : "transparent", border:"none", borderRadius:7, padding:"6px 12px", fontSize:12, fontWeight:700, cursor:"pointer", color: cruzFiltro === f.id ? "#0f172a" : "#64748b", boxShadow: cruzFiltro === f.id ? "0 1px 4px #00000015" : "none" }}>
+                    style={{
+                      background: cruzFiltro === f.id ? "#fff" : "transparent",
+                      border: cruzFiltro === f.id ? `1px solid ${f.activeColor}30` : "none",
+                      borderRadius:7, padding:"6px 12px", fontSize:12, fontWeight:700, cursor:"pointer",
+                      color: cruzFiltro === f.id ? f.activeColor : "#64748b",
+                      boxShadow: cruzFiltro === f.id ? "0 1px 4px #00000015" : "none"
+                    }}>
                     {f.label}
                   </button>
                 ))}
@@ -996,8 +1010,9 @@ function Dashboard({ data, onReset }: { data: any; onReset: () => void }) {
                   <tbody>
                     {cruzRows.slice(0, 300).map((g, i) => {
                       const net = g.netSaldo;
-                      const isFalso  = cruzFiltro === "pares" && net <= 0;
-                      const isDesvio = cruzFiltro === "pares" && net > 0;
+                      const isPar    = ["pares","falsoResultado","desvioReal"].includes(cruzFiltro);
+                      const isFalso  = isPar && net <= 0;
+                      const isDesvio = isPar && net > 0;
                       const netColor = net === 0 ? "#059669" : net > 0 ? "#d97706" : "#7c3aed";
                       const netLabel = net === 0 ? "= 0" : net > 0 ? `+${net.toFixed(0)}` : `${net.toFixed(0)}`;
                       const borderColor = isFalso ? "#7c3aed" : isDesvio ? "#d97706" : cruzFiltro === "soAMais" ? "#f59e0b" : "#dc2626";
@@ -1024,7 +1039,7 @@ function Dashboard({ data, onReset }: { data: any; onReset: () => void }) {
                           <td style={{ padding:"8px 12px", whiteSpace:"nowrap" }}>
                             {isFalso  && <span style={{ background:"#ede9fe", color:"#7c3aed", borderRadius:20, padding:"3px 10px", fontSize:11, fontWeight:700 }}>🟣 Falso resultado</span>}
                             {isDesvio && <span style={{ background:"#fef3c7", color:"#d97706", borderRadius:20, padding:"3px 10px", fontSize:11, fontWeight:700 }}>🟡 Desvio real</span>}
-                            {cruzFiltro === "soAMais"  && <span style={{ background:"#fef3c7", color:"#d97706", borderRadius:20, padding:"3px 10px", fontSize:11, fontWeight:700 }}>🔺 Só a mais</span>}
+                            {cruzFiltro === "soAMais"  && <span style={{ background:"#fef3c7", color:"#f59e0b", borderRadius:20, padding:"3px 10px", fontSize:11, fontWeight:700 }}>🔺 Só a mais</span>}
                             {cruzFiltro === "soAMenos" && <span style={{ background:"#fee2e2", color:"#dc2626", borderRadius:20, padding:"3px 10px", fontSize:11, fontWeight:700 }}>🔻 Só déficit</span>}
                           </td>
                         </tr>
