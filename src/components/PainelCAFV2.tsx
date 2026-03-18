@@ -45,7 +45,7 @@ function diasParaVencer(ddmmyyyy: string): number {
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 
 type ConsumoStatus = 'SEM_ESTOQUE' | 'CRÍTICO' | 'ATENÇÃO' | 'ADEQUADO';
-type OCStatus = 'PENDENTE' | 'PARCIAL' | 'RECEBIDO' | 'CANCELADO';
+type OCStatus = 'NAO_ATENDIDA' | 'PARCIAL' | 'RECEBIDO';
 
 interface ConsumoItem {
   id: string; nome: string; unidade: string;
@@ -130,9 +130,8 @@ function parseOC(text: string): OCItem[] {
     const qtRecebida  = parseBR(c[pIdx + 5]);
     const qtCancelada = pIdx === 6 ? parseBR(c[13]) : parseBR(c[pIdx + 7]);
     const qtDiferenca = pIdx === 6 ? parseBR(c[14]) : parseBR(c[pIdx + 8]);
-    let ocStatus: OCStatus = 'PENDENTE';
-    if (qtCancelada > 0 && qtDiferenca === 0) ocStatus = 'CANCELADO';
-    else if (qtDiferenca === 0 && qtComprada > 0) ocStatus = 'RECEBIDO';
+    let ocStatus: OCStatus = 'NAO_ATENDIDA';
+    if (qtDiferenca === 0 && qtComprada > 0) ocStatus = 'RECEBIDO';
     else if (qtRecebida > 0 && qtDiferenca > 0) ocStatus = 'PARCIAL';
     result.push({
       dataPrevista: c[0]?.trim() || '',
@@ -155,10 +154,9 @@ const STATUS_META: Record<ConsumoStatus, { label: string; bg: string; text: stri
   ADEQUADO:    { label: 'Adequado',     bg: '#f0fdf4', text: '#059669', color: '#10b981' },
 };
 const OC_META: Record<OCStatus, { label: string; bg: string; text: string }> = {
-  PENDENTE:   { label: 'Pendente',   bg: '#fef2f2', text: '#dc2626' },
-  PARCIAL:    { label: 'Parcial',    bg: '#fefce8', text: '#d97706' },
-  RECEBIDO:   { label: 'Recebido',   bg: '#f0fdf4', text: '#059669' },
-  CANCELADO:  { label: 'Cancelado',  bg: '#f8fafc', text: '#64748b' },
+  NAO_ATENDIDA: { label: 'Não Atendida', bg: '#fef2f2', text: '#dc2626' },
+  PARCIAL:      { label: 'Parcial',      bg: '#fefce8', text: '#d97706' },
+  RECEBIDO:     { label: 'Recebido',     bg: '#f0fdf4', text: '#059669' },
 };
 
 const PAGE_SIZE = 25;
@@ -257,11 +255,11 @@ export const PainelCAFV2: React.FC = () => {
     const adequados   = consumoData.filter(c => c.status === 'ADEQUADO').length;
     const vencendo90  = painelData.filter(p => p.menorDiasVenc >= 0 && p.menorDiasVenc <= 90).length;
     const vencendo30  = painelData.filter(p => p.menorDiasVenc >= 0 && p.menorDiasVenc <= 30).length;
-    const ocPendentes = ocData.filter(o => o.ocStatus === 'PENDENTE').length;
-    const ocParciais  = ocData.filter(o => o.ocStatus === 'PARCIAL').length;
+    const ocNaoAtendidas = ocData.filter(o => o.ocStatus === 'NAO_ATENDIDA').length;
+    const ocParciais     = ocData.filter(o => o.ocStatus === 'PARCIAL').length;
     const cobertura   = painelData.length > 0 ? Math.round(((painelData.length - semEstoque) / painelData.length) * 100) : 0;
     const consumoTotal = consumoData.reduce((s, c) => s + c.total, 0);
-    return { totalPainel: painelData.length, semEstoque, criticos, atencao, adequados, vencendo90, vencendo30, ocPendentes, ocParciais, cobertura, consumoTotal, totalConsumo: consumoData.length, totalOC: ocData.length };
+    return { totalPainel: painelData.length, semEstoque, criticos, atencao, adequados, vencendo90, vencendo30, ocNaoAtendidas, ocParciais, cobertura, consumoTotal, totalConsumo: consumoData.length, totalOC: ocData.length };
   }, [ready, consumoData, painelData, ocData]);
 
   // ── Chart data ──
@@ -302,11 +300,11 @@ export const PainelCAFV2: React.FC = () => {
   // ── Alertas ──
   const alertas = useMemo(() => {
     if (!ready) return null;
-    const ocPendMap = new Set(ocData.filter(o => o.ocStatus === 'PENDENTE' || o.ocStatus === 'PARCIAL').map(o => o.codProduto));
+    const ocPendMap = new Set(ocData.filter(o => o.ocStatus === 'NAO_ATENDIDA' || o.ocStatus === 'PARCIAL').map(o => o.codProduto));
 
     const rupturaSemCob = painelData.filter(p => p.estoque === 0 && !ocPendMap.has(p.id)).slice(0, 60);
     const criticoSemOC  = consumoData.filter(c => (c.status === 'CRÍTICO' || c.status === 'SEM_ESTOQUE') && !ocPendMap.has(c.id)).slice(0, 40);
-    const ocUrgentes    = ocData.filter(o => (o.ocStatus === 'PENDENTE' || o.ocStatus === 'PARCIAL') && o.saldoAtual === 0).slice(0, 30);
+    const ocUrgentes    = ocData.filter(o => (o.ocStatus === 'NAO_ATENDIDA' || o.ocStatus === 'PARCIAL') && o.saldoAtual === 0).slice(0, 30);
     const lotesVenc     = painelData.filter(p => p.menorDiasVenc >= 0 && p.menorDiasVenc <= 90).sort((a, b) => a.menorDiasVenc - b.menorDiasVenc).slice(0, 40);
 
     return { rupturaSemCob, criticoSemOC, ocUrgentes, lotesVenc };
@@ -426,7 +424,7 @@ export const PainelCAFV2: React.FC = () => {
             { label: 'Críticos ≤ 3 dias', value: kpis!.criticos.toLocaleString('pt-BR'), sub: `${kpis!.atencao} em atenção (≤7d)`, icon: <AlertTriangle size={20} />, bg: '#ef4444', light: '#fff1f2' },
             { label: 'Cobertura de Estoque', value: `${kpis!.cobertura}%`, sub: `${kpis!.adequados} itens adequados`, icon: <CheckCircle size={20} />, bg: kpis!.cobertura >= 80 ? '#059669' : kpis!.cobertura >= 60 ? '#d97706' : '#dc2626', light: kpis!.cobertura >= 80 ? '#f0fdf4' : kpis!.cobertura >= 60 ? '#fefce8' : '#fef2f2' },
             { label: 'Lotes Vencendo ≤90d', value: kpis!.vencendo90.toLocaleString('pt-BR'), sub: `${kpis!.vencendo30} vencendo em ≤30 dias`, icon: <Clock size={20} />, bg: '#f59e0b', light: '#fefce8' },
-            { label: 'OC Pendentes / Parciais', value: `${kpis!.ocPendentes + kpis!.ocParciais}`, sub: `${kpis!.ocPendentes} pendentes · ${kpis!.ocParciais} parciais`, icon: <ShoppingCart size={20} />, bg: '#0891b2', light: '#ecfeff' },
+            { label: 'OC Não Atendidas / Parciais', value: `${kpis!.ocNaoAtendidas + kpis!.ocParciais}`, sub: `${kpis!.ocNaoAtendidas} não atendidas · ${kpis!.ocParciais} parciais`, icon: <ShoppingCart size={20} />, bg: '#0891b2', light: '#ecfeff' },
           ].map((k, i) => (
             <div key={i} style={{ background: 'white', borderRadius: 16, padding: '18px 20px', border: '1px solid #f1f5f9', boxShadow: '0 1px 4px rgba(0,0,0,.04)', display: 'flex', alignItems: 'center', gap: 14 }}>
               <div style={{ width: 44, height: 44, background: k.light, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', color: k.bg, flexShrink: 0 }}>
@@ -652,10 +650,10 @@ export const PainelCAFV2: React.FC = () => {
             <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {([
-                  { v: 'ALL',      label: `Todas (${ocData.length})`,                                                    color: '#4f46e5' },
-                  { v: 'PENDENTE', label: `Pendentes (${ocData.filter(o => o.ocStatus === 'PENDENTE').length})`,          color: '#dc2626' },
-                  { v: 'PARCIAL',  label: `Parciais (${ocData.filter(o => o.ocStatus === 'PARCIAL').length})`,            color: '#d97706' },
-                  { v: 'RECEBIDO', label: `Recebidas (${ocData.filter(o => o.ocStatus === 'RECEBIDO').length})`,          color: '#059669' },
+                  { v: 'ALL',          label: `Todas (${ocData.length})`,                                                              color: '#4f46e5' },
+                  { v: 'NAO_ATENDIDA', label: `Não Atendidas (${ocData.filter(o => o.ocStatus === 'NAO_ATENDIDA').length})`,     color: '#dc2626' },
+                  { v: 'PARCIAL',      label: `Parciais (${ocData.filter(o => o.ocStatus === 'PARCIAL').length})`,               color: '#d97706' },
+                  { v: 'RECEBIDO',     label: `Recebidas (${ocData.filter(o => o.ocStatus === 'RECEBIDO').length})`,             color: '#059669' },
                 ] as any[]).map((f: any) => (
                   <button key={f.v} onClick={() => setFilterOC(f.v)} style={{ padding: '6px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700, background: filterOC === f.v ? f.color : '#f1f5f9', color: filterOC === f.v ? 'white' : '#64748b' }}>
                     {f.label}
@@ -676,7 +674,7 @@ export const PainelCAFV2: React.FC = () => {
                 </thead>
                 <tbody>
                   {ocFilt.slice(pageOC * PAGE_SIZE, (pageOC + 1) * PAGE_SIZE).map((o, i) => (
-                    <tr key={i} style={{ background: o.ocStatus === 'PENDENTE' ? '#fff1f2' : o.ocStatus === 'PARCIAL' ? '#fffbeb' : 'white' }}>
+                    <tr key={i} style={{ background: o.ocStatus === 'NAO_ATENDIDA' ? '#fff1f2' : o.ocStatus === 'PARCIAL' ? '#fffbeb' : 'white' }}>
                       <td style={{ ...TD, fontSize: 10, color: '#64748b', whiteSpace: 'nowrap' }}>{o.dataPrevista}</td>
                       <td style={{ ...TD, fontFamily: 'monospace', fontSize: 10, color: '#475569' }}>{o.oc || '—'}</td>
                       <td style={{ ...TD, fontSize: 10, color: '#64748b', maxWidth: 120 }}>{truncate(o.nomeFornecedor, 20) || '—'}</td>
@@ -705,7 +703,7 @@ export const PainelCAFV2: React.FC = () => {
               {[
                 { label: 'Ruptura s/ cobertura', value: alertas.rupturaSemCob.length, color: '#dc2626', bg: '#fef2f2', icon: '🚨' },
                 { label: 'Críticos s/ OC',        value: alertas.criticoSemOC.length, color: '#ef4444', bg: '#fff1f2', icon: '🔴' },
-                { label: 'OC urgentes',            value: alertas.ocUrgentes.length,   color: '#d97706', bg: '#fefce8', icon: '📦' },
+                { label: 'OC não atendidas',       value: alertas.ocUrgentes.length,   color: '#d97706', bg: '#fefce8', icon: '📦' },
                 { label: 'Lotes vencendo ≤90d',   value: alertas.lotesVenc.length,     color: '#f59e0b', bg: '#fffbeb', icon: '⏰' },
               ].map((s, i) => (
                 <div key={i} style={{ background: s.bg, borderRadius: 12, padding: '14px 16px', borderLeft: `4px solid ${s.color}` }}>
@@ -774,7 +772,7 @@ export const PainelCAFV2: React.FC = () => {
               <div style={{ background: 'white', borderRadius: 16, border: '1px solid #fde68a', overflow: 'hidden' }}>
                 <div style={{ padding: '12px 16px', background: '#fefce8', borderBottom: '1px solid #fde68a', display: 'flex', alignItems: 'center', gap: 8 }}>
                   <ShoppingCart size={16} color="#d97706" />
-                  <p style={{ fontSize: 12, fontWeight: 800, color: '#d97706', margin: 0 }}>📦 OC Urgentes — produto zerado aguardando entrega ({alertas.ocUrgentes.length})</p>
+                  <p style={{ fontSize: 12, fontWeight: 800, color: '#d97706', margin: 0 }}>📦 OC Não Atendidas — produto zerado aguardando entrega ({alertas.ocUrgentes.length})</p>
                 </div>
                 <div style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
