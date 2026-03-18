@@ -12,7 +12,7 @@ import { TransferRequest } from './components/TransferRequest';
 import { VBACodeDisplay } from './components/VBACodeDisplay';
 import { CsvUploader } from './components/CsvUploader';
 import { ValidityUploader } from './components/ValidityUploader';
-import { LayoutDashboard, FileSpreadsheet, Code, Pill, Database, Filter, AlertCircle, PieChart, Download, ListTodo, Activity, ClipboardList, Menu, X, ChevronRight, Clock, Ban, Package, LineChart, Calculator, BarChart2, ShieldAlert } from 'lucide-react';
+import { LayoutDashboard, FileSpreadsheet, Code, Pill, Database, Filter, AlertCircle, PieChart, Download, ListTodo, Activity, ClipboardList, Menu, X, ChevronRight, Clock, Ban, Package, LineChart, Calculator, BarChart2, ShieldAlert, AlertTriangle, ShoppingCart } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Dashboard } from './components/Dashboard';
 import { FollowUp } from './components/FollowUp';
@@ -36,10 +36,14 @@ import { AnaliseDispensacaoV2 } from './components/AnaliseDispensacaoV2';
 import { InteligenciaDevolucoes } from './components/InteligenciaDevolucoes';
 import { Criticidade } from './components/Criticidade';
 import { CheckagemDevolucao } from './components/CheckagemDevolucao';
+import { AnaliseDispensariosV2 } from './components/AnaliseDispensariosV2';
+import { RastreioFalta } from './components/RastreioFalta';
+import { RequisicaoV2 } from './components/RequisicaoV2';
 import { MobileHeader } from './components/layout/MobileHeader';
 import { Sidebar, NavItem, TabId } from './components/layout/Sidebar';
 import { exportInventoryToPDF } from './utils/pdfExport';
 import { EQUIVALENCE_MAP } from './data/equivalenceMap';
+import { DEFAULT_EQUIVALENCES } from './data/equivalences';
 import { LandingPage } from './components/LandingPage';
 
 function App() {
@@ -50,14 +54,33 @@ function App() {
   const [followUpData, setFollowUpData] = usePersistentState<FollowUpItem[]>('logistica_farma_followup', MOCK_FOLLOW_UP);
   const [selectedCategory, setSelectedCategory] = useState<ProductCategory | 'Todos'>('Todos');
   const [selectedStatus, setSelectedStatus] = useState<AlertStatus | 'Todos'>('Todos');
-  const [equivalenceMap, setEquivalenceMap] = usePersistentState<Record<string, string[]>>('logistica_farma_equivalence_map', EQUIVALENCE_MAP);
+  const [equivalenceMap, setEquivalenceMap] = usePersistentState<Record<string, string[]>>('logistica_farma_equivalence_map_v3', EQUIVALENCE_MAP);
   const [predictabilityData, setPredictabilityData] = usePersistentState<PredictabilityData[]>('logistica_farma_predictability_data', []);
-  const [predictabilityFiles, setPredictabilityFiles] = usePersistentState<{demandas: boolean, itens: boolean, estoque: boolean, equivalencias: boolean}>('logistica_farma_predictability_files', {
+  const [predictabilityFiles, setPredictabilityFiles] = usePersistentState<{demandas: boolean, itens: boolean, estoque: boolean}>('logistica_farma_predictability_files', {
     demandas: false,
     itens: false,
-    estoque: false,
-    equivalencias: false
+    estoque: false
   });
+
+  // Garante que as equivalências do DEFAULT_EQUIVALENCES estejam sempre no mapa compartilhado
+  React.useEffect(() => {
+    setEquivalenceMap(prev => {
+      const merged = { ...prev };
+      let changed = false;
+      DEFAULT_EQUIVALENCES.forEach(eq => {
+        if (eq.suggestionId && eq.suggestionId.trim() !== '') {
+          if (!merged[eq.id]) {
+            merged[eq.id] = [eq.suggestionId];
+            changed = true;
+          } else if (!merged[eq.id].includes(eq.suggestionId)) {
+            merged[eq.id] = [...merged[eq.id], eq.suggestionId];
+            changed = true;
+          }
+        }
+      });
+      return changed ? merged : prev;
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [predictabilityRawSource, setPredictabilityRawSource] = usePersistentState<any | null>('logistica_farma_predictability_raw_source', null);
   
   const processedData = useMemo(() => processInventory(inventoryData), [inventoryData]);
@@ -133,9 +156,10 @@ function App() {
   const V = { activeBg: 'bg-violet-50',  activeText: 'text-violet-700',  activeBorder: 'border-violet-100',  iconActive: 'text-violet-600',  badgeBg: 'bg-violet-200',  badgeText: 'text-violet-800'  };
 
   const navItems = [
-    { id: 'analise_dispensacao',    label: 'Análise Dispensação',    icon: <BarChart2 className="w-5 h-5" />,     classes: V },
-    { id: 'analise_dispensacao_v2', label: 'Análise Dispensação V2', icon: <BarChart2 className="w-5 h-5" />,     classes: G },
-    { id: 'dispensary',            label: 'Análise Dispensários',   icon: <Activity className="w-5 h-5" />,      classes: G },
+    { id: 'analise_dispensacao',       label: 'Análise Dispensação',      icon: <BarChart2 className="w-5 h-5" />,     classes: V },
+    { id: 'analise_dispensacao_v2',    label: 'Análise Dispensação V2',   icon: <BarChart2 className="w-5 h-5" />,     classes: G },
+    { id: 'dispensary',                label: 'Análise Dispensários',     icon: <Activity className="w-5 h-5" />,      classes: G },
+    { id: 'analise_dispensarios_v2',   label: 'Análise Dispensários V2',  icon: <Activity className="w-5 h-5" />,      classes: V },
     { id: 'conciliacao',           label: 'Conciliação Empréstimo', icon: <Calculator className="w-5 h-5" />,    classes: V },
     { id: 'equivalencia',          label: 'Equivalência',           icon: <Database className="w-5 h-5" />,      classes: G },
     { id: 'indicadores_caf',       label: 'Indicadores CAF',        icon: <LineChart className="w-5 h-5" />,     classes: V },
@@ -153,6 +177,8 @@ function App() {
     { id: 'daily_tracking',        label: 'Tracking Diário SV',     icon: <Activity className="w-5 h-5" />,      classes: V },
     { id: 'criticidade',           label: 'Criticidade',            icon: <ShieldAlert className="w-5 h-5" />,   classes: G },
     { id: 'checagem_devolucao',    label: 'Checagem e Devolução',   icon: <ClipboardList className="w-5 h-5" />, classes: V },
+    { id: 'rastreio_falta',        label: 'Rastreio de Falta',      icon: <AlertTriangle className="w-5 h-5" />, classes: G },
+    { id: 'requisicao_v2',         label: 'Requisição V2',          icon: <ShoppingCart className="w-5 h-5" />, classes: V },
   ] as const;
 
   if (!showApp) {
@@ -315,6 +341,21 @@ function App() {
         {activeTab === 'checagem_devolucao' && (
           <div className="max-w-full mx-auto">
             <CheckagemDevolucao />
+          </div>
+        )}
+        {activeTab === 'analise_dispensarios_v2' && (
+          <div className="max-w-7xl mx-auto">
+            <AnaliseDispensariosV2 />
+          </div>
+        )}
+        {activeTab === 'rastreio_falta' && (
+          <div className="max-w-7xl mx-auto">
+            <RastreioFalta />
+          </div>
+        )}
+        {activeTab === 'requisicao_v2' && (
+          <div className="max-w-7xl mx-auto">
+            <RequisicaoV2 />
           </div>
         )}
       </motion.div>
