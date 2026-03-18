@@ -30,6 +30,7 @@ import { ConciliacaoEmprestimo } from './components/ConciliacaoEmprestimo';
 import { DashboardRastreio } from './components/DashboardRastreio';
 import { ProductivityTab } from './components/ProductivityTab';
 import { PainelCAF } from './components/PainelCAF';
+import { PainelCAFV2 } from './components/PainelCAFV2';
 import { IndicadoresCAF } from './components/IndicadoresCAF';
 import { AnaliseDispensacao } from './components/AnaliseDispensacao';
 import { AnaliseDispensacaoV2 } from './components/AnaliseDispensacaoV2';
@@ -41,6 +42,7 @@ import { RastreioFalta } from './components/RastreioFalta';
 import { RequisicaoV2 } from './components/RequisicaoV2';
 import { CancelamentoV2 } from './components/CancelamentoV2';
 import { PrevisibilidadeV2 } from './components/PrevisibilidadeV2';
+import { IndicadoresLogisticos } from './components/IndicadoresLogisticos';
 import { MobileHeader } from './components/layout/MobileHeader';
 import { Sidebar, NavItem, TabId } from './components/layout/Sidebar';
 import { exportInventoryToPDF } from './utils/pdfExport';
@@ -50,7 +52,7 @@ import { LandingPage } from './components/LandingPage';
 
 function App() {
   const [showApp, setShowApp] = usePersistentState<boolean>('logistica_farma_show_app', false);
-  const [activeTab, setActiveTab] = useState<TabId>('dispensaryProject');
+  const [activeTab, setActiveTab] = useState<TabId>('analise_dispensacao');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [inventoryData, setInventoryData] = usePersistentState<Product[]>('logistica_farma_inventory', MOCK_INVENTORY);
   const [followUpData, setFollowUpData] = usePersistentState<FollowUpItem[]>('logistica_farma_followup', MOCK_FOLLOW_UP);
@@ -158,31 +160,30 @@ function App() {
   const V = { activeBg: 'bg-violet-50',  activeText: 'text-violet-700',  activeBorder: 'border-violet-100',  iconActive: 'text-violet-600',  badgeBg: 'bg-violet-200',  badgeText: 'text-violet-800'  };
 
   const navItems = [
-    { id: 'analise_dispensacao',       label: 'Análise Dispensação',      icon: <BarChart2 className="w-5 h-5" />,     classes: V },
-    { id: 'analise_dispensacao_v2',    label: 'Análise Dispensação V2',   icon: <BarChart2 className="w-5 h-5" />,     classes: G },
-    { id: 'dispensary',                label: 'Análise Dispensários',     icon: <Activity className="w-5 h-5" />,      classes: G },
-    { id: 'analise_dispensarios_v2',   label: 'Análise Dispensários V2',  icon: <Activity className="w-5 h-5" />,      classes: V },
-    { id: 'conciliacao',           label: 'Conciliação Empréstimo', icon: <Calculator className="w-5 h-5" />,    classes: V },
-    { id: 'equivalencia',          label: 'Equivalência',           icon: <Database className="w-5 h-5" />,      classes: G },
-    { id: 'indicadores_caf',       label: 'Indicadores CAF',        icon: <LineChart className="w-5 h-5" />,     classes: V },
-    { id: 'analytics',             label: 'Insights do Farma',      icon: <PieChart className="w-5 h-5" />,      classes: G },
-    { id: 'inteligencia_devolucoes', label: 'Inteligência Devoluções', icon: <FileSpreadsheet className="w-5 h-5" />, classes: V },
-    { id: 'vba',                   label: 'Macro VBA',              icon: <Code className="w-5 h-5" />,          classes: G },
-    { id: 'painel_caf',            label: 'Painel CAF',             icon: <Package className="w-5 h-5" />,       classes: V },
-    { id: 'pedido24h',             label: 'Pedido 24h',             icon: <Clock className="w-5 h-5" />,         classes: G },
-    { id: 'previsibilidade',       label: 'Previsibilidade',        icon: <AlertCircle className="w-5 h-5" />,   classes: V },
-    { id: 'previsibilidade_v2',    label: 'Previsibilidade V2',     icon: <LineChart className="w-5 h-5" />,     classes: G },
-    { id: 'productivity',          label: 'Produtividade',          icon: <Activity className="w-5 h-5" />,      classes: G },
-    { id: 'dispensaryProject',     label: 'Projeto Dispensário',    icon: <ClipboardList className="w-5 h-5" />, classes: V },
-    { id: 'genesis',               label: 'Projeto Genesis',        icon: <FileSpreadsheet className="w-5 h-5" />, classes: G },
-    { id: 'rastreio',              label: 'Rastreio Cancelamento',  icon: <Ban className="w-5 h-5" />,           classes: V },
-    { id: 'transfer',              label: 'Requisição',             icon: <FileSpreadsheet className="w-5 h-5" />, badge: stats.order, classes: G },
-    { id: 'daily_tracking',        label: 'Tracking Diário SV',     icon: <Activity className="w-5 h-5" />,      classes: V },
-    { id: 'criticidade',           label: 'Criticidade',            icon: <ShieldAlert className="w-5 h-5" />,   classes: G },
-    { id: 'checagem_devolucao',    label: 'Checagem e Devolução',   icon: <ClipboardList className="w-5 h-5" />, classes: V },
-    { id: 'rastreio_falta',        label: 'Rastreio de Falta',      icon: <AlertTriangle className="w-5 h-5" />, classes: G },
-    { id: 'requisicao_v2',         label: 'Requisição V2',          icon: <ShoppingCart className="w-5 h-5" />, classes: V },
-    { id: 'cancelamento_v2',       label: 'Cancelamento V2',         icon: <XCircle className="w-5 h-5" />,      classes: G },
+    { id: 'analise_dispensacao',       label: 'Análise Dispensação',      icon: <BarChart2 className="w-5 h-5" />,      classes: V },
+    { id: 'analise_dispensacao_v2',    label: 'Análise Dispensação V2',   icon: <BarChart2 className="w-5 h-5" />,      classes: G },
+    { id: 'dispensary',                label: 'Análise Dispensários',     icon: <Activity className="w-5 h-5" />,       classes: G },
+    { id: 'analise_dispensarios_v2',   label: 'Análise Dispensários V2',  icon: <Activity className="w-5 h-5" />,       classes: V },
+    { id: 'cancelamento_v2',           label: 'Cancelamento V2',          icon: <XCircle className="w-5 h-5" />,        classes: G },
+    { id: 'checagem_devolucao',        label: 'Checagem e Devolução',     icon: <ClipboardList className="w-5 h-5" />,  classes: V },
+    { id: 'conciliacao',               label: 'Conciliação Empréstimo',   icon: <Calculator className="w-5 h-5" />,     classes: V },
+    { id: 'criticidade',               label: 'Criticidade',              icon: <ShieldAlert className="w-5 h-5" />,    classes: G },
+    { id: 'equivalencia',              label: 'Equivalência',             icon: <Database className="w-5 h-5" />,       classes: G },
+    { id: 'indicadores_caf',           label: 'Indicadores CAF',          icon: <LineChart className="w-5 h-5" />,      classes: V },
+    { id: 'indicadores_logisticos',    label: 'Indicadores Logísticos',   icon: <BarChart2 className="w-5 h-5" />,      classes: V },
+    { id: 'analytics',                 label: 'Insights do Farma',        icon: <PieChart className="w-5 h-5" />,       classes: G },
+    { id: 'inteligencia_devolucoes',   label: 'Inteligência Devoluções',  icon: <FileSpreadsheet className="w-5 h-5" />, classes: V },
+    { id: 'vba',                       label: 'Macro VBA',                icon: <Code className="w-5 h-5" />,           classes: G },
+    { id: 'painel_caf',                label: 'Painel CAF',               icon: <Package className="w-5 h-5" />,        classes: V },
+    { id: 'painel_caf_v2',             label: 'Painel CAF V2',            icon: <BarChart2 className="w-5 h-5" />,      classes: G },
+    { id: 'pedido24h',                 label: 'Pedido 24h',               icon: <Clock className="w-5 h-5" />,          classes: G },
+    { id: 'previsibilidade',           label: 'Previsibilidade',          icon: <AlertCircle className="w-5 h-5" />,    classes: V },
+    { id: 'previsibilidade_v2',        label: 'Previsibilidade V2',       icon: <LineChart className="w-5 h-5" />,      classes: G },
+    { id: 'rastreio',                  label: 'Rastreio Cancelamento',    icon: <Ban className="w-5 h-5" />,            classes: V },
+    { id: 'rastreio_falta',            label: 'Rastreio de Falta',        icon: <AlertTriangle className="w-5 h-5" />,  classes: G },
+    { id: 'transfer',                  label: 'Requisição',               icon: <FileSpreadsheet className="w-5 h-5" />, badge: stats.order, classes: G },
+    { id: 'requisicao_v2',             label: 'Requisição V2',            icon: <ShoppingCart className="w-5 h-5" />,   classes: V },
+    { id: 'daily_tracking',            label: 'Tracking Diário SV',       icon: <Activity className="w-5 h-5" />,       classes: V },
   ] as const;
 
   if (!showApp) {
@@ -304,6 +305,12 @@ function App() {
           </div>
         )}
 
+        {activeTab === 'painel_caf_v2' && (
+          <div className="max-w-full mx-auto">
+            <PainelCAFV2 />
+          </div>
+        )}
+
         {activeTab === 'indicadores_caf' && (
           <div className="max-w-full mx-auto">
             <IndicadoresCAF />
@@ -370,6 +377,11 @@ function App() {
         {activeTab === 'previsibilidade_v2' && (
           <div className="max-w-7xl mx-auto">
             <PrevisibilidadeV2 equivalenceMap={equivalenceMap} />
+          </div>
+        )}
+        {activeTab === 'indicadores_logisticos' && (
+          <div className="max-w-7xl mx-auto">
+            <IndicadoresLogisticos />
           </div>
         )}
       </motion.div>

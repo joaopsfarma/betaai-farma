@@ -26,7 +26,9 @@ export type TabId =
   | 'rastreio_falta'
   | 'requisicao_v2'
   | 'cancelamento_v2'
-  | 'previsibilidade_v2';
+  | 'previsibilidade_v2'
+  | 'painel_caf_v2'
+  | 'indicadores_logisticos';
 
 // Define the nav item structure with classes specific to Sidebar
 export interface NavItem {
