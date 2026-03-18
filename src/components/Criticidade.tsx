@@ -50,7 +50,7 @@ const databaseUTI = [
   { id: "1182", desc: "UNI-DIAZEPAX 5MG/ML-2ML AMP EV-DIAZEPAM", max: 2, min: 1, cat: "Analgesia/Sedação", active: "DIAZEPAM" },
   { id: "1175", desc: "KETAMIN 50MG/ML-2ML FR/AMP IM/EV ESCETAMINA", max: 30, min: 10, cat: "Analgesia/Sedação", active: "CETAMINA" },
   { id: "0000", desc: "FENTANEST 50MCG/ML 10ML AMP EV/IM FENTANILA", max: 200, min: 60, cat: "Analgesia/Sedação", active: "FENTANILA" },
-  { id: "11523", desc: "FENTANEST 50MCG/ML-10ML AMP C/500MCG IM/EV-FENTANILA", max: 200, min: 100, cat: "Analgesia/Sedação", active: "FENTANILA" },
+  { id: "1523", desc: "FENTANEST 50MCG/ML-10ML AMP C/500MCG IM/EV-FENTANILA", max: 200, min: 100, cat: "Analgesia/Sedação", active: "FENTANILA" },
   { id: "1524", desc: "FENTANEST 50MCG/ML 2ML AMP EV/IM FENTANILA", max: 25, min: 10, cat: "Analgesia/Sedação", active: "FENTANILA" },
   { id: "202099", desc: "AEROFRIN 100MCG/DOSE", max: 30, min: 10, cat: "Desconforto Respiratório", active: "SALBUTAMOL" },
   { id: "37098", desc: "SALBUTAMOL 0,5MG/ML-1ML", max: 20, min: 8, cat: "Desconforto Respiratório", active: "SALBUTAMOL" },
