@@ -426,6 +426,106 @@ export function AnaliseDispensariosV2() {
     return map;
   }, [saldoData]);
 
+  // ─── CRUZAMENTO POR SOLICITAÇÃO ───────────────────────────────────────────
+  // Agrupa movimentações por atendimento + produto → identifica falsos positivos
+  // (itens com dispensa e devolução na mesma solicitação cujo net = 0)
+  const cruzamentoSolic = useMemo(() => {
+    if (!transacoes.length) return null;
+    const movs = transacoes.filter(t => t.evento === 'Movimentação' && t.codProduto && t.atendimento);
+
+    // Chave: atendimento|codProduto
+    type Linha = {
+      atendimento: string; codProduto: string; descProduto: string;
+      tipo: string; usuario: string;
+      dispensas: number; devolucoes: number; net: number;
+      nMovs: number;
+      classe: 'compensado' | 'excesso' | 'normal' | 'devolucao_pura';
+      movimentos: TransacaoRow[];
+    };
+
+    const map = new Map<string, Linha>();
+    movs.forEach(t => {
+      const key = `${t.atendimento}|${t.codProduto}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          atendimento: t.atendimento, codProduto: t.codProduto,
+          descProduto: t.descProduto, tipo: t.tipo, usuario: t.usuario,
+          dispensas: 0, devolucoes: 0, net: 0, nMovs: 0,
+          classe: 'normal', movimentos: [],
+        });
+      }
+      const l = map.get(key)!;
+      const q = t.qtde ?? 0;
+      if (q > 0) l.dispensas += q;
+      else if (q < 0) l.devolucoes += Math.abs(q);
+      l.net += q;
+      l.nMovs++;
+      l.movimentos.push(t);
+    });
+
+    // Classificar
+    map.forEach(l => {
+      if (l.devolucoes > 0 && l.net === 0) l.classe = 'compensado';       // falso positivo: dispensou e devolveu tudo
+      else if (l.devolucoes > 0 && l.net > 0) l.classe = 'excesso';       // dispensou a mais (net > prescrito?)
+      else if (l.dispensas === 0 && l.devolucoes > 0) l.classe = 'devolucao_pura'; // só devolução
+      else l.classe = 'normal';
+    });
+
+    const linhas = Array.from(map.values());
+
+    const compensados   = linhas.filter(l => l.classe === 'compensado');
+    const excessos      = linhas.filter(l => l.classe === 'excesso');
+    const devolucaoPura = linhas.filter(l => l.classe === 'devolucao_pura');
+    const normais       = linhas.filter(l => l.classe === 'normal');
+
+    // Produtos mais frequentemente compensados (falsos positivos)
+    const topCompensados: Record<string, { produto: string; vezes: number; unidades: number }> = {};
+    compensados.forEach(l => {
+      if (!topCompensados[l.codProduto])
+        topCompensados[l.codProduto] = { produto: l.descProduto, vezes: 0, unidades: 0 };
+      topCompensados[l.codProduto].vezes++;
+      topCompensados[l.codProduto].unidades += l.dispensas;
+    });
+    const rankCompensados = Object.values(topCompensados)
+      .sort((a, b) => b.vezes - a.vezes).slice(0, 10);
+
+    // Unidades totais devolvidas
+    const totalDevolvidas = linhas.reduce((s, l) => s + l.devolucoes, 0);
+    const totalDispensadas = linhas.reduce((s, l) => s + l.dispensas, 0);
+
+    return {
+      linhas,
+      compensados, excessos, devolucaoPura, normais,
+      totalDevolvidas, totalDispensadas,
+      rankCompensados,
+      atendimentosUnicos: new Set(movs.map(t => t.atendimento)).size,
+    };
+  }, [transacoes]);
+
+  const [cruzSearch, setCruzSearch] = useState('');
+  const [cruzFilter, setCruzFilter] = useState<'todos' | 'compensado' | 'excesso' | 'devolucao_pura'>('todos');
+  const [trxSubTab, setTrxSubTab] = useState<'anomalias' | 'cruzamento'>('anomalias');
+
+  const filteredCruz = useMemo(() => {
+    if (!cruzamentoSolic) return [];
+    let rows = cruzamentoSolic.linhas.filter(l => l.classe !== 'normal' || cruzFilter === 'todos');
+    if (cruzFilter !== 'todos') rows = cruzamentoSolic.linhas.filter(l => l.classe === cruzFilter);
+    else rows = cruzamentoSolic.linhas.filter(l => l.classe !== 'normal'); // oculta normais por default
+    if (cruzSearch.trim()) {
+      const q = cruzSearch.toLowerCase();
+      rows = rows.filter(l =>
+        l.descProduto.toLowerCase().includes(q) ||
+        l.atendimento.includes(q) ||
+        l.codProduto.includes(q)
+      );
+    }
+    return rows.sort((a, b) => {
+      // compensados primeiro, depois excesso, depois devolução pura
+      const order = { compensado: 0, excesso: 1, devolucao_pura: 2, normal: 3 };
+      return order[a.classe] - order[b.classe];
+    });
+  }, [cruzamentoSolic, cruzFilter, cruzSearch]);
+
   // ─── EMPTY STATE ─────────────────────────────────────────────────────────
   if (!hasAny) {
     return (
@@ -708,6 +808,199 @@ export function AnaliseDispensariosV2() {
       ═══════════════════════════════════════════════════════════════ */}
       {activeTab === 'transacoes' && trxStats && (
         <div className="space-y-5">
+
+          {/* ── Sub-tabs Anomalias | Cruzamento ──────────────────────────── */}
+          <div className="flex gap-1 bg-slate-100 p-1 rounded-lg w-fit">
+            <button onClick={() => setTrxSubTab('anomalias')}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-bold transition-all ${
+                trxSubTab === 'anomalias' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              }`}>
+              <AlertTriangle className="w-3.5 h-3.5" />
+              Anomalias & Riscos
+            </button>
+            <button onClick={() => setTrxSubTab('cruzamento')}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-bold transition-all ${
+                trxSubTab === 'cruzamento' ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              }`}>
+              <Layers className="w-3.5 h-3.5" />
+              Cruzamento por Solicitação
+              {cruzamentoSolic && cruzamentoSolic.compensados.length > 0 && (
+                <span className="bg-violet-100 text-violet-700 text-[10px] font-black px-1.5 py-0.5 rounded-full">
+                  {cruzamentoSolic.compensados.length} falsos +
+                </span>
+              )}
+            </button>
+          </div>
+
+          {/* ── CRUZAMENTO POR SOLICITAÇÃO ───────────────────────────────── */}
+          {trxSubTab === 'cruzamento' && cruzamentoSolic && (
+            <div className="space-y-5">
+
+              {/* Callout explicativo */}
+              <div className="bg-violet-50 border border-violet-200 rounded-xl p-4 flex gap-3">
+                <div className="w-8 h-8 rounded-lg bg-violet-100 flex items-center justify-center shrink-0 mt-0.5">
+                  <Layers className="w-4 h-4 text-violet-600" />
+                </div>
+                <div>
+                  <p className="text-xs font-black text-violet-900 mb-1">O que é o cruzamento por solicitação?</p>
+                  <p className="text-xs text-violet-700 leading-relaxed">
+                    Agrupa todas as movimentações pelo par <b>Atendimento + Produto</b> e calcula o saldo líquido (dispensas − devoluções).
+                    Se o mesmo produto foi dispensado <b>+1</b> e depois devolvido <b>-1</b> na mesma solicitação, o net é <b>zero</b> —
+                    isso é um <b>falso positivo</b>: aparece como anomalia individual mas na prática não houve erro líquido.
+                    Já se o net for positivo com devoluções, significa que parte foi devolvida mas ainda saiu mais do que o esperado (<b>excesso real</b>).
+                  </p>
+                </div>
+              </div>
+
+              {/* KPIs cruzamento */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                {[
+                  { label: 'Falso Positivo (net=0)', value: cruzamentoSolic.compensados.length, color: '#7c3aed', bg: 'bg-violet-50', desc: 'dispensado e devolvido na mesma solic.' },
+                  { label: 'Excesso Real (net>0)',   value: cruzamentoSolic.excessos.length,     color: '#dc2626', bg: 'bg-red-50',    desc: 'devolução parcial mas ainda sobrou' },
+                  { label: 'Devolução Pura',         value: cruzamentoSolic.devolucaoPura.length,color: '#d97706', bg: 'bg-amber-50',  desc: 'só devolveu, sem dispensa registrada' },
+                  { label: 'Un. Devolvidas',         value: cruzamentoSolic.totalDevolvidas,      color: '#2563eb', bg: 'bg-blue-50',   desc: `de ${cruzamentoSolic.totalDispensadas.toLocaleString('pt-BR')} dispensadas` },
+                ].map(({ label, value, color, bg, desc }) => (
+                  <div key={label} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="h-[3px] w-full" style={{ background: color }} />
+                    <div className="p-4">
+                      <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-2 leading-tight">{label}</p>
+                      <p className="text-3xl font-black" style={{ color }}>{typeof value === 'number' ? value.toLocaleString('pt-BR') : value}</p>
+                      <p className="text-[10px] text-slate-400 mt-1">{desc}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Top produtos compensados */}
+              {cruzamentoSolic.rankCompensados.length > 0 && (
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+                  <h3 className="text-xs font-black text-slate-700 uppercase tracking-widest mb-4">
+                    Produtos com Mais Falsos Positivos (Auto-Compensados)
+                  </h3>
+                  <div className="space-y-2">
+                    {cruzamentoSolic.rankCompensados.map((r, i) => (
+                      <div key={i} className="flex items-center gap-3">
+                        <span className="text-[11px] font-black text-slate-400 w-5 text-right shrink-0">{i + 1}</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between mb-0.5">
+                            <span className="text-xs font-bold text-slate-700 truncate" title={r.produto}>
+                              {r.produto.length > 55 ? r.produto.substring(0, 55) + '…' : r.produto}
+                            </span>
+                            <span className="text-[11px] font-black text-violet-700 shrink-0 ml-2">{r.vezes}x</span>
+                          </div>
+                          <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                            <div className="h-full bg-violet-400 rounded-full"
+                              style={{ width: `${(r.vezes / cruzamentoSolic.rankCompensados[0].vezes) * 100}%` }} />
+                          </div>
+                        </div>
+                        <span className="text-[10px] text-slate-400 shrink-0 w-20 text-right">{r.unidades.toLocaleString('pt-BR')} un.</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Filtros + Tabela */}
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="px-5 py-4 border-b border-slate-100 space-y-3">
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <div className="flex gap-1 bg-slate-100 p-1 rounded-lg flex-wrap">
+                      {([
+                        { id: 'todos',          label: `Todos c/ movim. (${(cruzamentoSolic.compensados.length + cruzamentoSolic.excessos.length + cruzamentoSolic.devolucaoPura.length)})` },
+                        { id: 'compensado',     label: `🟣 Falso Positivo (${cruzamentoSolic.compensados.length})` },
+                        { id: 'excesso',        label: `🔴 Excesso Real (${cruzamentoSolic.excessos.length})` },
+                        { id: 'devolucao_pura', label: `🟡 Devolução Pura (${cruzamentoSolic.devolucaoPura.length})` },
+                      ] as const).map(f => (
+                        <button key={f.id} onClick={() => setCruzFilter(f.id)}
+                          className={`px-2.5 py-1.5 rounded-md text-[11px] font-bold transition-all whitespace-nowrap ${
+                            cruzFilter === f.id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                          }`}>
+                          {f.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Search className="w-4 h-4 text-slate-400 shrink-0" />
+                    <input type="text" placeholder="Buscar por produto, atendimento ou código..."
+                      value={cruzSearch} onChange={e => setCruzSearch(e.target.value)}
+                      className="flex-1 text-xs bg-transparent outline-none text-slate-700 placeholder-slate-400 border-b border-slate-200 pb-1" />
+                    <span className="text-xs text-slate-400 shrink-0">{filteredCruz.length} itens</span>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
+                  <table className="w-full text-left">
+                    <thead className="sticky top-0 z-10">
+                      <tr className="bg-slate-800">
+                        <th className="text-[11px] font-bold text-slate-400 px-3 py-3">#</th>
+                        <th className="text-[11px] font-bold text-white px-3 py-3">Atendimento</th>
+                        <th className="text-[11px] font-bold text-white px-3 py-3">Produto</th>
+                        <th className="text-[11px] font-bold text-slate-400 px-3 py-3">Tipo</th>
+                        <th className="text-right text-[11px] font-bold text-emerald-400 px-3 py-3">Dispensado</th>
+                        <th className="text-right text-[11px] font-bold text-rose-400 px-3 py-3">Devolvido</th>
+                        <th className="text-right text-[11px] font-bold text-white px-3 py-3">Net</th>
+                        <th className="text-[11px] font-bold text-slate-400 px-3 py-3">Movs</th>
+                        <th className="text-center text-[11px] font-bold text-white px-3 py-3">Classificação</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredCruz.slice(0, 400).map((l, i) => {
+                        const classCfg = {
+                          compensado:     { bg: 'bg-violet-100 text-violet-700', label: '🟣 Falso Positivo', border: '#7c3aed' },
+                          excesso:        { bg: 'bg-red-100 text-red-700',       label: '🔴 Excesso Real',   border: '#dc2626' },
+                          devolucao_pura: { bg: 'bg-amber-100 text-amber-700',   label: '🟡 Dev. Pura',      border: '#d97706' },
+                          normal:         { bg: 'bg-slate-100 text-slate-500',   label: '— Normal',          border: '#cbd5e1' },
+                        }[l.classe];
+                        return (
+                          <tr key={i} className="border-b border-slate-50 hover:bg-slate-50 transition-colors"
+                            style={{ borderLeft: `3px solid ${classCfg.border}` }}>
+                            <td className="px-3 py-2.5 text-xs text-slate-400 font-black">{i + 1}</td>
+                            <td className="px-3 py-2.5 text-xs font-mono text-slate-500">{l.atendimento}</td>
+                            <td className="px-3 py-2.5 max-w-[260px]">
+                              <p className="text-xs font-bold text-slate-700 leading-snug truncate" title={l.descProduto}>
+                                {l.descProduto.length > 42 ? l.descProduto.substring(0, 42) + '…' : l.descProduto}
+                              </p>
+                              <p className="text-[10px] font-mono text-slate-400">{l.codProduto}</p>
+                            </td>
+                            <td className="px-3 py-2.5 text-[11px] text-slate-500">{l.tipo || '—'}</td>
+                            <td className="px-3 py-2.5 text-xs text-right font-black text-emerald-600">{l.dispensas > 0 ? `+${l.dispensas}` : '—'}</td>
+                            <td className="px-3 py-2.5 text-xs text-right font-black text-rose-600">{l.devolucoes > 0 ? `-${l.devolucoes}` : '—'}</td>
+                            <td className="px-3 py-2.5 text-xs text-right font-black">
+                              <span className={l.net === 0 ? 'text-violet-600' : l.net > 0 ? 'text-slate-700' : 'text-amber-600'}>
+                                {l.net > 0 ? `+${l.net}` : l.net}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2.5 text-xs text-center text-slate-400">{l.nMovs}</td>
+                            <td className="px-3 py-2.5 text-center">
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${classCfg.bg}`}>
+                                {classCfg.label}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  {filteredCruz.length === 0 && (
+                    <div className="p-8 text-center text-xs text-slate-400">
+                      Nenhum item encontrado com os filtros atuais.
+                    </div>
+                  )}
+                  {filteredCruz.length > 400 && (
+                    <div className="p-3 text-center text-xs text-slate-400 bg-slate-50 border-t">
+                      Exibindo 400 de {filteredCruz.length} itens. Use a busca para refinar.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── ANOMALIAS (sub-tab) ────────── só renderiza se sub-tab = anomalias ── */}
+          {trxSubTab === 'anomalias' && (
+          <div className="space-y-5">
+
           {/* KPIs */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -1154,6 +1447,8 @@ export function AnaliseDispensariosV2() {
               </div>
             </div>
           </div>
+          </div>
+          )}
         </div>
       )}
 
