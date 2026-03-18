@@ -7,7 +7,6 @@ import { drawPDFHeader, drawPDFFooters, drawKPICards, PDF_COLORS } from '../util
 import { AlertTriangle, CheckCircle, UploadCloud, Search, Filter, Package, AlertOctagon, FileText, XCircle, ChevronDown, ChevronUp, Download, RefreshCw, Database, Activity, Target, ShieldAlert, Zap, ArrowUpDown, ArrowUp, ArrowDown, TrendingDown } from 'lucide-react';
 import { PanelGuide } from './common/PanelGuide';
 import { motion, AnimatePresence } from 'motion/react';
-import { DEFAULT_EQUIVALENCES, EquivalenceItem } from '../data/equivalences';
 
 export interface LoteData {
   lote: string;
@@ -38,8 +37,8 @@ interface DashboardPrevisibilidadeProps {
   setEquivalenceMap: React.Dispatch<React.SetStateAction<Record<string, string[]>>>;
   data: PredictabilityData[];
   setData: React.Dispatch<React.SetStateAction<PredictabilityData[]>>;
-  filesLoaded: {demandas: boolean, itens: boolean, estoque: boolean, equivalencias: boolean};
-  setFilesLoaded: React.Dispatch<React.SetStateAction<{demandas: boolean, itens: boolean, estoque: boolean, equivalencias: boolean}>>;
+  filesLoaded: {demandas: boolean, itens: boolean, estoque: boolean};
+  setFilesLoaded: React.Dispatch<React.SetStateAction<{demandas: boolean, itens: boolean, estoque: boolean}>>;
   rawSource: any | null;
   setRawSource: (source: any) => void;
 }
@@ -49,7 +48,7 @@ export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> =
   setEquivalenceMap,
   data = [],
   setData,
-  filesLoaded = { demandas: false, itens: false, estoque: false, equivalencias: false },
+  filesLoaded = { demandas: false, itens: false, estoque: false },
   setFilesLoaded,
   rawSource,
   setRawSource
@@ -57,7 +56,6 @@ export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> =
   // Garantia de que data é um array (evita erros de .length)
   const safeData = Array.isArray(data) ? data : [];
 
-  const [equivalences, setEquivalences] = useState<EquivalenceItem[]>(DEFAULT_EQUIVALENCES);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -112,9 +110,8 @@ export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> =
   const uniqueProductsCount = safeData.length;
   const ruptureCount = safeData.filter(d => d.Status === 'Ruptura Predita').length;
   const substituteCount = safeData.filter(d => d.Status === 'Falta, mas com Substituto').length;
-  const totalDeficit = safeData
-    .filter(d => d.Saldo_Projetado < 0)
-    .reduce((acc, d) => acc + d.Saldo_Projetado, 0);
+  const totalRupturas = ruptureCount + substituteCount;
+  const coverageRate = totalRupturas > 0 ? Math.round((substituteCount / totalRupturas) * 100) : 0;
 
   const toggleRow = (id: string) => {
     const newExpanded = new Set(expandedRows);
@@ -208,18 +205,8 @@ export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> =
       let sugestaoSubstituicao: { nome: string; saldo: number } | undefined = undefined;
       
       if (status === 'Ruptura Predita') {
-        // 1. Tentar pela lista de equivalências carregada via CSV (Local)
-        const localEq = equivalences.find(e => e.id === id);
-        if (localEq && localEq.suggestionId && localEq.suggestionId.trim() !== '') {
-          const subInfo = stockMap.get(localEq.suggestionId);
-          if (subInfo && subInfo.total > 0) {
-            status = 'Falta, mas com Substituto';
-            sugestaoSubstituicao = { nome: subInfo.nome, saldo: subInfo.total };
-          }
-        }
-
-        // 2. Tentar pelo Mapa Global (Equivalência explícita sincronizada no App)
-        if (status === 'Ruptura Predita' && equivalenceMap[id]) {
+        // 1. Tentar pelo Mapa da aba Equivalência (compartilhado via App)
+        if (equivalenceMap[id]) {
           for (const subId of equivalenceMap[id]) {
             const subInfo = stockMap.get(subId);
             if (subInfo && subInfo.total > 0) {
@@ -230,7 +217,7 @@ export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> =
           }
         }
 
-        // 3. Fallback: Tentar pelo princípio ativo (lógica original baseada em string)
+        // 2. Fallback: Tentar pelo princípio ativo (lógica original baseada em string)
         if (status === 'Ruptura Predita') {
           const parts = req.nome.split('-');
           const principioAtivo = parts[parts.length - 1].trim().toLowerCase();
@@ -272,7 +259,7 @@ export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> =
     result.sort((a, b) => a.Saldo_Projetado - b.Saldo_Projetado);
 
     setData(result);
-  }, [rawSource, equivalences, equivalenceMap, setData]);
+  }, [rawSource, equivalenceMap, setData]);
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     setLoading(true);
@@ -282,7 +269,6 @@ export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> =
       let fileDemandas: { data: string[][], headerRow: number } | null = null;
       let fileItens: { data: string[][], headerRow: number } | null = null;
       let fileEstoque: { data: string[][], headerRow: number } | null = null;
-      let fileEquivalencias: { data: string[][], headerRow: number } | null = null;
 
       for (const file of acceptedFiles) {
         const csvData = await parseCSV(file);
@@ -293,13 +279,7 @@ export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> =
 
         let headerRow = -1;
 
-        if (contentStr.includes('Sugestao_Substituicao') || contentStr.includes('Codigo_Sugestao')) {
-          headerRow = csvData.findIndex(row => {
-            const r = row.join(' ').toLowerCase();
-            return r.includes('sugestao') && r.includes('codigo');
-          });
-          fileEquivalencias = { data: csvData, headerRow: Math.max(0, headerRow) };
-        } else if ((contentStr.includes('Situa') && contentStr.includes('Tp Solicita')) || 
+        if ((contentStr.includes('Situa') && contentStr.includes('Tp Solicita')) ||
             (contentNorm.includes('situa') && contentNorm.includes('solicita') && !contentNorm.includes('qt. solicitada') && !contentNorm.includes('qtd solicitada'))) {
           headerRow = csvData.findIndex(row => {
             const r = normalize(row.join(' ').toLowerCase());
@@ -327,46 +307,7 @@ export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> =
         demandas: !!fileDemandas,
         itens: !!fileItens,
         estoque: !!fileEstoque,
-        equivalencias: !!fileEquivalencias
       });
-
-      if (fileEquivalencias) {
-        const eqHeader = fileEquivalencias.data[fileEquivalencias.headerRow];
-        const eqIdIdx = eqHeader.findIndex(c => c.toLowerCase().includes('cod') && c.toLowerCase().includes('prod'));
-        const eqNameIdx = eqHeader.findIndex(c => c.toLowerCase().includes('prod') && !c.toLowerCase().includes('cod'));
-        const eqStatusIdx = eqHeader.findIndex(c => c.toLowerCase().includes('status'));
-        const eqSugIdx = eqHeader.findIndex(c => c.toLowerCase().includes('sugestao'));
-        const eqSugIdIdx = eqHeader.findIndex(c => c.toLowerCase().includes('codigo_sugestao') || c.toLowerCase().includes('cod_sug'));
-
-        const newEquivalences: EquivalenceItem[] = [];
-        for (let i = fileEquivalencias.headerRow + 1; i < fileEquivalencias.data.length; i++) {
-          const row = fileEquivalencias.data[i];
-          if (row.length < 2) continue;
-          newEquivalences.push({
-            id: row[eqIdIdx] || row[0],
-            name: row[eqNameIdx] || row[1],
-            status: row[eqStatusIdx] || '',
-            suggestion: row[eqSugIdx] || '',
-            suggestionId: row[eqSugIdIdx] || ''
-          });
-        }
-        if (newEquivalences.length > 0) {
-          setEquivalences(newEquivalences);
-          // Also sync with the global map
-          setEquivalenceMap(prev => {
-            const next = { ...prev };
-            newEquivalences.forEach(eq => {
-              if (eq.suggestionId) {
-                if (!next[eq.id]) next[eq.id] = [];
-                if (!next[eq.id].includes(eq.suggestionId)) {
-                  next[eq.id].push(eq.suggestionId);
-                }
-              }
-            });
-            return next;
-          });
-        }
-      }
 
       if (!fileDemandas || !fileItens || !fileEstoque) {
         const missing = [];
@@ -517,7 +458,7 @@ export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> =
     } finally {
       setLoading(false);
     }
-  }, [equivalences, setEquivalenceMap, setRawSource, recalculate]);
+  }, [setRawSource, recalculate]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({ 
     onDrop, 
@@ -545,7 +486,7 @@ export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> =
       { label: 'Total de Produtos', value: uniqueProductsCount.toString(), color: PDF_COLORS.indigo },
       { label: 'Ruptura Predita', value: ruptureCount.toString(), color: PDF_COLORS.red },
       { label: 'Com Substituto', value: substituteCount.toString(), color: PDF_COLORS.amber },
-      { label: 'Déficit Total', value: totalDeficit.toLocaleString('pt-BR'), color: PDF_COLORS.orange },
+      { label: 'Cobertura', value: `${coverageRate}%`, color: coverageRate >= 70 ? PDF_COLORS.emerald : coverageRate >= 40 ? PDF_COLORS.amber : PDF_COLORS.red },
       { label: 'Saúde do Atend.', value: `${healthScore}%`, color: healthScore >= 90 ? PDF_COLORS.emerald : healthScore >= 70 ? PDF_COLORS.amber : PDF_COLORS.red },
     ], currentY);
 
@@ -595,19 +536,44 @@ export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> =
         8: { cellWidth: 30 },
       },
       didParseCell(data) {
-        if (data.section === 'body' && data.column.index === 5) {
-          if (data.cell.raw === 'Ruptura Predita') data.cell.styles.textColor = [220, 38, 38];
-          else if (data.cell.raw === 'Falta, mas com Substituto') data.cell.styles.textColor = [217, 119, 6];
-          else data.cell.styles.textColor = [5, 150, 105];
-        }
-        if (data.section === 'body' && data.column.index === 4) {
-          const val = Number(String(data.cell.raw).replace(/\./g, '').replace(',', '.'));
-          if (val < 0) data.cell.styles.textColor = [220, 38, 38];
-        }
-        // Destaca a coluna de solicitações pendentes
-        if (data.section === 'body' && data.column.index === 6 && data.cell.raw !== '-') {
-          data.cell.styles.textColor = [79, 70, 229];
-          data.cell.styles.fontStyle = 'bold';
+        if (data.section === 'body') {
+          // Row-level background by status
+          const rowStatus = (data.row.raw as string[])[5];
+          if (rowStatus === 'Ruptura Predita') {
+            data.cell.styles.fillColor = [255, 241, 242];
+          } else if (rowStatus === 'Falta, mas com Substituto') {
+            data.cell.styles.fillColor = [255, 251, 235];
+          }
+          // Status column
+          if (data.column.index === 5) {
+            if (data.cell.raw === 'Ruptura Predita') {
+              data.cell.styles.textColor = [190, 18, 60];
+              data.cell.styles.fontStyle = 'bold';
+            } else if (data.cell.raw === 'Falta, mas com Substituto') {
+              data.cell.styles.textColor = [180, 83, 9];
+              data.cell.styles.fontStyle = 'bold';
+            } else {
+              data.cell.styles.textColor = [4, 120, 87];
+              data.cell.styles.fontStyle = 'bold';
+            }
+          }
+          // Projeção negativa
+          if (data.column.index === 4) {
+            const val = Number(String(data.cell.raw).replace(/\./g, '').replace(',', '.'));
+            if (val < 0) {
+              data.cell.styles.textColor = [220, 38, 38];
+              data.cell.styles.fontStyle = 'bold';
+            }
+          }
+          // Solicitações pendentes
+          if (data.column.index === 6 && data.cell.raw !== '-') {
+            data.cell.styles.textColor = [79, 70, 229];
+            data.cell.styles.fontStyle = 'bold';
+          }
+          // Substituto
+          if (data.column.index === 7 && data.cell.raw !== '-') {
+            data.cell.styles.textColor = [180, 83, 9];
+          }
         }
       },
     });
@@ -701,10 +667,16 @@ export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> =
         </div>
 
         {/* Guia de informações inline */}
-        <div className="px-6 py-3 bg-indigo-50/50 border-t border-indigo-100 flex flex-wrap gap-4 text-xs text-indigo-700">
-          <span className="flex items-center gap-1.5"><Target className="w-3.5 h-3.5" /><strong>Saldo Projetado:</strong> Estoque − total de pedidos pendentes</span>
-          <span className="flex items-center gap-1.5"><Zap className="w-3.5 h-3.5" /><strong>Substituto:</strong> Equivalente com saldo disponível</span>
-          <span className="flex items-center gap-1.5"><ShieldAlert className="w-3.5 h-3.5" /><strong>Ruptura Predita:</strong> Estoque insuficiente para atender demandas</span>
+        <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 flex flex-wrap gap-2 items-center">
+          <span className="flex items-center gap-1.5 bg-white border border-indigo-100 text-indigo-700 text-xs font-medium px-3 py-1 rounded-full shadow-sm">
+            <Target className="w-3 h-3 text-indigo-400" /><strong>Saldo Projetado:</strong>&nbsp;Estoque − pedidos pendentes
+          </span>
+          <span className="flex items-center gap-1.5 bg-white border border-amber-100 text-amber-700 text-xs font-medium px-3 py-1 rounded-full shadow-sm">
+            <Zap className="w-3 h-3 text-amber-400" /><strong>Substituto:</strong>&nbsp;Equivalente com saldo disponível
+          </span>
+          <span className="flex items-center gap-1.5 bg-white border border-rose-100 text-rose-700 text-xs font-medium px-3 py-1 rounded-full shadow-sm">
+            <ShieldAlert className="w-3 h-3 text-rose-400" /><strong>Ruptura Predita:</strong>&nbsp;Estoque insuficiente
+          </span>
         </div>
       </div>
 
@@ -724,10 +696,10 @@ export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> =
               1. Relatório de Solicitações (Demandas)<br/>
               2. Relatório de Itens da Solicitação<br/>
               3. Relatório de Posição de Estoque<br/>
-              4. <strong>Opcional:</strong> Lista de Equivalências/Substitutos
+              <span className="text-indigo-500 font-medium">As equivalências são lidas automaticamente da aba Equivalência.</span>
             </p>
             <div className="flex gap-4 mt-2">
-              {(['demandas', 'itens', 'estoque', 'equivalencias'] as const).map(k => (
+              {(['demandas', 'itens', 'estoque'] as const).map(k => (
                 <div key={k} className={`flex items-center gap-1 text-xs capitalize ${filesLoaded[k] ? 'text-emerald-600 font-semibold' : 'text-slate-400'}`}>
                   <CheckCircle className="w-3 h-3" /> {k}
                 </div>
@@ -750,21 +722,25 @@ export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> =
         /* Dropzone compacto quando dados já carregados */
         <div
           {...getRootProps()}
-          className={`border border-dashed rounded-xl px-5 py-3 flex items-center justify-between gap-4 cursor-pointer transition-all
-            ${isDragActive ? 'border-indigo-400 bg-indigo-50' : 'border-slate-300 bg-white hover:border-indigo-300 hover:bg-slate-50'}
+          className={`border border-dashed rounded-xl px-5 py-3.5 flex items-center justify-between gap-4 cursor-pointer transition-all
+            ${isDragActive ? 'border-indigo-400 bg-indigo-50' : 'border-slate-200 bg-white hover:border-indigo-300 hover:bg-slate-50/50 shadow-sm'}
           `}
         >
           <input {...getInputProps()} />
           <div className="flex items-center gap-3">
-            <UploadCloud className={`w-5 h-5 shrink-0 ${isDragActive ? 'text-indigo-500' : 'text-slate-400'}`} />
-            <span className="text-sm text-slate-600 font-medium">
-              Reimportar arquivos CSV para atualizar dados
-            </span>
+            <div className="p-2 bg-indigo-50 rounded-lg shrink-0">
+              <UploadCloud className={`w-4 h-4 ${isDragActive ? 'text-indigo-600' : 'text-indigo-400'}`} />
+            </div>
+            <div>
+              <span className="text-sm font-semibold text-slate-700">Reimportar dados</span>
+              <p className="text-xs text-slate-400">Arraste novos CSVs para atualizar</p>
+            </div>
           </div>
-          <div className="flex gap-3">
-            {(['demandas', 'itens', 'estoque', 'equivalencias'] as const).map(k => (
-              <div key={k} className={`flex items-center gap-1 text-[11px] font-semibold capitalize ${filesLoaded[k] ? 'text-emerald-600' : 'text-slate-400'}`}>
-                <CheckCircle className="w-3 h-3" /> {k}
+          <div className="flex gap-2">
+            {(['demandas', 'itens', 'estoque'] as const).map(k => (
+              <div key={k} className={`flex items-center gap-1.5 text-[11px] font-bold capitalize px-2.5 py-1 rounded-full border ${filesLoaded[k] ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
+                {filesLoaded[k] ? <CheckCircle className="w-3 h-3" /> : <div className="w-2.5 h-2.5 rounded-full border-2 border-slate-300" />}
+                {k}
               </div>
             ))}
           </div>
@@ -796,84 +772,85 @@ export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> =
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
 
             {/* Produtos */}
-            <div className="bg-gradient-to-br from-indigo-500 to-indigo-700 p-5 rounded-2xl shadow-md text-white flex flex-col justify-between relative overflow-hidden">
-              <div className="absolute -right-4 -top-4 opacity-10"><Package className="w-20 h-20" /></div>
-              <div className="flex items-center gap-2 mb-3 relative z-10">
-                <div className="p-1.5 bg-white/20 rounded-lg"><Package className="w-4 h-4 text-white" /></div>
-                <span className="font-semibold text-indigo-100 text-sm">Produtos</span>
-              </div>
-              <div className="relative z-10">
-                <p className="text-3xl font-black">{uniqueProductsCount}</p>
-                <p className="text-indigo-200 text-[10px] mt-0.5 font-semibold tracking-wide uppercase">Únicos Lidos</p>
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="h-[3px] bg-indigo-500 w-full" />
+              <div className="p-4">
+                <div className="flex items-start justify-between mb-3">
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Produtos</span>
+                  <div className="p-1.5 bg-indigo-50 rounded-lg"><Package className="w-3.5 h-3.5 text-indigo-500" /></div>
+                </div>
+                <p className="text-4xl font-black text-indigo-600 leading-none">{uniqueProductsCount}</p>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Únicos Lidos</p>
               </div>
             </div>
 
             {/* Ruptura */}
-            <div className={`p-5 rounded-2xl shadow-md flex flex-col justify-between relative overflow-hidden ${ruptureCount > 0 ? 'bg-gradient-to-br from-rose-500 to-rose-700 text-white' : 'bg-gradient-to-br from-emerald-500 to-emerald-700 text-white'}`}>
-              <div className="absolute -right-4 -top-4 opacity-10">
-                {ruptureCount > 0 ? <AlertTriangle className="w-20 h-20" /> : <CheckCircle className="w-20 h-20" />}
-              </div>
-              <div className="flex items-center gap-2 mb-3 relative z-10">
-                <div className="p-1.5 bg-white/20 rounded-lg">
-                  {ruptureCount > 0 ? <AlertTriangle className="w-4 h-4 text-white" /> : <CheckCircle className="w-4 h-4 text-white" />}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className={`h-[3px] w-full ${ruptureCount > 0 ? 'bg-rose-500' : 'bg-emerald-500'}`} />
+              <div className="p-4">
+                <div className="flex items-start justify-between mb-3">
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Rupturas</span>
+                  <div className={`p-1.5 rounded-lg ${ruptureCount > 0 ? 'bg-rose-50' : 'bg-emerald-50'}`}>
+                    {ruptureCount > 0 ? <AlertTriangle className="w-3.5 h-3.5 text-rose-500" /> : <CheckCircle className="w-3.5 h-3.5 text-emerald-500" />}
+                  </div>
                 </div>
-                <span className={`font-semibold text-sm ${ruptureCount > 0 ? 'text-rose-100' : 'text-emerald-100'}`}>Rupturas</span>
-              </div>
-              <div className="relative z-10">
-                <p className="text-3xl font-black">{ruptureCount}</p>
-                <p className={`text-[10px] mt-0.5 font-semibold tracking-wide uppercase ${ruptureCount > 0 ? 'text-rose-200' : 'text-emerald-200'}`}>Ruptura Predita</p>
+                <p className={`text-4xl font-black leading-none ${ruptureCount > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{ruptureCount}</p>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Ruptura Predita</p>
               </div>
             </div>
 
             {/* Substitutos */}
-            <div className={`p-5 rounded-2xl shadow-md flex flex-col justify-between relative overflow-hidden ${substituteCount > 0 ? 'bg-gradient-to-br from-amber-500 to-amber-600 text-white' : 'bg-white border border-slate-200'}`}>
-              <div className="absolute -right-4 -top-4 opacity-5"><RefreshCw className="w-20 h-20" /></div>
-              <div className="flex items-center gap-2 mb-3 relative z-10">
-                <div className={`p-1.5 rounded-lg ${substituteCount > 0 ? 'bg-white/20' : 'bg-slate-100'}`}>
-                  <RefreshCw className={`w-4 h-4 ${substituteCount > 0 ? 'text-white' : 'text-slate-400'}`} />
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className={`h-[3px] w-full ${substituteCount > 0 ? 'bg-amber-500' : 'bg-slate-200'}`} />
+              <div className="p-4">
+                <div className="flex items-start justify-between mb-3">
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Substitutos</span>
+                  <div className={`p-1.5 rounded-lg ${substituteCount > 0 ? 'bg-amber-50' : 'bg-slate-50'}`}>
+                    <RefreshCw className={`w-3.5 h-3.5 ${substituteCount > 0 ? 'text-amber-500' : 'text-slate-300'}`} />
+                  </div>
                 </div>
-                <span className={`font-semibold text-sm ${substituteCount > 0 ? 'text-amber-100' : 'text-slate-500'}`}>Substitutos</span>
-              </div>
-              <div className="relative z-10">
-                <p className={`text-3xl font-black ${substituteCount > 0 ? '' : 'text-slate-800'}`}>{substituteCount}</p>
-                <p className={`text-[10px] mt-0.5 font-semibold tracking-wide uppercase ${substituteCount > 0 ? 'text-amber-100' : 'text-slate-400'}`}>Salváveis</p>
+                <p className={`text-4xl font-black leading-none ${substituteCount > 0 ? 'text-amber-600' : 'text-slate-300'}`}>{substituteCount}</p>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Salváveis</p>
               </div>
             </div>
 
-            {/* Déficit Total */}
-            <div className={`p-5 rounded-2xl shadow-md flex flex-col justify-between relative overflow-hidden ${totalDeficit < 0 ? 'bg-gradient-to-br from-orange-500 to-red-600 text-white' : 'bg-white border border-slate-200'}`}>
-              <div className="absolute -right-4 -top-4 opacity-10"><TrendingDown className="w-20 h-20" /></div>
-              <div className="flex items-center gap-2 mb-3 relative z-10">
-                <div className={`p-1.5 rounded-lg ${totalDeficit < 0 ? 'bg-white/20' : 'bg-slate-100'}`}>
-                  <TrendingDown className={`w-4 h-4 ${totalDeficit < 0 ? 'text-white' : 'text-slate-400'}`} />
+            {/* Cobertura por Substitutos */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className={`h-[3px] w-full ${coverageRate >= 70 ? 'bg-emerald-500' : coverageRate >= 40 ? 'bg-amber-500' : totalRupturas > 0 ? 'bg-rose-500' : 'bg-slate-200'}`} />
+              <div className="p-4">
+                <div className="flex items-start justify-between mb-3">
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Cobertura</span>
+                  <div className={`p-1.5 rounded-lg ${coverageRate >= 70 ? 'bg-emerald-50' : coverageRate >= 40 ? 'bg-amber-50' : totalRupturas > 0 ? 'bg-rose-50' : 'bg-slate-50'}`}>
+                    <RefreshCw className={`w-3.5 h-3.5 ${coverageRate >= 70 ? 'text-emerald-500' : coverageRate >= 40 ? 'text-amber-500' : totalRupturas > 0 ? 'text-rose-500' : 'text-slate-300'}`} />
+                  </div>
                 </div>
-                <span className={`font-semibold text-sm ${totalDeficit < 0 ? 'text-orange-100' : 'text-slate-500'}`}>Déficit Total</span>
-              </div>
-              <div className="relative z-10">
-                <p className={`text-2xl font-black ${totalDeficit < 0 ? '' : 'text-slate-800'}`}>{totalDeficit.toLocaleString('pt-BR')}</p>
-                <p className={`text-[10px] mt-0.5 font-semibold tracking-wide uppercase ${totalDeficit < 0 ? 'text-orange-200' : 'text-slate-400'}`}>Unidades em falta</p>
+                <p className={`text-4xl font-black leading-none ${coverageRate >= 70 ? 'text-emerald-600' : coverageRate >= 40 ? 'text-amber-600' : totalRupturas > 0 ? 'text-rose-600' : 'text-slate-300'}`}>
+                  {coverageRate}<span className="text-2xl font-bold">%</span>
+                </p>
+                <div className="w-full bg-slate-100 rounded-full h-1.5 mt-2.5">
+                  <div className={`h-1.5 rounded-full transition-all ${coverageRate >= 70 ? 'bg-emerald-500' : coverageRate >= 40 ? 'bg-amber-500' : 'bg-rose-500'}`} style={{ width: `${coverageRate}%` }} />
+                </div>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1.5">Rupturas c/ Substituto</p>
               </div>
             </div>
 
             {/* Saúde */}
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between relative overflow-hidden">
-              <div className="flex items-center gap-2 mb-3">
-                <div className={`p-1.5 rounded-lg ${healthScore >= 90 ? 'bg-emerald-100 text-emerald-600' : healthScore >= 70 ? 'bg-amber-100 text-amber-600' : 'bg-rose-100 text-rose-600'}`}>
-                  <Activity className="w-4 h-4" />
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className={`h-[3px] w-full ${healthScore >= 90 ? 'bg-emerald-500' : healthScore >= 70 ? 'bg-amber-500' : 'bg-rose-500'}`} />
+              <div className="p-4">
+                <div className="flex items-start justify-between mb-3">
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Saúde</span>
+                  <div className={`p-1.5 rounded-lg ${healthScore >= 90 ? 'bg-emerald-50' : healthScore >= 70 ? 'bg-amber-50' : 'bg-rose-50'}`}>
+                    <Activity className={`w-3.5 h-3.5 ${healthScore >= 90 ? 'text-emerald-500' : healthScore >= 70 ? 'text-amber-500' : 'text-rose-500'}`} />
+                  </div>
                 </div>
-                <span className="font-semibold text-slate-600 text-sm">Saúde</span>
-              </div>
-              <div>
-                <p className={`text-3xl font-black ${healthScore >= 90 ? 'text-emerald-600' : healthScore >= 70 ? 'text-amber-600' : 'text-rose-600'}`}>
-                  {healthScore}%
+                <p className={`text-4xl font-black leading-none ${healthScore >= 90 ? 'text-emerald-600' : healthScore >= 70 ? 'text-amber-600' : 'text-rose-600'}`}>
+                  {healthScore}<span className="text-2xl font-bold">%</span>
                 </p>
-                <div className="w-full bg-slate-100 rounded-full h-1.5 mt-2">
-                  <div
-                    className={`h-1.5 rounded-full transition-all ${healthScore >= 90 ? 'bg-emerald-500' : healthScore >= 70 ? 'bg-amber-500' : 'bg-rose-500'}`}
-                    style={{ width: `${healthScore}%` }}
-                  />
+                <div className="w-full bg-slate-100 rounded-full h-1.5 mt-2.5">
+                  <div className={`h-1.5 rounded-full transition-all ${healthScore >= 90 ? 'bg-emerald-500' : healthScore >= 70 ? 'bg-amber-500' : 'bg-rose-500'}`} style={{ width: `${healthScore}%` }} />
                 </div>
-                <p className="text-[10px] mt-1 font-semibold tracking-wide uppercase text-slate-400">Atendimento OK</p>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1.5">Atendimento OK</p>
               </div>
             </div>
 
@@ -915,42 +892,42 @@ export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> =
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="bg-slate-100/50 border-b border-slate-200">
+                  <tr className="bg-slate-800">
                     <th className="p-4 w-10">
                       <input
                         type="checkbox"
                         checked={selectedItems.size === sortedFilteredData.length && sortedFilteredData.length > 0}
                         onChange={toggleSelectAll}
-                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
+                        className="rounded border-slate-500 text-indigo-400 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
                       />
                     </th>
                     <th className="p-4 w-10"></th>
                     <th className="p-4 cursor-pointer select-none" onClick={() => requestSort('Produto_Nome')}>
-                      <div className="flex items-center gap-1.5 text-xs font-bold text-slate-500 uppercase tracking-widest">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-slate-300 uppercase tracking-widest">
                         Produto <SortIcon col="Produto_Nome" />
                       </div>
                     </th>
                     <th className="p-4 cursor-pointer select-none text-right" onClick={() => requestSort('Estoque_Atual')}>
-                      <div className="flex items-center justify-end gap-1.5 text-xs font-bold text-slate-500 uppercase tracking-widest">
+                      <div className="flex items-center justify-end gap-1.5 text-xs font-bold text-slate-300 uppercase tracking-widest">
                         Estoque <SortIcon col="Estoque_Atual" />
                       </div>
                     </th>
                     <th className="p-4 cursor-pointer select-none text-right" onClick={() => requestSort('Total_Solicitado')}>
-                      <div className="flex items-center justify-end gap-1.5 text-xs font-bold text-slate-500 uppercase tracking-widest">
+                      <div className="flex items-center justify-end gap-1.5 text-xs font-bold text-slate-300 uppercase tracking-widest">
                         Pedido <SortIcon col="Total_Solicitado" />
                       </div>
                     </th>
                     <th className="p-4 cursor-pointer select-none text-right" onClick={() => requestSort('Saldo_Projetado')}>
-                      <div className="flex items-center justify-end gap-1.5 text-xs font-bold text-slate-500 uppercase tracking-widest">
+                      <div className="flex items-center justify-end gap-1.5 text-xs font-bold text-slate-300 uppercase tracking-widest">
                         Projeção <SortIcon col="Saldo_Projetado" />
                       </div>
                     </th>
                     <th className="p-4 cursor-pointer select-none text-center" onClick={() => requestSort('Status')}>
-                      <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-slate-500 uppercase tracking-widest">
+                      <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-slate-300 uppercase tracking-widest">
                         Status <SortIcon col="Status" />
                       </div>
                     </th>
-                    <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-widest">Ação / Sugestão</th>
+                    <th className="p-4 text-xs font-bold text-slate-300 uppercase tracking-widest">Ação / Sugestão</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -969,12 +946,13 @@ export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> =
                       const isExpanded = expandedRows.has(item.Produto_ID);
                       return (
                         <React.Fragment key={item.Produto_ID}>
-                          <tr 
+                          <tr
                             onClick={() => toggleRow(item.Produto_ID)}
+                            style={{ borderLeft: `3px solid ${isRupture ? '#f43f5e' : item.Status === 'Falta, mas com Substituto' ? '#f59e0b' : '#e2e8f0'}` }}
                             className={`transition-colors cursor-pointer ${
-                              isRupture ? 'bg-red-50 hover:bg-red-100' : 
-                              item.Status === 'Falta, mas com Substituto' ? 'bg-amber-50 hover:bg-amber-100' : 
-                              'hover:bg-slate-50'
+                              isRupture ? 'bg-rose-50/70 hover:bg-rose-100/60' :
+                              item.Status === 'Falta, mas com Substituto' ? 'bg-amber-50/50 hover:bg-amber-100/50' :
+                              'hover:bg-slate-50/80'
                             }`}
                           >
                             <td className="p-4 w-10" onClick={(e) => e.stopPropagation()}>
