@@ -12,7 +12,7 @@ import { TransferRequest } from './components/TransferRequest';
 import { VBACodeDisplay } from './components/VBACodeDisplay';
 import { CsvUploader } from './components/CsvUploader';
 import { ValidityUploader } from './components/ValidityUploader';
-import { LayoutDashboard, FileSpreadsheet, Code, Pill, Database, Filter, AlertCircle, PieChart, Download, ListTodo, Activity, ClipboardList, Menu, X, ChevronRight, Clock, Ban, Package, LineChart, Calculator, BarChart2, ShieldAlert, AlertTriangle, ShoppingCart } from 'lucide-react';
+import { LayoutDashboard, FileSpreadsheet, Code, Pill, Database, Filter, AlertCircle, PieChart, Download, ListTodo, Activity, ClipboardList, Menu, X, ChevronRight, Clock, Ban, Package, LineChart, Calculator, BarChart2, ShieldAlert, AlertTriangle, ShoppingCart, XCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Dashboard } from './components/Dashboard';
 import { FollowUp } from './components/FollowUp';
@@ -39,6 +39,7 @@ import { CheckagemDevolucao } from './components/CheckagemDevolucao';
 import { AnaliseDispensariosV2 } from './components/AnaliseDispensariosV2';
 import { RastreioFalta } from './components/RastreioFalta';
 import { RequisicaoV2 } from './components/RequisicaoV2';
+import { CancelamentoV2 } from './components/CancelamentoV2';
 import { MobileHeader } from './components/layout/MobileHeader';
 import { Sidebar, NavItem, TabId } from './components/layout/Sidebar';
 import { exportInventoryToPDF } from './utils/pdfExport';
@@ -179,6 +180,7 @@ function App() {
     { id: 'checagem_devolucao',    label: 'Checagem e Devolução',   icon: <ClipboardList className="w-5 h-5" />, classes: V },
     { id: 'rastreio_falta',        label: 'Rastreio de Falta',      icon: <AlertTriangle className="w-5 h-5" />, classes: G },
     { id: 'requisicao_v2',         label: 'Requisição V2',          icon: <ShoppingCart className="w-5 h-5" />, classes: V },
+    { id: 'cancelamento_v2',       label: 'Cancelamento V2',         icon: <XCircle className="w-5 h-5" />,      classes: G },
   ] as const;
 
   if (!showApp) {
@@ -356,6 +358,11 @@ function App() {
         {activeTab === 'requisicao_v2' && (
           <div className="max-w-7xl mx-auto">
             <RequisicaoV2 />
+          </div>
+        )}
+        {activeTab === 'cancelamento_v2' && (
+          <div className="max-w-7xl mx-auto">
+            <CancelamentoV2 />
           </div>
         )}
       </motion.div>
