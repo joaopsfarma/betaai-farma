@@ -72,6 +72,7 @@ function parseSaldos(text: string): { dispensario: string; rows: SaldoRow[] } {
   if (start === -1) return { dispensario, rows };
   for (let i = start; i < lines.length; i++) {
     const c = lines[i].split(';'); if (c.length < 10 || !c[5]?.trim()) continue;
+    if ((c[6] || '').toUpperCase().includes('(MESTRE)')) continue;
     rows.push({
       gaveta: c[3] || '', celula: c[4] || '', codigo: c[5] || '', descricao: c[6] || '',
       saldoWL: parseFloat(c[7]) || 0, saldoHosp: parseFloat(c[8]) || 0,
