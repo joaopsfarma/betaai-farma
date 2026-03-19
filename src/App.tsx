@@ -43,6 +43,7 @@ import { RequisicaoV2 } from './components/RequisicaoV2';
 import { CancelamentoV2 } from './components/CancelamentoV2';
 import { PrevisibilidadeV2 } from './components/PrevisibilidadeV2';
 import { IndicadoresLogisticos } from './components/IndicadoresLogisticos';
+import { GeradorDocumentos } from './components/GeradorDocumentos';
 import { MobileHeader } from './components/layout/MobileHeader';
 import { Sidebar, NavItem, TabId } from './components/layout/Sidebar';
 import { exportInventoryToPDF } from './utils/pdfExport';
@@ -169,6 +170,7 @@ function App() {
     { id: 'conciliacao',               label: 'Conciliação Empréstimo',   icon: <Calculator className="w-5 h-5" />,     classes: V },
     { id: 'criticidade',               label: 'Criticidade',              icon: <ShieldAlert className="w-5 h-5" />,    classes: G },
     { id: 'equivalencia',              label: 'Equivalência',             icon: <Database className="w-5 h-5" />,       classes: G },
+    { id: 'gerador_documentos',         label: 'Gerador de Documentos',    icon: <FileSpreadsheet className="w-5 h-5" />, classes: G },
     { id: 'indicadores_caf',           label: 'Indicadores CAF',          icon: <LineChart className="w-5 h-5" />,      classes: V },
     { id: 'indicadores_logisticos',    label: 'Indicadores Logísticos',   icon: <BarChart2 className="w-5 h-5" />,      classes: V },
     { id: 'analytics',                 label: 'Insights do Farma',        icon: <PieChart className="w-5 h-5" />,       classes: G },
@@ -382,6 +384,11 @@ function App() {
         {activeTab === 'indicadores_logisticos' && (
           <div className="max-w-7xl mx-auto">
             <IndicadoresLogisticos />
+          </div>
+        )}
+        {activeTab === 'gerador_documentos' && (
+          <div className="max-w-7xl mx-auto">
+            <GeradorDocumentos />
           </div>
         )}
       </motion.div>
