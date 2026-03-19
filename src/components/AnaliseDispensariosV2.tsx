@@ -1,9 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useState, useMemo, useCallback } from 'react';
+import * as XLSX from 'xlsx';
 import {
   Upload, AlertTriangle, Package, Users, Activity, TrendingUp,
   CheckCircle, XCircle, Clock, Search, BarChart3, RefreshCw,
-  Layers, ChevronRight, FileText
+  Layers, ChevronRight, FileText, Bell
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -26,6 +27,23 @@ interface SaldoRow {
 
 interface ConsumoRow {
   produto: string; descricao: string; unidade: string; quantidade: number;
+}
+
+interface AlertaRow {
+  codigo: number;
+  descricao: string;
+  tipo: string;           // MAT | MED
+  dispensario: string;
+  saldoAlerta: number;    // mínimo configurado
+  saldoGaveta: number;    // estoque no momento do alerta
+  dataAlerta: string;
+  status: string;         // Inativo | Cancelado
+  alerta: string;         // A (automático) | M (manual)
+  operacao: string;
+  usuarioNome: string;    // quem disparou o alerta
+  nomeUsuario: string;    // quem fez a operação
+  dataHora: string;
+  nivel: 'sem_estoque' | 'abaixo' | 'ok';
 }
 
 // ─── PARSERS ──────────────────────────────────────────────────────────────────
@@ -170,12 +188,44 @@ function KpiCard({ label, value, sub, color, icon: Icon, accent }: {
 }
 
 // ─── COMPONENT ────────────────────────────────────────────────────────────────
-type ActiveTab = 'geral' | 'transacoes' | 'saldos' | 'consumo';
+type ActiveTab = 'geral' | 'transacoes' | 'saldos' | 'consumo' | 'alertas';
+
+function parseAlertasXLSX(data: any[]): AlertaRow[] {
+  return data.map(row => {
+    const saldoGaveta = Number(row['Saldo Gaveta'] ?? 0);
+    const saldoAlerta = Number(row['Saldo Alerta'] ?? 0);
+    const nivel: AlertaRow['nivel'] =
+      saldoGaveta === 0 ? 'sem_estoque' :
+      saldoGaveta <= saldoAlerta ? 'abaixo' : 'ok';
+    const fmtDate = (v: any) => {
+      if (!v) return '—';
+      if (v instanceof Date) return v.toLocaleString('pt-BR');
+      return String(v);
+    };
+    return {
+      codigo: Number(row['Produto'] ?? 0),
+      descricao: String(row['Descrição Produto'] ?? ''),
+      tipo: String(row['Tipo'] ?? ''),
+      dispensario: String(row['Dispensário'] ?? ''),
+      saldoAlerta,
+      saldoGaveta,
+      dataAlerta: fmtDate(row['Data Alerta']),
+      status: String(row['Status'] ?? ''),
+      alerta: String(row['Alerta'] ?? ''),
+      operacao: String(row['Operação'] ?? '—'),
+      usuarioNome: String(row['Usuário Nome'] ?? '—'),
+      nomeUsuario: String(row['Nome do Usuário'] ?? '—'),
+      dataHora: fmtDate(row['Data/Hora']),
+      nivel,
+    };
+  }).filter(r => r.codigo > 0);
+}
 
 export function AnaliseDispensariosV2() {
   const [transacoes, setTransacoes] = useState<TransacaoRow[]>([]);
   const [saldoData, setSaldoData] = useState<{ dispensario: string; rows: SaldoRow[] } | null>(null);
   const [consumo, setConsumo] = useState<ConsumoRow[]>([]);
+  const [alertas, setAlertas] = useState<AlertaRow[]>([]);
   const [activeTab, setActiveTab] = useState<ActiveTab>('geral');
   const [isDragging, setIsDragging] = useState(false);
   const [saldoFilter, setSaldoFilter] = useState<'todos' | 'divergencias'>('divergencias');
@@ -183,20 +233,36 @@ export function AnaliseDispensariosV2() {
   const [consumoSearch, setConsumoSearch] = useState('');
   const [anomaliaAtiva, setAnomaliaAtiva] = useState<string | null>(null);
   const [anomaliaSearch, setAnomaliaSearch] = useState('');
+  const [alertaSearch, setAlertaSearch] = useState('');
+  const [alertaNivel, setAlertaNivel] = useState<'todos' | AlertaRow['nivel']>('todos');
+  const [alertaTipo, setAlertaTipo] = useState<'todos' | 'MED' | 'MAT'>('todos');
+  const [alertaAlerta, setAlertaAlerta] = useState<'todos' | 'A' | 'M'>('todos');
   const fileRef = React.useRef<HTMLInputElement>(null);
 
   const handleFiles = useCallback((files: FileList | null) => {
     if (!files) return;
     Array.from(files).forEach(file => {
-      const reader = new FileReader();
-      reader.onload = e => {
-        const text = e.target?.result as string;
-        const type = detectFile(text);
-        if (type === 'transacoes') setTransacoes(parseTransacoes(text));
-        else if (type === 'saldos') setSaldoData(parseSaldos(text));
-        else if (type === 'consumo') setConsumo(parseConsumo(text));
-      };
-      reader.readAsText(file, 'latin1');
+      if (file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.xls')) {
+        const reader = new FileReader();
+        reader.onload = e => {
+          const buf = e.target?.result as ArrayBuffer;
+          const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          const data = XLSX.utils.sheet_to_json(ws, { defval: '' });
+          setAlertas(parseAlertasXLSX(data));
+        };
+        reader.readAsArrayBuffer(file);
+      } else {
+        const reader = new FileReader();
+        reader.onload = e => {
+          const text = e.target?.result as string;
+          const type = detectFile(text);
+          if (type === 'transacoes') setTransacoes(parseTransacoes(text));
+          else if (type === 'saldos') setSaldoData(parseSaldos(text));
+          else if (type === 'consumo') setConsumo(parseConsumo(text));
+        };
+        reader.readAsText(file, 'latin1');
+      }
     });
   }, []);
 
@@ -204,7 +270,7 @@ export function AnaliseDispensariosV2() {
     e.preventDefault(); setIsDragging(false); handleFiles(e.dataTransfer.files);
   }, [handleFiles]);
 
-  const hasAny = transacoes.length > 0 || (saldoData?.rows.length ?? 0) > 0 || consumo.length > 0;
+  const hasAny = transacoes.length > 0 || (saldoData?.rows.length ?? 0) > 0 || consumo.length > 0 || alertas.length > 0;
 
   // ─── Analytics ───────────────────────────────────────────────────────────
   const trxStats = useMemo(() => {
@@ -503,6 +569,43 @@ export function AnaliseDispensariosV2() {
     };
   }, [transacoes]);
 
+  // ─── ALERTAS STATS ─────────────────────────────────────────────────────────
+  const alertasStats = useMemo(() => {
+    if (!alertas.length) return null;
+    const semEstoque = alertas.filter(a => a.nivel === 'sem_estoque').length;
+    const abaixo     = alertas.filter(a => a.nivel === 'abaixo').length;
+    const med        = alertas.filter(a => a.tipo === 'MED').length;
+    const mat        = alertas.filter(a => a.tipo === 'MAT').length;
+    const automatico = alertas.filter(a => a.alerta === 'A').length;
+    const manual     = alertas.filter(a => a.alerta === 'M').length;
+    const prodMap: Record<string, { desc: string; count: number }> = {};
+    alertas.forEach(a => {
+      if (!prodMap[a.codigo]) prodMap[a.codigo] = { desc: a.descricao, count: 0 };
+      prodMap[a.codigo].count++;
+    });
+    const topProdutos = Object.entries(prodMap)
+      .sort((a, b) => b[1].count - a[1].count)
+      .slice(0, 10)
+      .map(([cod, v]) => ({ name: v.desc.substring(0, 30), count: v.count }));
+    return { semEstoque, abaixo, med, mat, automatico, manual, topProdutos };
+  }, [alertas]);
+
+  const filteredAlertas = useMemo(() => {
+    let rows = [...alertas];
+    if (alertaNivel !== 'todos') rows = rows.filter(a => a.nivel === alertaNivel);
+    if (alertaTipo !== 'todos')  rows = rows.filter(a => a.tipo === alertaTipo);
+    if (alertaAlerta !== 'todos') rows = rows.filter(a => a.alerta === alertaAlerta);
+    if (alertaSearch.trim()) {
+      const q = alertaSearch.toLowerCase();
+      rows = rows.filter(a =>
+        a.descricao.toLowerCase().includes(q) ||
+        String(a.codigo).includes(q) ||
+        a.usuarioNome.toLowerCase().includes(q)
+      );
+    }
+    return rows.sort((a, b) => a.nivel === 'sem_estoque' ? -1 : b.nivel === 'sem_estoque' ? 1 : 0);
+  }, [alertas, alertaNivel, alertaTipo, alertaAlerta, alertaSearch]);
+
   const [cruzSearch, setCruzSearch] = useState('');
   const [cruzFilter, setCruzFilter] = useState<'todos' | 'compensado' | 'excesso' | 'devolucao_pura'>('todos');
   const [trxSubTab, setTrxSubTab] = useState<'anomalias' | 'cruzamento'>('anomalias');
@@ -541,12 +644,13 @@ export function AnaliseDispensariosV2() {
           </p>
         </div>
 
-        {/* 3 file type cards */}
-        <div className="grid grid-cols-3 gap-3 mb-8">
+        {/* 4 file type cards */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
           {[
             { icon: Activity, color: 'indigo', title: 'Análise Transações', desc: 'CSV de movimentações do dispensário (separador ;)' },
             { icon: BarChart3, color: 'emerald', title: 'Comparação de Saldos', desc: 'CSV de comparação WL × Hosp × Trn (separador ;)' },
             { icon: Package, color: 'amber', title: 'Consumo', desc: 'CSV de consumo por produto (separador ,)' },
+            { icon: Bell, color: 'rose', title: 'Alertas de Estoque', desc: 'XLSX exportado do StockAlert (ExportWWTSTO)' },
           ].map(({ icon: Icon, color, title, desc }) => (
             <div key={title} className={`bg-${color}-50 border border-${color}-100 rounded-xl p-4 text-center`}>
               <Icon className={`w-6 h-6 text-${color}-500 mx-auto mb-2`} />
@@ -567,12 +671,12 @@ export function AnaliseDispensariosV2() {
           }`}
         >
           <Upload className={`w-10 h-10 mx-auto mb-3 transition-colors ${isDragging ? 'text-indigo-500' : 'text-slate-300'}`} />
-          <p className="text-sm font-bold text-slate-600 mb-1">Arraste os CSVs aqui</p>
-          <p className="text-xs text-slate-400">Pode soltar 1, 2 ou 3 arquivos de uma vez — identificação automática</p>
+          <p className="text-sm font-bold text-slate-600 mb-1">Arraste os arquivos aqui</p>
+          <p className="text-xs text-slate-400">CSV (transações, saldos, consumo) ou XLSX (alertas de estoque) — identificação automática</p>
           <button className="mt-4 px-6 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 transition-colors">
             Selecionar Arquivos
           </button>
-          <input ref={fileRef} type="file" accept=".csv,.txt" multiple className="hidden"
+          <input ref={fileRef} type="file" accept=".csv,.txt,.xlsx,.xls" multiple className="hidden"
             onChange={e => handleFiles(e.target.files)} />
         </div>
       </div>
@@ -585,6 +689,7 @@ export function AnaliseDispensariosV2() {
     { id: 'transacoes', label: 'Transações', icon: Activity, active: transacoes.length > 0 },
     { id: 'saldos', label: 'Comparação Saldos', icon: BarChart3, active: (saldoData?.rows.length ?? 0) > 0 },
     { id: 'consumo', label: 'Consumo', icon: Package, active: consumo.length > 0 },
+    { id: 'alertas', label: 'Alertas de Estoque', icon: Bell, active: alertas.length > 0 },
   ];
 
   return (
@@ -618,6 +723,11 @@ export function AnaliseDispensariosV2() {
               }`}>
                 {consumo.length > 0 ? `✓ Consumo (${consumo.length.toLocaleString('pt-BR')})` : '○ Consumo'}
               </span>
+              <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full border ${
+                alertas.length > 0 ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-slate-50 text-slate-400 border-slate-200'
+              }`}>
+                {alertas.length > 0 ? `✓ Alertas (${alertas.length.toLocaleString('pt-BR')})` : '○ Alertas'}
+              </span>
             </div>
           </div>
           <div
@@ -631,7 +741,7 @@ export function AnaliseDispensariosV2() {
           >
             <Upload className="w-3.5 h-3.5" />
             {isDragging ? 'Solte aqui' : 'Adicionar arquivo'}
-            <input ref={fileRef} type="file" accept=".csv,.txt" multiple className="hidden"
+            <input ref={fileRef} type="file" accept=".csv,.txt,.xlsx,.xls" multiple className="hidden"
               onChange={e => handleFiles(e.target.files)} />
           </div>
         </div>
@@ -1930,6 +2040,184 @@ export function AnaliseDispensariosV2() {
             </div>
           </div>
 
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════
+          TAB: ALERTAS DE ESTOQUE
+      ═══════════════════════════════════════════════════════════════ */}
+      {activeTab === 'alertas' && alertasStats && (
+        <div className="space-y-5">
+
+          {/* KPI Cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+            {[
+              { label: 'Total Alertas',  value: alertas.length,             color: '#64748b', bg: 'bg-slate-50',   icon: <Bell className="w-3.5 h-3.5 text-slate-500" />,    sub: 'registros' },
+              { label: 'Sem Estoque',    value: alertasStats.semEstoque,    color: '#dc2626', bg: 'bg-red-50',     icon: <XCircle className="w-3.5 h-3.5 text-red-500" />,   sub: 'gaveta zerada' },
+              { label: 'Abaixo Mínimo', value: alertasStats.abaixo,        color: '#d97706', bg: 'bg-amber-50',   icon: <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />, sub: '> 0 mas ≤ mín.' },
+              { label: 'Medicamentos',   value: alertasStats.med,           color: '#7c3aed', bg: 'bg-violet-50',  icon: <Package className="w-3.5 h-3.5 text-violet-500" />, sub: 'tipo MED' },
+              { label: 'Materiais',      value: alertasStats.mat,           color: '#0891b2', bg: 'bg-cyan-50',    icon: <Package className="w-3.5 h-3.5 text-cyan-500" />,   sub: 'tipo MAT' },
+            ].map(({ label, value, color, bg, icon, sub }) => (
+              <div key={label} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="h-[3px] w-full" style={{ background: color }} />
+                <div className="p-4">
+                  <div className="flex items-start justify-between mb-3">
+                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">{label}</span>
+                    <div className={`p-1.5 rounded-lg ${bg}`}>{icon}</div>
+                  </div>
+                  <p className="text-3xl font-black leading-none" style={{ color }}>{value.toLocaleString('pt-BR')}</p>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">{sub}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Tipo A vs M + Top Produtos */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+              <h3 className="text-xs font-black text-slate-700 uppercase tracking-widest mb-4">Tipo de Alerta</h3>
+              <ResponsiveContainer width="100%" height={200}>
+                <PieChart>
+                  <Pie data={[
+                    { name: 'Automático', value: alertasStats.automatico },
+                    { name: 'Manual', value: alertasStats.manual },
+                  ]} cx="50%" cy="50%" outerRadius={75} dataKey="value"
+                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+                    <Cell fill="#6366f1" />
+                    <Cell fill="#f59e0b" />
+                  </Pie>
+                  <Tooltip formatter={(v: any) => v.toLocaleString('pt-BR')} />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+              <h3 className="text-xs font-black text-slate-700 uppercase tracking-widest mb-4">Top 10 Produtos com Mais Alertas</h3>
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={alertasStats.topProdutos} layout="vertical" margin={{ left: 8, right: 30 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
+                  <XAxis type="number" tick={{ fontSize: 9 }} />
+                  <YAxis dataKey="name" type="category" width={200} tick={{ fontSize: 9 }} />
+                  <Tooltip formatter={(v: any) => [`${v} alertas`, 'Qtde']} />
+                  <Bar dataKey="count" name="Alertas" fill="#dc2626" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Filtros + Tabela */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100 space-y-3">
+              <div className="flex flex-wrap gap-2 items-center">
+                {/* Nível */}
+                <div className="flex gap-1 bg-slate-100 p-1 rounded-lg">
+                  {([
+                    ['todos', `Todos (${alertas.length})`],
+                    ['sem_estoque', `🔴 Sem Estoque (${alertasStats.semEstoque})`],
+                    ['abaixo', `🟠 Abaixo Mín. (${alertasStats.abaixo})`],
+                  ] as const).map(([f, lbl]) => (
+                    <button key={f} onClick={() => setAlertaNivel(f as any)}
+                      className={`px-2.5 py-1.5 rounded-md text-[11px] font-bold transition-all whitespace-nowrap ${
+                        alertaNivel === f ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                      }`}>{lbl}</button>
+                  ))}
+                </div>
+                {/* Tipo */}
+                <div className="flex gap-1 bg-slate-100 p-1 rounded-lg">
+                  {(['todos', 'MED', 'MAT'] as const).map(f => (
+                    <button key={f} onClick={() => setAlertaTipo(f)}
+                      className={`px-2.5 py-1.5 rounded-md text-[11px] font-bold transition-all ${
+                        alertaTipo === f ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                      }`}>{f === 'todos' ? 'MAT+MED' : f}</button>
+                  ))}
+                </div>
+                {/* Alerta A/M */}
+                <div className="flex gap-1 bg-slate-100 p-1 rounded-lg">
+                  {([['todos', 'Auto+Manual'], ['A', 'Automático'], ['M', 'Manual']] as const).map(([f, lbl]) => (
+                    <button key={f} onClick={() => setAlertaAlerta(f as any)}
+                      className={`px-2.5 py-1.5 rounded-md text-[11px] font-bold transition-all ${
+                        alertaAlerta === f ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                      }`}>{lbl}</button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Search className="w-4 h-4 text-slate-400 shrink-0" />
+                <input type="text" placeholder="Buscar por produto, código ou usuário..."
+                  value={alertaSearch} onChange={e => setAlertaSearch(e.target.value)}
+                  className="flex-1 text-xs bg-transparent outline-none text-slate-700 placeholder-slate-400 border-b border-slate-200 pb-1" />
+                <span className="text-xs text-slate-400 shrink-0">{filteredAlertas.length} itens</span>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
+              <table className="w-full">
+                <thead className="sticky top-0 z-10">
+                  <tr className="bg-slate-800">
+                    <th className="text-left text-[11px] font-bold text-slate-400 px-3 py-3">#</th>
+                    <th className="text-left text-[11px] font-bold text-white px-3 py-3">Código</th>
+                    <th className="text-left text-[11px] font-bold text-white px-3 py-3">Produto</th>
+                    <th className="text-center text-[11px] font-bold text-slate-400 px-3 py-3">Tipo</th>
+                    <th className="text-center text-[11px] font-bold text-slate-400 px-3 py-3">Nível</th>
+                    <th className="text-right text-[11px] font-bold text-slate-400 px-3 py-3">Saldo Gaveta</th>
+                    <th className="text-right text-[11px] font-bold text-slate-400 px-3 py-3">Mínimo</th>
+                    <th className="text-center text-[11px] font-bold text-slate-400 px-3 py-3">Alerta</th>
+                    <th className="text-left text-[11px] font-bold text-slate-400 px-3 py-3">Operação</th>
+                    <th className="text-left text-[11px] font-bold text-slate-400 px-3 py-3">Usuário</th>
+                    <th className="text-left text-[11px] font-bold text-slate-400 px-3 py-3">Data Alerta</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredAlertas.slice(0, 300).map((row, i) => {
+                    const nivelCfg =
+                      row.nivel === 'sem_estoque' ? { label: 'Sem Estoque', badge: 'bg-red-100 text-red-700',   border: '#dc2626' } :
+                      row.nivel === 'abaixo'      ? { label: 'Abaixo Mín.', badge: 'bg-amber-100 text-amber-700', border: '#d97706' } :
+                                                    { label: 'OK',          badge: 'bg-emerald-100 text-emerald-700', border: '#16a34a' };
+                    return (
+                      <tr key={i} className="border-b border-slate-50 hover:bg-slate-50 transition-colors"
+                        style={{ borderLeft: `3px solid ${nivelCfg.border}` }}>
+                        <td className="px-3 py-2.5 text-xs text-slate-400 font-black">{i + 1}</td>
+                        <td className="px-3 py-2.5 text-xs font-mono text-slate-500">{row.codigo}</td>
+                        <td className="px-3 py-2.5 text-xs font-bold text-slate-700 max-w-[280px]" title={row.descricao}>
+                          {row.descricao.length > 45 ? row.descricao.substring(0, 45) + '…' : row.descricao}
+                        </td>
+                        <td className="px-3 py-2.5 text-center">
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${row.tipo === 'MED' ? 'bg-violet-100 text-violet-700' : 'bg-cyan-100 text-cyan-700'}`}>
+                            {row.tipo}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 text-center">
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${nivelCfg.badge}`}>
+                            {nivelCfg.label}
+                          </span>
+                        </td>
+                        <td className={`px-3 py-2.5 text-xs text-right font-black ${row.saldoGaveta === 0 ? 'text-red-600' : 'text-slate-700'}`}>
+                          {row.saldoGaveta}
+                        </td>
+                        <td className="px-3 py-2.5 text-xs text-right font-mono text-slate-500">{row.saldoAlerta}</td>
+                        <td className="px-3 py-2.5 text-center">
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${row.alerta === 'A' ? 'bg-indigo-100 text-indigo-700' : 'bg-amber-100 text-amber-700'}`}>
+                            {row.alerta === 'A' ? 'Auto' : 'Manual'}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 text-xs text-slate-500">{row.operacao === 'nan' || row.operacao === '' ? '—' : row.operacao}</td>
+                        <td className="px-3 py-2.5 text-xs text-slate-500 max-w-[160px]" title={row.usuarioNome}>
+                          {row.usuarioNome.length > 22 ? row.usuarioNome.substring(0, 22) + '…' : row.usuarioNome}
+                        </td>
+                        <td className="px-3 py-2.5 text-xs text-slate-400">{row.dataAlerta}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {filteredAlertas.length > 300 && (
+                <div className="p-3 text-center text-xs text-slate-400 bg-slate-50 border-t border-slate-100">
+                  Exibindo 300 de {filteredAlertas.length} itens. Use os filtros ou busca para refinar.
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>
