@@ -93,7 +93,9 @@ export function GeradorDocumentos() {
           return idx >= 0 ? idx : fallback;
         };
         const idxGaveta = col(['gaveta'], 1);
-        const idxDesc   = col(['descrição produto', 'descrição', 'produto'], 3);
+        // col[2]=código do produto, col[3]=descrição — busca 'descrição' antes de 'produto'
+        const idxCod    = col(['produto'], 2);
+        const idxDesc   = col(['descrição produto', 'descrição'], 3);
         const idxDisp   = col(['dispensário', 'dispensario'], 10);
         // col[5]=Usuário Nome (quem disparou alerta), col[16]=Nome do Usuário (quem operou)
         const idxUser   = col(['usuário nome', 'usuario nome'], 5);
@@ -108,7 +110,9 @@ export function GeradorDocumentos() {
           const clean = (idx: number) => (cols[idx] ?? '').replace(/"/g, '').trim();
 
           const gaveta = clean(idxGaveta);
-          const desc   = clean(idxDesc);
+          const cod    = clean(idxCod);
+          const nome   = clean(idxDesc);
+          const desc   = cod && nome ? `[${cod}] ${nome}` : nome || cod;
           const disp   = clean(idxDisp);
           const user   = clean(idxUser) || 'Não Identificado';
           const op     = clean(idxOp) || '—';
