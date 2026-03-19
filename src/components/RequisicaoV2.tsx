@@ -115,6 +115,26 @@ function detectFile(text: string): 'conferencia' | 'consumo' | 'unknown' {
   return 'unknown';
 }
 
+// ─── CATEGORY ────────────────────────────────────────────────────────────────
+type Category = 'Comprimidos' | 'Ampolas' | 'Soluções' | 'Materiais Hospitalares';
+
+function getCategory(descricao: string, unidade: string): Category {
+  const text = (descricao + ' ' + unidade).toUpperCase();
+  if (/\bCOMP\b|COMPRIMIDO|CAPS\b|CÁPSULA|CAPSULA|\bDRG\b|DRÁGEA|DRAGEA/.test(text)) return 'Comprimidos';
+  if (/\bAMP\b|AMPOLA|INJETÁVEL|INJETAVEL|\bINJ\b|FR\.?AMP|FRASCO.AMP/.test(text)) return 'Ampolas';
+  if (/\bSOL\b|SOLUÇÃO|SOLUCAO|\bSORO\b|\bSF\b|\bSG\b|BOLSA|INFUSÃO|INFUSAO|\bBLC\b|\bBLF\b/.test(text)) return 'Soluções';
+  return 'Materiais Hospitalares';
+}
+
+const CATEGORY_CFG: Record<Category, { color: string; bg: string; border: string; emoji: string }> = {
+  'Comprimidos':            { color: '#0891b2', bg: '#ecfeff', border: '#a5f3fc', emoji: '💊' },
+  'Ampolas':                { color: '#7c3aed', bg: '#f5f3ff', border: '#c4b5fd', emoji: '💉' },
+  'Soluções':               { color: '#0d9488', bg: '#f0fdfa', border: '#99f6e4', emoji: '🧴' },
+  'Materiais Hospitalares': { color: '#d97706', bg: '#fffbeb', border: '#fcd34d', emoji: '🩺' },
+};
+
+const CATEGORY_ORDER: Category[] = ['Comprimidos', 'Ampolas', 'Soluções', 'Materiais Hospitalares'];
+
 // ─── STATUS CONFIG ────────────────────────────────────────────────────────────
 const STATUS_CFG = {
   pedir:            { label: 'Pedir',           color: '#d97706', bg: '#fffbeb', border: '#fcd34d', badge: 'bg-amber-100 text-amber-700' },
@@ -134,6 +154,7 @@ export function RequisicaoV2() {
   const [satNum,  setSatNum]  = useState('');
   const [search,  setSearch]  = useState('');
   const [filterStatus, setFilterStatus] = useState<'todos' | ReqItem['status']>('todos');
+  const [filterCategory, setFilterCategory] = useState<'todas' | Category>('todas');
   const [sortBy, setSortBy] = useState<'qtde' | 'media' | 'estoque_sat' | 'projecao'>('qtde');
 
   const CAF_NUMBERS = new Set(['501', '561']);
@@ -231,6 +252,7 @@ export function RequisicaoV2() {
   const filtered = useMemo(() => {
     let rows = [...items];
     if (filterStatus !== 'todos') rows = rows.filter(r => r.status === filterStatus);
+    if (filterCategory !== 'todas') rows = rows.filter(r => getCategory(r.descricao, r.unidade) === filterCategory);
     if (search.trim()) {
       const q = search.toLowerCase();
       rows = rows.filter(r => r.comercial.toLowerCase().includes(q) || r.generico.toLowerCase().includes(q) || r.codigo.includes(q));
@@ -247,7 +269,19 @@ export function RequisicaoV2() {
       return 0;
     });
     return rows;
-  }, [items, filterStatus, search, sortBy]);
+  }, [items, filterStatus, filterCategory, search, sortBy]);
+
+  // ── Grouped by category ───────────────────────────────────────────────────
+  const groupedRows = useMemo(() => {
+    if (filterCategory !== 'todas') return null; // already filtered to one category
+    const groups = new Map<Category, ReqItem[]>();
+    CATEGORY_ORDER.forEach(cat => groups.set(cat, []));
+    filtered.forEach(r => {
+      const cat = getCategory(r.descricao, r.unidade);
+      groups.get(cat)!.push(r);
+    });
+    return groups;
+  }, [filtered, filterCategory]);
 
   const allLoaded = consumo.length > 0;
   const filesLoaded = [cafMap ? `CAF ${cafNum}` : null, satMap ? `Satélite ${satNum}` : null, consumo.length ? `Consumo (${consumo.length} itens)` : null].filter(Boolean);
@@ -270,12 +304,13 @@ export function RequisicaoV2() {
         { label: 'OK',                value: String(stats.ok),                      color: PDF_COLORS.emerald },
         { label: 'Total Unidades',    value: stats.totalUnidades.toLocaleString('pt-BR'), color: PDF_COLORS.indigo },
       ],
-      headers: ['#', 'Código', 'Produto (Comercial)', 'Genérico', 'Unid.', 'Méd/dia', 'Nec.5d', '+20%', `Est.Sat ${satNum}`, `Est.CAF ${cafNum}`, 'Qtde Req.', 'Status'],
+      headers: ['#', 'Cód.', 'Categoria', 'Produto (Comercial)', 'Genérico', 'Unid.', 'Méd/dia', 'Nec.5d', '+20%', `Est.Sat ${satNum}`, `Est.CAF ${cafNum}`, 'Qtde Req.', 'Status'],
       data: filtered.map((r, i) => [
         String(i + 1),
         r.codigo,
-        r.comercial.length > 40 ? r.comercial.substring(0, 40) + '…' : r.comercial,
-        r.generico.length > 36 ? r.generico.substring(0, 36) + '…' : r.generico,
+        getCategory(r.descricao, r.unidade),
+        r.comercial,
+        r.generico,
         r.unidade,
         r.mediaDiaria.toFixed(2),
         r.necessidade5d.toFixed(1),
@@ -462,6 +497,7 @@ export function RequisicaoV2() {
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         {/* Toolbar */}
         <div className="px-5 py-4 border-b border-slate-100 space-y-3">
+          {/* Status filters */}
           <div className="flex flex-wrap gap-3 items-center">
             <div className="flex gap-1 bg-slate-100 p-1 rounded-lg flex-wrap">
               {(['todos', 'pedir', 'insuficiente_caf', 'sem_estoque_caf', 'ok'] as const).map(f => (
@@ -483,6 +519,25 @@ export function RequisicaoV2() {
               <option value="projecao">Ordenar: Menor projeção satélite</option>
             </select>
           </div>
+          {/* Category filters */}
+          <div className="flex flex-wrap gap-1.5">
+            <button onClick={() => setFilterCategory('todas')}
+              className={`px-3 py-1 rounded-full text-[11px] font-bold border transition-all ${filterCategory === 'todas' ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400'}`}>
+              Todas Categorias
+            </button>
+            {CATEGORY_ORDER.map(cat => {
+              const cfg = CATEGORY_CFG[cat];
+              const count = items.filter(r => getCategory(r.descricao, r.unidade) === cat).length;
+              return (
+                <button key={cat} onClick={() => setFilterCategory(cat)}
+                  style={filterCategory === cat ? { background: cfg.color, borderColor: cfg.color, color: '#fff' } : { borderColor: cfg.border, color: cfg.color, background: cfg.bg }}
+                  className="px-3 py-1 rounded-full text-[11px] font-bold border transition-all hover:opacity-80">
+                  {cfg.emoji} {cat} ({count})
+                </button>
+              );
+            })}
+          </div>
+          {/* Search */}
           <div className="flex items-center gap-2">
             <Search className="w-4 h-4 text-slate-400 shrink-0" />
             <input type="text" placeholder="Buscar por nome comercial, genérico ou código..."
@@ -500,7 +555,7 @@ export function RequisicaoV2() {
               <tr className="bg-slate-800">
                 <th className="text-[11px] font-bold text-slate-400 px-3 py-3">#</th>
                 <th className="text-[11px] font-bold text-white px-3 py-3">Código</th>
-                <th className="text-[11px] font-bold text-white px-3 py-3">Produto</th>
+                <th className="text-[11px] font-bold text-white px-3 py-3 min-w-[280px]">Produto</th>
                 <th className="text-[11px] font-bold text-slate-400 px-3 py-3">Unidade</th>
                 <th className="text-right text-[11px] font-bold text-slate-400 px-3 py-3">Média/dia</th>
                 <th className="text-right text-[11px] font-bold text-slate-400 px-3 py-3">Nec. 5d</th>
@@ -512,46 +567,69 @@ export function RequisicaoV2() {
               </tr>
             </thead>
             <tbody>
-              {filtered.slice(0, 400).map((row, i) => {
-                const cfg = STATUS_CFG[row.status];
-                const projecao = row.mediaDiaria > 0 ? (row.estoqueSat / row.mediaDiaria).toFixed(1) : '—';
-                return (
-                  <tr key={i} className="border-b border-slate-50 hover:bg-slate-50 transition-colors"
-                    style={{ borderLeft: `3px solid ${cfg.color}` }}>
-                    <td className="px-3 py-2.5 text-xs text-slate-400 font-black">{i + 1}</td>
-                    <td className="px-3 py-2.5 text-xs font-mono text-slate-500">{row.codigo}</td>
-                    <td className="px-3 py-2.5 max-w-[240px]">
-                      <p className="text-xs font-bold text-slate-700 leading-snug" title={row.comercial}>
-                        {row.comercial.length > 36 ? row.comercial.substring(0, 36) + '…' : row.comercial}
-                      </p>
-                      {row.generico && (
-                        <p className="text-[10px] text-slate-400 leading-snug mt-0.5" title={row.generico}>
-                          {row.generico.length > 38 ? row.generico.substring(0, 38) + '…' : row.generico}
-                        </p>
-                      )}
-                    </td>
-                    <td className="px-3 py-2.5 text-[11px] text-slate-500 whitespace-nowrap">{row.unidade}</td>
-                    <td className="px-3 py-2.5 text-xs text-right font-mono text-slate-500">{row.mediaDiaria.toFixed(2)}</td>
-                    <td className="px-3 py-2.5 text-xs text-right font-mono text-slate-500">{row.necessidade5d.toFixed(1)}</td>
-                    <td className="px-3 py-2.5 text-xs text-right font-black text-amber-700">{row.necessidadeSeguranca}</td>
-                    <td className={`px-3 py-2.5 text-xs text-right font-mono ${row.estoqueSat < row.necessidadeSeguranca ? 'text-rose-600 font-bold' : 'text-slate-600'}`}>
-                      <div>{row.estoqueSat.toLocaleString('pt-BR')}</div>
-                      {row.mediaDiaria > 0 && <div className="text-[9px] text-slate-400 font-normal">{projecao}d</div>}
-                    </td>
-                    <td className={`px-3 py-2.5 text-xs text-right font-mono ${row.estoqueCaf === 0 ? 'text-red-500 font-bold' : row.estoqueCaf < row.qtdePedir ? 'text-violet-600 font-bold' : 'text-slate-600'}`}>
-                      {row.estoqueCaf > 0 ? row.estoqueCaf.toLocaleString('pt-BR') : <span className="text-red-500">0</span>}
-                    </td>
-                    <td className="px-3 py-2.5 text-xs text-right font-black text-indigo-700">
-                      {row.qtdeRequisitar > 0 ? row.qtdeRequisitar.toLocaleString('pt-BR') : <span className="text-slate-300">—</span>}
-                    </td>
-                    <td className="px-3 py-2.5 text-center">
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${cfg.badge}`}>
-                        {cfg.label}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
+              {(() => {
+                const renderRow = (row: ReqItem, i: number) => {
+                  const cfg = STATUS_CFG[row.status];
+                  const projecao = row.mediaDiaria > 0 ? (row.estoqueSat / row.mediaDiaria).toFixed(1) : '—';
+                  return (
+                    <tr key={row.codigo + i} className="border-b border-slate-50 hover:bg-slate-50 transition-colors"
+                      style={{ borderLeft: `3px solid ${cfg.color}` }}>
+                      <td className="px-3 py-2.5 text-xs text-slate-400 font-black">{i + 1}</td>
+                      <td className="px-3 py-2.5 text-xs font-mono text-slate-500">{row.codigo}</td>
+                      <td className="px-3 py-2.5">
+                        <p className="text-xs font-bold text-slate-700 leading-snug">{row.comercial}</p>
+                        {row.generico && (
+                          <p className="text-[10px] text-slate-400 leading-snug mt-0.5">{row.generico}</p>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 text-[11px] text-slate-500 whitespace-nowrap">{row.unidade}</td>
+                      <td className="px-3 py-2.5 text-xs text-right font-mono text-slate-500">{row.mediaDiaria.toFixed(2)}</td>
+                      <td className="px-3 py-2.5 text-xs text-right font-mono text-slate-500">{row.necessidade5d.toFixed(1)}</td>
+                      <td className="px-3 py-2.5 text-xs text-right font-black text-amber-700">{row.necessidadeSeguranca}</td>
+                      <td className={`px-3 py-2.5 text-xs text-right font-mono ${row.estoqueSat < row.necessidadeSeguranca ? 'text-rose-600 font-bold' : 'text-slate-600'}`}>
+                        <div>{row.estoqueSat.toLocaleString('pt-BR')}</div>
+                        {row.mediaDiaria > 0 && <div className="text-[9px] text-slate-400 font-normal">{projecao}d</div>}
+                      </td>
+                      <td className={`px-3 py-2.5 text-xs text-right font-mono ${row.estoqueCaf === 0 ? 'text-red-500 font-bold' : row.estoqueCaf < row.qtdePedir ? 'text-violet-600 font-bold' : 'text-slate-600'}`}>
+                        {row.estoqueCaf > 0 ? row.estoqueCaf.toLocaleString('pt-BR') : <span className="text-red-500">0</span>}
+                      </td>
+                      <td className="px-3 py-2.5 text-xs text-right font-black text-indigo-700">
+                        {row.qtdeRequisitar > 0 ? row.qtdeRequisitar.toLocaleString('pt-BR') : <span className="text-slate-300">—</span>}
+                      </td>
+                      <td className="px-3 py-2.5 text-center">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${cfg.badge}`}>
+                          {cfg.label}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                };
+
+                if (groupedRows) {
+                  // Render grouped by category
+                  let globalIdx = 0;
+                  const result: React.ReactNode[] = [];
+                  CATEGORY_ORDER.forEach(cat => {
+                    const rows = groupedRows.get(cat) || [];
+                    if (!rows.length) return;
+                    const catCfg = CATEGORY_CFG[cat];
+                    result.push(
+                      <tr key={`cat-${cat}`} style={{ background: catCfg.bg }}>
+                        <td colSpan={11} className="px-4 py-2" style={{ borderLeft: `4px solid ${catCfg.color}` }}>
+                          <span className="text-[11px] font-black uppercase tracking-widest" style={{ color: catCfg.color }}>
+                            {catCfg.emoji} {cat} — {rows.length} {rows.length === 1 ? 'item' : 'itens'}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                    rows.forEach(row => result.push(renderRow(row, ++globalIdx)));
+                  });
+                  return result;
+                }
+
+                // Single category view
+                return filtered.slice(0, 400).map((row, i) => renderRow(row, i + 1));
+              })()}
             </tbody>
           </table>
           {filtered.length > 400 && (
