@@ -17,14 +17,18 @@ interface TrackingRow {
   comercial: string;       // before "-"
   generico: string;        // after "-"
   unidade: string;
-  dia1: number;
-  dia2: number;
+  dias: number[];          // one value per day column (dynamic)
   total: number;
   media: number;
   saldo: number;
   projecao: number;        // dias restantes
   tendencia: 'alta' | 'queda' | 'estavel';
   nivel: 'critico' | 'alerta' | 'atencao' | 'ok';
+}
+
+interface TrackingData {
+  rows: TrackingRow[];
+  diaLabels: string[];     // e.g. ['17/03', '18/03', '19/03']
 }
 
 // ─── PARSER ──────────────────────────────────────────────────────────────────
@@ -56,54 +60,65 @@ function getNivel(row: Omit<TrackingRow, 'nivel' | 'tendencia'>): TrackingRow['n
   return 'ok';
 }
 
-function getTendencia(dia1: number, dia2: number): TrackingRow['tendencia'] {
-  if (dia1 <= 0 && dia2 <= 0) return 'estavel';
-  if (dia2 > dia1 * 1.25) return 'alta';
-  if (dia1 > 0 && dia2 < dia1 * 0.75) return 'queda';
+function getTendencia(dias: number[]): TrackingRow['tendencia'] {
+  if (dias.length < 2) return 'estavel';
+  const last = dias[dias.length - 1];
+  const prev = dias[dias.length - 2];
+  if (prev <= 0 && last <= 0) return 'estavel';
+  if (last > prev * 1.25) return 'alta';
+  if (prev > 0 && last < prev * 0.75) return 'queda';
   return 'estavel';
 }
 
-function parseTracking(text: string): { rows: TrackingRow[]; dia1Label: string; dia2Label: string } {
+function parseTracking(text: string): TrackingData {
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
   const rows: TrackingRow[] = [];
-  let dia1Label = 'Dia 1';
-  let dia2Label = 'Dia 2';
 
-  // Extract day labels from first header row
+  // Parse header: cols 0=Código, 1=Descrição, 2=Unidade, 3..N=days, N+1=Total, N+2=Média, N+3=Saldo, N+4=?, N+5=Projeção
   const header = parseCsvLine(lines[0]);
-  if (header.length >= 5) {
-    dia1Label = header[3] || 'Dia 1';
-    dia2Label = header[4] || 'Dia 2';
+
+  // Find "Total" column index to determine how many day columns exist
+  const totalIdx = header.findIndex(h => /^total$/i.test(h.trim()));
+  // Day columns = from index 3 up to totalIdx-1
+  const dayStart = 3;
+  const dayEnd = totalIdx > dayStart ? totalIdx : dayStart + 2; // fallback to 2 days
+  const diaLabels: string[] = [];
+  for (let i = dayStart; i < dayEnd; i++) {
+    diaLabels.push(header[i]?.trim() || `Dia ${i - dayStart + 1}`);
   }
+
+  // Fixed columns after days
+  const idxTotal    = dayEnd;
+  const idxMedia    = dayEnd + 1;
+  const idxSaldo    = dayEnd + 2;
+  const idxProjecao = dayEnd + 4; // skip one extra column
 
   for (const line of lines) {
     const c = parseCsvLine(line);
-    // Skip header repeat lines
     if (!c[0] || c[0].toLowerCase().includes('produto') || c[0].toLowerCase().includes('cod')) continue;
     if (isNaN(parseInt(c[0]))) continue;
 
-    const dia1 = parseNum(c[3]);
-    const dia2 = parseNum(c[4]);
-    const media = parseNum(c[6]);
-    const saldo = parseNum(c[7]);
-    const projecao = parseNum(c[9]);
+    const dias = diaLabels.map((_, k) => parseNum(c[dayStart + k]));
+    const media    = parseNum(c[idxMedia]);
+    const saldo    = parseNum(c[idxSaldo]);
+    const projecao = parseNum(c[idxProjecao]);
 
     const raw = {
-      codigo: c[0] || '',
+      codigo:   c[0] || '',
       descricao: c[1] || '',
       comercial: (c[1] || '').split('-')[0]?.trim() || c[1] || '',
-      generico: (c[1] || '').includes('-') ? (c[1] || '').split('-').slice(1).join('-').trim() : '',
-      unidade: c[2] || '',
-      dia1, dia2,
-      total: parseNum(c[5]),
+      generico:  (c[1] || '').includes('-') ? (c[1] || '').split('-').slice(1).join('-').trim() : '',
+      unidade:  c[2] || '',
+      dias,
+      total:    parseNum(c[idxTotal]),
       media, saldo, projecao,
-      tendencia: getTendencia(dia1, dia2) as TrackingRow['tendencia'],
+      tendencia: getTendencia(dias) as TrackingRow['tendencia'],
     };
 
     rows.push({ ...raw, nivel: getNivel(raw) });
   }
 
-  return { rows, dia1Label, dia2Label };
+  return { rows, diaLabels };
 }
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -133,7 +148,7 @@ function ProjecaoBar({ dias, max = 30 }: { dias: number; max?: number }) {
 
 // ─── COMPONENT ───────────────────────────────────────────────────────────────
 export function RastreioFalta() {
-  const [data, setData] = useState<{ rows: TrackingRow[]; dia1Label: string; dia2Label: string } | null>(null);
+  const [data, setData] = useState<TrackingData | null>(null);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [filterNivel, setFilterNivel] = useState<'todos' | TrackingRow['nivel']>('todos');
@@ -239,10 +254,10 @@ export function RastreioFalta() {
   const exportPDF = useCallback(() => {
     if (!filtered.length || !stats || !data) return;
     const date = new Date().toLocaleDateString('pt-BR');
-    const { dia1Label, dia2Label } = data;
+    const { diaLabels } = data;
     exportToPDF({
       title: 'Rastreio de Falta',
-      subtitle: `${filtered.length} produtos · Dias: ${dia1Label} e ${dia2Label} · ${date}`,
+      subtitle: `${filtered.length} produtos · Dias: ${diaLabels.join(', ')} · ${date}`,
       filename: `rastreio_falta_${date.replace(/\//g, '-')}.pdf`,
       isLandscape: true,
       accentColor: PDF_COLORS.red,
@@ -254,14 +269,13 @@ export function RastreioFalta() {
         { label: 'OK',              value: String(stats.ok),             color: PDF_COLORS.emerald },
         { label: 'Tend. Alta',      value: String(stats.tendAlta),       color: PDF_COLORS.purple  },
       ],
-      headers: ['#', 'Código', 'Produto', 'Unidade', dia1Label, dia2Label, 'Média/dia', 'Saldo', 'Projeção (d)', 'Tend.', 'Status'],
+      headers: ['#', 'Código', 'Produto', 'Unidade', ...diaLabels, 'Média/dia', 'Saldo', 'Projeção (d)', 'Tend.', 'Status'],
       data: filtered.map((r, i) => [
         String(i + 1),
         r.codigo,
         r.comercial.length > 38 ? r.comercial.substring(0, 38) + '…' : r.comercial,
         r.unidade,
-        String(r.dia1),
-        String(r.dia2),
+        ...r.dias.map(String),
         r.media.toFixed(1),
         r.saldo.toLocaleString('pt-BR'),
         r.projecao <= 0 ? '—' : `${r.projecao.toFixed(0)}d`,
@@ -312,7 +326,7 @@ export function RastreioFalta() {
     );
   }
 
-  const { rows, dia1Label, dia2Label } = data;
+  const { rows, diaLabels } = data;
 
   return (
     <div className="space-y-5">
@@ -321,7 +335,7 @@ export function RastreioFalta() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-black text-slate-900">Rastreio de Falta</h2>
-          <p className="text-xs text-slate-400 mt-0.5">{rows.length} produtos monitorados · Dias analisados: {dia1Label} e {dia2Label}</p>
+          <p className="text-xs text-slate-400 mt-0.5">{rows.length} produtos monitorados · Dias analisados: {diaLabels.join(', ')}</p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={exportPDF}
@@ -369,7 +383,7 @@ export function RastreioFalta() {
           <div>
             <p className="text-2xl font-black text-rose-600">{stats?.tendAlta ?? 0}</p>
             <p className="text-xs font-bold text-slate-600">Consumo em alta</p>
-            <p className="text-[10px] text-slate-400">Dia {dia2Label} &gt; 25% acima do dia {dia1Label}</p>
+            <p className="text-[10px] text-slate-400">Último dia &gt; 25% acima do penúltimo</p>
           </div>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex items-center gap-4">
@@ -389,7 +403,7 @@ export function RastreioFalta() {
           <div>
             <p className="text-2xl font-black text-emerald-600">{stats?.tendQueda ?? 0}</p>
             <p className="text-xs font-bold text-slate-600">Consumo em queda</p>
-            <p className="text-[10px] text-slate-400">Dia {dia2Label} &gt; 25% abaixo do dia {dia1Label}</p>
+            <p className="text-[10px] text-slate-400">Último dia &gt; 25% abaixo do penúltimo</p>
           </div>
         </div>
       </div>
@@ -436,7 +450,7 @@ export function RastreioFalta() {
 
       {/* Top 20 consumo */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-        <h3 className="text-xs font-black text-slate-700 uppercase tracking-widest mb-4">Top 20 Maior Consumo Total (Dias {dia1Label}+{dia2Label})</h3>
+        <h3 className="text-xs font-black text-slate-700 uppercase tracking-widest mb-4">Top 20 Maior Consumo Total ({diaLabels.join('+')})</h3>
         <ResponsiveContainer width="100%" height={380}>
           <BarChart data={stats?.top20consumo.map(r => ({
             name: r.comercial.substring(0, 32),
@@ -524,8 +538,9 @@ export function RastreioFalta() {
                 <th className="text-left text-[11px] font-bold text-white px-3 py-3">Código</th>
                 <th className="text-left text-[11px] font-bold text-white px-3 py-3">Produto</th>
                 <th className="text-left text-[11px] font-bold text-slate-400 px-3 py-3">Unidade</th>
-                <th className="text-right text-[11px] font-bold text-slate-400 px-3 py-3">Dia {dia1Label}</th>
-                <th className="text-right text-[11px] font-bold text-slate-400 px-3 py-3">Dia {dia2Label}</th>
+                {diaLabels.map(lbl => (
+                  <th key={lbl} className="text-right text-[11px] font-bold text-slate-400 px-3 py-3">{lbl}</th>
+                ))}
                 <th className="text-right text-[11px] font-bold text-slate-400 px-3 py-3">Média</th>
                 <th className="text-right text-[11px] font-bold text-slate-400 px-3 py-3">Saldo</th>
                 <th className="text-left text-[11px] font-bold text-white px-3 py-3 min-w-[140px]">Projeção (dias)</th>
@@ -553,13 +568,16 @@ export function RastreioFalta() {
                       )}
                     </td>
                     <td className="px-3 py-2.5 text-[11px] text-slate-500">{row.unidade}</td>
-                    <td className="px-3 py-2.5 text-xs text-right font-mono text-slate-600">{row.dia1}</td>
-                    <td className="px-3 py-2.5 text-xs text-right font-mono">
-                      <span className={
-                        row.tendencia === 'alta'  ? 'text-rose-600 font-bold' :
-                        row.tendencia === 'queda' ? 'text-emerald-600 font-bold' : 'text-slate-600'
-                      }>{row.dia2}</span>
-                    </td>
+                    {row.dias.map((v, k) => {
+                      const isLast = k === row.dias.length - 1;
+                      return (
+                        <td key={k} className="px-3 py-2.5 text-xs text-right font-mono">
+                          <span className={isLast && row.tendencia === 'alta' ? 'text-rose-600 font-bold' : isLast && row.tendencia === 'queda' ? 'text-emerald-600 font-bold' : 'text-slate-600'}>
+                            {v}
+                          </span>
+                        </td>
+                      );
+                    })}
                     <td className="px-3 py-2.5 text-xs text-right font-mono text-slate-500">{row.media.toFixed(1)}</td>
                     <td className={`px-3 py-2.5 text-xs text-right font-black ${row.saldo <= 0 ? 'text-red-600' : 'text-slate-700'}`}>
                       {row.saldo.toLocaleString('pt-BR')}
