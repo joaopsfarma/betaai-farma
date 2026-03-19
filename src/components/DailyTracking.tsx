@@ -41,27 +41,31 @@ export const DailyTracking: React.FC = () => {
 
     reader.onload = (event) => {
       const text = event.target?.result as string;
-      
+
       Papa.parse(text, {
         header: false,
         skipEmptyLines: true,
         complete: (results) => {
           const rows = results.data as string[][];
-          
+
           let headerIdx = -1;
-          for (let i=0; i < Math.min(rows.length, 10); i++) {
+          const dayStart = 3;
+          let dayEnd = 8; // default: 5 days (cols 3..7)
+          let totalColIdx = 8; // default
+
+          for (let i = 0; i < Math.min(rows.length, 10); i++) {
             const rowStr = rows[i].join('').toLowerCase();
             if (rowStr.includes('produto') && rowStr.includes('unidade') && rowStr.includes('saldo')) {
               headerIdx = i;
-              
               const hRow = rows[i];
-              const d1 = hRow[3]?.replace(/"/g, '') || 'D1';
-              const d2 = hRow[4]?.replace(/"/g, '') || 'D2';
-              const d3 = hRow[5]?.replace(/"/g, '') || 'D3';
-              const d4 = hRow[6]?.replace(/"/g, '') || 'D4';
-              const d5 = hRow[7]?.replace(/"/g, '') || 'D5';
-              setDaysHeader([d1, d2, d3, d4, d5]);
-              
+              const ti = hRow.findIndex(h => /^total$/i.test((h || '').replace(/"/g, '').trim()));
+              totalColIdx = ti > dayStart ? ti : dayStart + 5;
+              dayEnd = totalColIdx;
+              const labels: string[] = [];
+              for (let j = dayStart; j < dayEnd; j++) {
+                labels.push((hRow[j] || '').replace(/"/g, '').trim() || `D${j - dayStart + 1}`);
+              }
+              setDaysHeader(labels);
               break;
             }
           }
@@ -71,14 +75,14 @@ export const DailyTracking: React.FC = () => {
 
           for (let i = startIndex; i < rows.length; i++) {
             const row = rows[i];
-            if (row.length < 10) continue;
+            if (row.length < totalColIdx + 2) continue;
 
             const prodCol = row[0] || '';
             const match = prodCol.match(/^"?(\d+)\s*,\s*(.+)("?)$/);
-            
+
             let id = '';
             let name = '';
-            
+
             if (match) {
               id = match[1];
               name = match[2].replace(/"/g, '').trim();
@@ -90,32 +94,20 @@ export const DailyTracking: React.FC = () => {
             }
 
             const unit = row[2] || '';
-            const h1 = parseNumber(row[3]);
-            const h2 = parseNumber(row[4]);
-            const h3 = parseNumber(row[5]);
-            const h4 = parseNumber(row[6]);
-            const h5 = parseNumber(row[7]);
-            
-            // row[8] is day 16 (or 6th day)
-            // row[9] is Total
-            // row[10] is Média
-            // row[11] is Saldo
-            // row[12] is empty column before Projeção
-            // row[13] is Projeção
-            
-            const total = parseNumber(row[9]);
-            const avg = parseNumber(row[10]);
-            const stock = parseNumber(row[11]);
-            
-            // Projeção: if it has enough columns, use it, else calculate it
-            const projection = row.length > 13 && row[13] ? parseNumber(row[13]) : (avg > 0 ? stock / avg : 999);
+            const history: number[] = [];
+            for (let j = dayStart; j < dayEnd; j++) {
+              history.push(parseNumber(row[j]));
+            }
+
+            const total = parseNumber(row[totalColIdx]);
+            const avg = parseNumber(row[totalColIdx + 1]);
+            const stock = parseNumber(row[totalColIdx + 2]);
+            const projection = row.length > totalColIdx + 4 && row[totalColIdx + 4]
+              ? parseNumber(row[totalColIdx + 4])
+              : (avg > 0 ? stock / avg : 999);
 
             if (id && name) {
-              parsedData.push({
-                id, name, unit,
-                history: [h1, h2, h3, h4, h5],
-                total, avg, stock, projection
-              });
+              parsedData.push({ id, name, unit, history, total, avg, stock, projection });
             }
           }
 
@@ -123,7 +115,7 @@ export const DailyTracking: React.FC = () => {
         }
       });
     };
-    reader.readAsText(file, 'ISO-8859-1'); // Handle pt-BR accents if any
+    reader.readAsText(file, 'ISO-8859-1');
   };
 
   const downloadTemplate = () => {
@@ -142,10 +134,12 @@ export const DailyTracking: React.FC = () => {
   };
 
   const getTrend = (history: number[]) => {
-    const start = history[0] + history[1];
-    const end = history[3] + history[4];
-    if (end > start * 1.5) return 'up';
-    if (end < start * 0.5) return 'down';
+    const n = history.length;
+    if (n < 2) return 'stable';
+    const last = history[n - 1];
+    const prev = history[n - 2];
+    if (last > prev * 1.5) return 'up';
+    if (last < prev * 0.5) return 'down';
     return 'stable';
   };
 
@@ -220,17 +214,20 @@ export const DailyTracking: React.FC = () => {
     doc.text(`Gerado em: ${currentDate} | Itens Analisados: ${filteredData.length}`, 14, 30);
 
     // Table
+    const nDays = daysHeader.length;
+    const statusColIdx = 3 + nDays + 4; // Cód(0) Desc(1) Unid(2) days(3..3+nDays-1) Tendência Med/Dia Saldo Projeção Status
+
     const tableData = filteredData.map(item => {
       const status = getStatus(item.projection);
       const statusText = status === 'critical' ? 'CRÍTICO' : status === 'warning' ? 'ATENÇÃO' : 'NORMAL';
-      
       const trend = getTrend(item.history);
       const trendText = trend === 'up' ? 'EM ALTA' : trend === 'down' ? 'EM BAIXA' : 'ESTÁVEL';
 
       return [
         item.id,
-        item.name.substring(0, 45), // truncate long names
+        item.name.substring(0, 35),
         item.unit,
+        ...item.history.map(v => v.toString()),
         trendText,
         item.avg.toFixed(1).replace('.', ','),
         item.stock.toString(),
@@ -239,31 +236,37 @@ export const DailyTracking: React.FC = () => {
       ];
     });
 
+    const dayColStyles: Record<number, object> = {};
+    for (let i = 0; i < nDays; i++) {
+      dayColStyles[3 + i] = { cellWidth: 12, halign: 'right' };
+    }
+
     autoTable(doc, {
       startY: 35,
-      head: [['Cód', 'Descrição do Item', 'Unid.', 'Tendência', 'Med/Dia', 'Saldo', 'Projeção', 'Status']],
+      head: [['Cód', 'Descrição', 'Unid.', ...daysHeader, 'Tendência', 'Med/Dia', 'Saldo', 'Projeção', 'Status']],
       body: tableData,
       theme: 'grid',
-      headStyles: { fillColor: [79, 70, 229], textColor: 255, fontSize: 8 },
-      bodyStyles: { fontSize: 8 },
+      headStyles: { fillColor: [79, 70, 229], textColor: 255, fontSize: 7 },
+      bodyStyles: { fontSize: 7 },
       columnStyles: {
-        0: { cellWidth: 15 },
+        0: { cellWidth: 14 },
         1: { cellWidth: 'auto' },
-        2: { cellWidth: 15, halign: 'center' },
-        3: { cellWidth: 20, halign: 'center' },
-        4: { cellWidth: 15, halign: 'right' },
-        5: { cellWidth: 15, halign: 'right' },
-        6: { cellWidth: 15, halign: 'right' },
-        7: { cellWidth: 20, halign: 'center', fontStyle: 'bold' }
+        2: { cellWidth: 12, halign: 'center' },
+        ...dayColStyles,
+        [3 + nDays]:     { cellWidth: 18, halign: 'center' },
+        [3 + nDays + 1]: { cellWidth: 14, halign: 'right' },
+        [3 + nDays + 2]: { cellWidth: 14, halign: 'right' },
+        [3 + nDays + 3]: { cellWidth: 14, halign: 'right' },
+        [3 + nDays + 4]: { cellWidth: 16, halign: 'center', fontStyle: 'bold' },
       },
       didParseCell: function(data) {
-        if (data.section === 'body' && data.column.index === 7) {
+        if (data.section === 'body' && data.column.index === statusColIdx) {
           if (data.cell.raw === 'CRÍTICO') {
-            data.cell.styles.textColor = [225, 29, 72]; // Rose 600
+            data.cell.styles.textColor = [225, 29, 72];
           } else if (data.cell.raw === 'ATENÇÃO') {
-            data.cell.styles.textColor = [217, 119, 6]; // Amber 600
+            data.cell.styles.textColor = [217, 119, 6];
           } else {
-            data.cell.styles.textColor = [5, 150, 105]; // Emerald 600
+            data.cell.styles.textColor = [5, 150, 105];
           }
         }
       }
@@ -283,7 +286,7 @@ export const DailyTracking: React.FC = () => {
                <div className="relative w-5 bg-slate-100 rounded-t-sm h-8 flex items-end overflow-hidden">
                  <div 
                    style={{ height: `${h}%` }} 
-                   className={`w-full rounded-t-sm transition-all ${i === 4 ? 'bg-indigo-500' : 'bg-slate-300 group-hover:bg-indigo-400'}`}
+                   className={`w-full rounded-t-sm transition-all ${i === hist.length - 1 ? 'bg-indigo-500' : 'bg-slate-300 group-hover:bg-indigo-400'}`}
                  />
                </div>
                <span className="text-[9px] font-mono font-bold text-slate-500 group-hover:text-indigo-600 transition-colors">
@@ -491,7 +494,7 @@ export const DailyTracking: React.FC = () => {
                       <div className="flex items-center justify-center gap-1">Unid {sortConfig?.key === 'unit' && (sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}</div>
                     </th>
                     <th className="px-4 py-3 font-semibold text-slate-600 text-center w-40 cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => requestSort('history')}>
-                      <div className="flex items-center justify-center gap-1">Histórico de Consumo (5d) {sortConfig?.key === 'history' && (sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}</div>
+                      <div className="flex items-center justify-center gap-1">Histórico de Consumo ({daysHeader.length}d) {sortConfig?.key === 'history' && (sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}</div>
                     </th>
                     <th className="px-4 py-3 font-semibold text-slate-600 text-right w-24 cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => requestSort('avg')}>
                       <div className="flex items-center justify-end gap-1">Avg/Dia {sortConfig?.key === 'avg' && (sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}</div>
