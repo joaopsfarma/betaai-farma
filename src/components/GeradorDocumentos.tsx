@@ -82,60 +82,65 @@ export function GeradorDocumentos() {
     reader.onload = (event) => {
       const text = event.target?.result as string;
       try {
-        const lines = text.split('\n');
-        const headers = lines[0].split(',');
-        const gIdx    = headers.findIndex(h => h.trim().toLowerCase().includes('gaveta'));
-        const dIdx    = headers.findIndex(h => h.trim().toLowerCase().includes('descrição') || h.trim().toLowerCase().includes('produto'));
-        const dispIdx = headers.findIndex(h => h.trim().toLowerCase().includes('dispensário') || h.trim().toLowerCase().includes('dispensario'));
-        const userIdx = headers.findIndex(h => h.trim().toLowerCase().includes('usuário') || h.trim().toLowerCase().includes('usuario'));
-        const dateIdx = headers.findIndex(h => h.trim().toLowerCase().includes('data/hora') || h.trim().toLowerCase().includes('data'));
-        const opIdx   = headers.findIndex(h => h.trim().toLowerCase().includes('operação') || h.trim().toLowerCase().includes('operacao'));
-        const idxGaveta = gIdx >= 0 ? gIdx : 1;
-        const idxDesc   = dIdx >= 0 ? dIdx : 3;
-        const idxDisp   = dispIdx >= 0 ? dispIdx : 10;
+        const lines = text.split('\n').filter(l => l.trim());
+        // Detecta separador pela primeira linha
+        const sep = lines[0].includes(';') ? ';' : ',';
+        const headers = lines[0].split(sep).map(h => h.trim().toLowerCase().replace(/"/g, ''));
+
+        // Mapeamento dinâmico de colunas com fallback para o formato stock alert (;)
+        const col = (keywords: string[], fallback: number) => {
+          const idx = headers.findIndex(h => keywords.some(k => h.includes(k)));
+          return idx >= 0 ? idx : fallback;
+        };
+        const idxGaveta = col(['gaveta'], 1);
+        const idxDesc   = col(['descrição produto', 'descrição', 'produto'], 3);
+        const idxDisp   = col(['dispensário', 'dispensario'], 10);
+        // col[5]=Usuário Nome (quem disparou alerta), col[16]=Nome do Usuário (quem operou)
+        const idxUser   = col(['usuário nome', 'usuario nome'], 5);
+        const idxOp     = col(['operação', 'operacao'], 14);
+        // col[15]=Data/Hora da operação (mais relevante que col[8]=Data Alerta)
+        const idxDate   = col(['data/hora'], 15) !== 15 ? col(['data/hora'], 15) : col(['data alerta', 'data'], 8);
+
         const parsed: CsvAlerts = { ...csvAlerts };
         for (let i = 1; i < lines.length; i++) {
           if (!lines[i].trim()) continue;
-          const cols = lines[i].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
-          if (cols.length > Math.max(idxGaveta, idxDesc)) {
-            const gaveta = cols[idxGaveta]?.replace(/"/g, '').trim();
-            const desc   = cols[idxDesc]?.replace(/"/g, '').trim();
-            const disp   = cols[idxDisp]?.replace(/"/g, '').trim() || '';
-            const user   = userIdx >= 0 ? cols[userIdx]?.replace(/"/g, '').trim() : 'Não Identificado';
-            const dateStr = dateIdx >= 0 ? cols[dateIdx]?.replace(/"/g, '').trim() : '';
-            const op     = opIdx >= 0 ? cols[opIdx]?.replace(/"/g, '').trim() : '-';
-            let date = dateStr;
-            if (dateStr?.includes('-')) {
-              const parts = dateStr.split(' ');
-              const dp = parts[0].split('-');
-              if (dp.length === 3) date = `${dp[2]}/${dp[1]}/${dp[0]} ${parts[1]?.substring(0, 5) || ''}`;
-            }
-            if (gaveta && desc) {
-              let targetDisp = 'Dispensário A1';
-              if (disp.includes('A1'))     targetDisp = 'Dispensário A1';
-              else if (disp.includes('A2'))     targetDisp = 'Dispensário A2';
-              else if (disp.includes('E2'))     targetDisp = 'Dispensário E2';
-              else if (disp.includes('UTI 4')) targetDisp = 'Dispensário UTI 4';
-              else if (disp.includes('UTI 5')) targetDisp = 'Dispensário UTI 5';
-              else if (disp.includes('UTI 6')) targetDisp = 'Dispensário UTI 6';
-              else if (disp.includes('RADIO')) targetDisp = 'Radiologia';
-              if (!parsed[targetDisp]) parsed[targetDisp] = {};
-              if (!parsed[targetDisp][gaveta]) parsed[targetDisp][gaveta] = [];
-              const exists = parsed[targetDisp][gaveta].some(item => item.desc === desc && item.date === date);
-              if (!exists) parsed[targetDisp][gaveta].push({ desc, user, date, op });
-            }
-          }
+          const cols = lines[i].split(sep);
+          const clean = (idx: number) => (cols[idx] ?? '').replace(/"/g, '').trim();
+
+          const gaveta = clean(idxGaveta);
+          const desc   = clean(idxDesc);
+          const disp   = clean(idxDisp);
+          const user   = clean(idxUser) || 'Não Identificado';
+          const op     = clean(idxOp) || '—';
+          const date   = clean(idxDate) || '—';
+
+          if (!gaveta || !desc) continue;
+
+          let targetDisp = 'Dispensário A1';
+          if      (disp.includes('A1'))    targetDisp = 'Dispensário A1';
+          else if (disp.includes('A2'))    targetDisp = 'Dispensário A2';
+          else if (disp.includes('E2'))    targetDisp = 'Dispensário E2';
+          else if (disp.includes('UTI 4')) targetDisp = 'Dispensário UTI 4';
+          else if (disp.includes('UTI 5')) targetDisp = 'Dispensário UTI 5';
+          else if (disp.includes('UTI 6')) targetDisp = 'Dispensário UTI 6';
+          else if (disp.toUpperCase().includes('RADIO')) targetDisp = 'Radiologia';
+
+          if (!parsed[targetDisp]) parsed[targetDisp] = {};
+          if (!parsed[targetDisp][gaveta]) parsed[targetDisp][gaveta] = [];
+          const exists = parsed[targetDisp][gaveta].some(it => it.desc === desc);
+          if (!exists) parsed[targetDisp][gaveta].push({ desc, user, date, op });
         }
         setCsvAlerts(parsed);
         setViewMode('enfermagem');
-        showMessage('CSV importado com sucesso! Dados extraídos.', 'success');
+        const total = Object.values(parsed).reduce((acc, disp) => acc + Object.keys(disp).length, 0);
+        showMessage(`CSV importado! ${total} gaveta(s) com alertas encontradas.`, 'success');
       } catch {
         showMessage('Erro ao processar o CSV.', 'error');
       } finally {
         setIsLoading(false);
       }
     };
-    reader.readAsText(file);
+    reader.readAsText(file, 'latin1');
     e.target.value = '';
   };
 
