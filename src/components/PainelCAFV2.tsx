@@ -130,18 +130,32 @@ function parseOC(text: string): OCItem[] {
     const qtRecebida  = parseBR(c[pIdx + 5]);
     const qtCancelada = pIdx === 6 ? parseBR(c[13]) : parseBR(c[pIdx + 7]);
     const qtDiferenca = pIdx === 6 ? parseBR(c[14]) : parseBR(c[pIdx + 8]);
-    let ocStatus: OCStatus = 'NAO_ATENDIDA';
-    if (qtDiferenca === 0 && qtComprada > 0) ocStatus = 'RECEBIDO';
-    else if (qtRecebida > 0 && qtDiferenca > 0) ocStatus = 'PARCIAL';
     result.push({
       dataPrevista: c[0]?.trim() || '',
       oc: (pIdx === 6 ? c[2] : c[1])?.trim() || '',
       nomeFornecedor: (pIdx === 6 ? c[5] : c[3])?.trim() || '',
       codProduto, nomeProduto: c[pIdx + 1]?.trim() || '',
       unidade: c[pIdx + 2]?.trim() || '',
-      saldoAtual: parseBR(c[pIdx + 3]), qtComprada, qtRecebida, qtCancelada, qtDiferenca, ocStatus,
+      saldoAtual: parseBR(c[pIdx + 3]), qtComprada, qtRecebida, qtCancelada, qtDiferenca,
+      ocStatus: 'NAO_ATENDIDA' as OCStatus,
     });
   }
+
+  // Recalcula status no nível da OC:
+  // Uma OC só é RECEBIDO quando TODOS os seus produtos têm qtDiferenca === 0.
+  // Se qualquer produto ainda tem diferença mas algum foi recebido → PARCIAL.
+  const ocGroups = new Map<string, OCItem[]>();
+  for (const item of result) {
+    if (!ocGroups.has(item.oc)) ocGroups.set(item.oc, []);
+    ocGroups.get(item.oc)!.push(item);
+  }
+  for (const [, items] of ocGroups) {
+    const todosRecebidos = items.every(it => it.qtDiferenca === 0 && it.qtComprada > 0);
+    const algumRecebido  = items.some(it => it.qtRecebida > 0);
+    const status: OCStatus = todosRecebidos ? 'RECEBIDO' : algumRecebido ? 'PARCIAL' : 'NAO_ATENDIDA';
+    for (const it of items) it.ocStatus = status;
+  }
+
   return result;
 }
 
