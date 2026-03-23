@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend,
@@ -7,8 +7,10 @@ import {
   Package, AlertTriangle, AlertCircle, CheckCircle, Clock,
   ShoppingCart, Upload, Activity, Database, Search,
   ChevronLeft, ChevronRight, RefreshCw, TrendingDown,
-  FileText, Layers, BarChart2, X,
+  FileText, Layers, BarChart2, X, Download,
 } from 'lucide-react';
+import { exportPainelCAFV2PDF } from '../utils/pdfExport';
+import { getRiscoAssistencial } from '../utils/riscoAssistencial';
 
 // ─── CSV PARSING ──────────────────────────────────────────────────────────────
 
@@ -49,7 +51,8 @@ type OCStatus = 'NAO_ATENDIDA' | 'PARCIAL' | 'RECEBIDO';
 
 interface ConsumoItem {
   id: string; nome: string; unidade: string;
-  d17: number; d18: number; total: number; media: number;
+  d19: number; d20: number; d21: number; d22: number; d23: number;
+  total: number; media: number;
   saldo: number; proj: number; status: ConsumoStatus;
 }
 interface LoteItem { lote: string; validade: string; qtd: number; diasVenc: number; }
@@ -74,17 +77,17 @@ function parseConsumo(text: string): ConsumoItem[] {
     const c = parseCSVLine(lines[i]);
     const id = c[0]?.trim();
     if (!id || !/^\d+$/.test(id)) continue;
-    const saldo = parseBR(c[7]);
-    const media = parseBR(c[6]);
-    const proj  = parseBR(c[9]);
+    const saldo = parseBR(c[10]);
+    const media = parseBR(c[9]);
+    const proj  = parseBR(c[12]);
     let status: ConsumoStatus = 'ADEQUADO';
     if (saldo === 0)              status = 'SEM_ESTOQUE';
     else if (proj > 0 && proj <= 3)  status = 'CRÍTICO';
     else if (proj > 3 && proj <= 7)  status = 'ATENÇÃO';
     result.push({
       id, nome: c[1]?.trim() || '', unidade: c[2]?.trim() || '',
-      d17: parseBR(c[3]), d18: parseBR(c[4]),
-      total: parseBR(c[5]), media, saldo, proj, status,
+      d19: parseBR(c[3]), d20: parseBR(c[4]), d21: parseBR(c[5]), d22: parseBR(c[6]), d23: parseBR(c[7]),
+      total: parseBR(c[8]), media, saldo, proj, status,
     });
   }
   return result;
@@ -168,9 +171,9 @@ const STATUS_META: Record<ConsumoStatus, { label: string; bg: string; text: stri
   ADEQUADO:    { label: 'Adequado',     bg: '#f0fdf4', text: '#059669', color: '#10b981' },
 };
 const OC_META: Record<OCStatus, { label: string; bg: string; text: string }> = {
-  NAO_ATENDIDA: { label: 'Não Atendida', bg: '#fef2f2', text: '#dc2626' },
-  PARCIAL:      { label: 'Parcial',      bg: '#fefce8', text: '#d97706' },
-  RECEBIDO:     { label: 'Recebido',     bg: '#f0fdf4', text: '#059669' },
+  NAO_ATENDIDA: { label: 'Pendente/Aguardando', bg: '#eff6ff', text: '#2563eb' },
+  PARCIAL:      { label: 'Parcial',             bg: '#fefce8', text: '#d97706' },
+  RECEBIDO:     { label: 'Recebido',            bg: '#f0fdf4', text: '#059669' },
 };
 
 const PAGE_SIZE = 25;
@@ -187,8 +190,13 @@ function StatusBadge({ status }: { status: ConsumoStatus }) {
     </span>
   );
 }
-function OCBadge({ status }: { status: OCStatus }) {
-  const m = OC_META[status];
+function OCBadge({ status, qtRecebida }: { status: OCStatus; qtRecebida?: number }) {
+  // Show "Parcial" only when this specific line has quantity received > 0
+  const effectiveStatus: OCStatus =
+    status === 'RECEBIDO' ? 'RECEBIDO'
+    : (qtRecebida !== undefined && qtRecebida > 0) ? 'PARCIAL'
+    : 'NAO_ATENDIDA';
+  const m = OC_META[effectiveStatus];
   return (
     <span style={{ background: m.bg, color: m.text, padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 800, whiteSpace: 'nowrap' }}>
       {m.label}
@@ -217,6 +225,30 @@ function Pager({ total, page, onChange }: { total: number; page: number; onChang
 
 const TH: React.CSSProperties = { padding: '10px 12px', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', color: '#94a3b8', letterSpacing: '0.05em', whiteSpace: 'nowrap', borderBottom: '1px solid #f1f5f9' };
 const TD: React.CSSProperties = { padding: '10px 12px', fontSize: 11, color: '#334155', borderBottom: '1px solid #f8fafc', verticalAlign: 'middle' };
+
+// ─── SORT UTILITIES ───────────────────────────────────────────────────────────
+
+type AlertSortState = { col: string; dir: 'asc' | 'desc' } | null;
+
+function applySort<T>(items: T[], sort: AlertSortState, getVal: (col: string, item: T) => any): T[] {
+  if (!sort) return items;
+  const mult = sort.dir === 'asc' ? 1 : -1;
+  return [...items].sort((a, b) => {
+    const va = getVal(sort.col, a);
+    const vb = getVal(sort.col, b);
+    if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * mult;
+    return String(va ?? '').localeCompare(String(vb ?? '')) * mult;
+  });
+}
+
+function SortTH({ label, col, sort, onToggle, right }: { label: string; col: string | null; sort: AlertSortState; onToggle?: (c: string) => void; right?: boolean }) {
+  return (
+    <th style={{ ...TH, cursor: col ? 'pointer' : 'default', userSelect: 'none', textAlign: right ? 'right' : 'left' }}
+        onClick={col && onToggle ? () => onToggle(col) : undefined}>
+      {label}{col && <span style={{ marginLeft: 3, opacity: sort?.col === col ? 1 : 0.3, fontSize: 9 }}>{sort?.col === col ? (sort.dir === 'asc' ? '▲' : '▼') : '▲'}</span>}
+    </th>
+  );
+}
 
 // ─── UPLOAD SCREEN ────────────────────────────────────────────────────────────
 
@@ -247,6 +279,37 @@ export const PainelCAFV2: React.FC = () => {
   const [pageConsumo, setPageConsumo] = useState(0);
   const [pageEstoque, setPageEstoque] = useState(0);
   const [pageOC, setPageOC]           = useState(0);
+
+  // OC column sort
+  const [sortOC, setSortOC] = useState<{ col: string; dir: 'asc' | 'desc' } | null>(null);
+
+  const toggleSortOC = (col: string) => {
+    setSortOC(prev => prev?.col === col ? { col, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'asc' });
+    setPageOC(0);
+  };
+
+  // Alertas tables sort
+  const [sortRuptura,   setSortRuptura]   = useState<AlertSortState>(null);
+  const [sortCritico,   setSortCritico]   = useState<AlertSortState>(null);
+  const [sortOCUrg,     setSortOCUrg]     = useState<AlertSortState>(null);
+  const [sortLotes,     setSortLotes]     = useState<AlertSortState>(null);
+
+  const mkToggle = (set: React.Dispatch<React.SetStateAction<AlertSortState>>) => (col: string) =>
+    set(prev => prev?.col === col ? { col, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'desc' });
+
+  // Alertas DOM ref (html2canvas PDF)
+  const alertasRef = useRef<HTMLDivElement>(null);
+
+  // Load html2canvas CDN
+  useEffect(() => {
+    if (!document.getElementById('html2canvas-cdn')) {
+      const s = document.createElement('script');
+      s.id = 'html2canvas-cdn';
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+      s.async = true;
+      document.body.appendChild(s);
+    }
+  }, []);
 
   // Reset pages on filter change
   useEffect(() => { setPageConsumo(0); }, [filterConsumo, searchConsumo]);
@@ -344,8 +407,28 @@ export const PainelCAFV2: React.FC = () => {
     let items = ocData;
     if (filterOC !== 'ALL') items = items.filter(o => o.ocStatus === filterOC);
     if (searchOC) { const q = searchOC.toLowerCase(); items = items.filter(o => o.nomeProduto.toLowerCase().includes(q) || o.codProduto.includes(q) || o.oc.includes(q)); }
+    if (sortOC) {
+      const { col, dir } = sortOC;
+      const mult = dir === 'asc' ? 1 : -1;
+      items = [...items].sort((a, b) => {
+        let va: number | string, vb: number | string;
+        if (col === 'saldo')    { va = a.saldoAtual;   vb = b.saldoAtual; }
+        else if (col === 'comp'){ va = a.qtComprada;   vb = b.qtComprada; }
+        else if (col === 'rec') { va = a.qtRecebida;   vb = b.qtRecebida; }
+        else if (col === 'dif') { va = a.qtDiferenca;  vb = b.qtDiferenca; }
+        else if (col === 'data'){ va = a.dataPrevista; vb = b.dataPrevista; }
+        else if (col === 'oc')  { va = a.oc;           vb = b.oc; }
+        else if (col === 'forn'){ va = a.nomeFornecedor; vb = b.nomeFornecedor; }
+        else if (col === 'cod') { va = a.codProduto;   vb = b.codProduto; }
+        else if (col === 'prod'){ va = a.nomeProduto;  vb = b.nomeProduto; }
+        else if (col === 'stat'){ va = a.ocStatus;     vb = b.ocStatus; }
+        else return 0;
+        if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * mult;
+        return String(va).localeCompare(String(vb)) * mult;
+      });
+    }
     return items;
-  }, [ocData, filterOC, searchOC]);
+  }, [ocData, filterOC, searchOC, sortOC]);
 
   const readFile = useCallback((file: File, key: FileKey) => {
     const reader = new FileReader();
@@ -356,6 +439,59 @@ export const PainelCAFV2: React.FC = () => {
   const handleReset = () => {
     setTexts({ consumo: '', painel: '', oc: '' });
     setActiveTab('geral');
+  };
+
+  const handleExportPDF = async () => {
+    if (!kpis || !alertas) return;
+    if (activeTab === 'alertas' && alertasRef.current) {
+      try {
+        // @ts-ignore
+        const canvas = await window.html2canvas(alertasRef.current, { scale: 2, useCORS: true, backgroundColor: '#f8fafc', logging: false });
+        const imgData = canvas.toDataURL('image/png');
+        const { jsPDF } = await import('jspdf');
+        const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+        const pageW = pdf.internal.pageSize.getWidth();
+        const pageH = pdf.internal.pageSize.getHeight();
+        const ratio = canvas.height / canvas.width;
+        const imgH = pageW * ratio;
+        if (imgH <= pageH) {
+          pdf.addImage(imgData, 'PNG', 0, 0, pageW, imgH);
+        } else {
+          // Multi-page: slice canvas into page-height chunks
+          const sliceH = Math.floor(canvas.width * (pageH / pageW));
+          let y = 0;
+          while (y < canvas.height) {
+            const tmpCanvas = document.createElement('canvas');
+            tmpCanvas.width = canvas.width;
+            tmpCanvas.height = Math.min(sliceH, canvas.height - y);
+            const ctx = tmpCanvas.getContext('2d')!;
+            ctx.drawImage(canvas, 0, -y);
+            const slice = tmpCanvas.toDataURL('image/png');
+            if (y > 0) pdf.addPage();
+            pdf.addImage(slice, 'PNG', 0, 0, pageW, pageH * (tmpCanvas.height / sliceH));
+            y += sliceH;
+          }
+        }
+        pdf.save(`alertas-caf-${new Date().toISOString().split('T')[0]}.pdf`);
+      } catch (e) {
+        console.error('Erro ao exportar PDF:', e);
+      }
+      return;
+    }
+    exportPainelCAFV2PDF({
+      criticoSemOC: alertas.criticoSemOC,
+      rupturaSemCob: alertas.rupturaSemCob,
+      ocUrgentes: alertas.ocUrgentes,
+      lotesVenc: alertas.lotesVenc,
+      kpis: {
+        totalPainel: kpis.totalPainel,
+        semEstoque: kpis.semEstoque,
+        criticos: kpis.criticos,
+        atencao: kpis.atencao,
+        criticoSemOC: alertas.criticoSemOC.length,
+        rupturaSemCob: alertas.rupturaSemCob.length,
+      },
+    });
   };
 
   // ── UPLOAD SCREEN ──
@@ -423,9 +559,14 @@ export const PainelCAFV2: React.FC = () => {
             </p>
           </div>
         </div>
-        <button onClick={handleReset} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#f1f5f9', border: 'none', borderRadius: 10, padding: '8px 14px', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#64748b' }}>
-          <RefreshCw size={13} /> Recarregar
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={handleExportPDF} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#3b82f6', border: 'none', borderRadius: 10, padding: '8px 14px', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: 'white' }}>
+            <Download size={13} /> Exportar PDF
+          </button>
+          <button onClick={handleReset} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#f1f5f9', border: 'none', borderRadius: 10, padding: '8px 14px', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#64748b' }}>
+            <RefreshCw size={13} /> Recarregar
+          </button>
+        </div>
       </div>
 
       <div style={{ maxWidth: 1300, margin: '0 auto', padding: '0 20px' }}>
@@ -639,7 +780,7 @@ export const PainelCAFV2: React.FC = () => {
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead style={{ background: '#f8fafc' }}>
                   <tr>
-                    {['ID MV', 'Produto', 'Unidade', 'D17', 'D18', 'Total', 'Média/Dia', 'Saldo', 'Projeção (d)', 'Status'].map(h => <th key={h} style={TH}>{h}</th>)}
+                    {['ID MV', 'Produto', 'Unidade', 'D19', 'D20', 'D21', 'D22', 'D23', 'Total', 'Média/Dia', 'Saldo', 'Projeção (d)', 'Status'].map(h => <th key={h} style={TH}>{h}</th>)}
                   </tr>
                 </thead>
                 <tbody>
@@ -648,8 +789,11 @@ export const PainelCAFV2: React.FC = () => {
                       <td style={{ ...TD, fontFamily: 'monospace', color: '#475569', fontSize: 10 }}>{c.id}</td>
                       <td style={{ ...TD, fontWeight: 600, maxWidth: 260 }}>{truncate(c.nome, 50)}</td>
                       <td style={{ ...TD, color: '#94a3b8', fontSize: 10 }}>{c.unidade}</td>
-                      <td style={{ ...TD, textAlign: 'right', color: '#475569' }}>{c.d17.toLocaleString('pt-BR')}</td>
-                      <td style={{ ...TD, textAlign: 'right', color: '#475569' }}>{c.d18.toLocaleString('pt-BR')}</td>
+                      <td style={{ ...TD, textAlign: 'right', color: '#475569' }}>{c.d19.toLocaleString('pt-BR')}</td>
+                      <td style={{ ...TD, textAlign: 'right', color: '#475569' }}>{c.d20.toLocaleString('pt-BR')}</td>
+                      <td style={{ ...TD, textAlign: 'right', color: '#475569' }}>{c.d21.toLocaleString('pt-BR')}</td>
+                      <td style={{ ...TD, textAlign: 'right', color: '#475569' }}>{c.d22.toLocaleString('pt-BR')}</td>
+                      <td style={{ ...TD, textAlign: 'right', color: '#475569' }}>{c.d23.toLocaleString('pt-BR')}</td>
                       <td style={{ ...TD, textAlign: 'right', fontWeight: 700, color: '#334155' }}>{c.total.toLocaleString('pt-BR')}</td>
                       <td style={{ ...TD, textAlign: 'right', color: '#64748b' }}>{c.media.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}</td>
                       <td style={{ ...TD, textAlign: 'right', fontWeight: 800, color: c.saldo === 0 ? '#dc2626' : c.saldo < c.media * 3 ? '#d97706' : '#059669' }}>
@@ -675,7 +819,7 @@ export const PainelCAFV2: React.FC = () => {
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {([
                   { v: 'ALL',          label: `Todas (${ocData.length})`,                                                              color: '#4f46e5' },
-                  { v: 'NAO_ATENDIDA', label: `Não Atendidas (${ocData.filter(o => o.ocStatus === 'NAO_ATENDIDA').length})`,     color: '#dc2626' },
+                  { v: 'NAO_ATENDIDA', label: `Pendentes/Aguardando (${ocData.filter(o => o.ocStatus === 'NAO_ATENDIDA').length})`, color: '#2563eb' },
                   { v: 'PARCIAL',      label: `Parciais (${ocData.filter(o => o.ocStatus === 'PARCIAL').length})`,               color: '#d97706' },
                   { v: 'RECEBIDO',     label: `Recebidas (${ocData.filter(o => o.ocStatus === 'RECEBIDO').length})`,             color: '#059669' },
                 ] as any[]).map((f: any) => (
@@ -693,12 +837,30 @@ export const PainelCAFV2: React.FC = () => {
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead style={{ background: '#f8fafc' }}>
                   <tr>
-                    {['Data Prevista', 'Nº OC', 'Fornecedor', 'Cód.', 'Produto', 'Saldo', 'Qt. Comp.', 'Qt. Rec.', 'Diferença', 'Status'].map(h => <th key={h} style={TH}>{h}</th>)}
+                    {([
+                      { label: 'Data Prevista', col: 'data' },
+                      { label: 'Nº OC',         col: 'oc'   },
+                      { label: 'Fornecedor',    col: 'forn' },
+                      { label: 'Cód.',          col: 'cod'  },
+                      { label: 'Produto',       col: 'prod' },
+                      { label: 'Saldo',         col: 'saldo'},
+                      { label: 'Qt. Comp.',     col: 'comp' },
+                      { label: 'Qt. Rec.',      col: 'rec'  },
+                      { label: 'Diferença',     col: 'dif'  },
+                      { label: 'Status',        col: 'stat' },
+                    ] as { label: string; col: string }[]).map(h => (
+                      <th key={h.col} style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSortOC(h.col)}>
+                        {h.label}{' '}
+                        <span style={{ opacity: sortOC?.col === h.col ? 1 : 0.3, fontSize: 9 }}>
+                          {sortOC?.col === h.col ? (sortOC.dir === 'asc' ? '▲' : '▼') : '▲'}
+                        </span>
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
                   {ocFilt.slice(pageOC * PAGE_SIZE, (pageOC + 1) * PAGE_SIZE).map((o, i) => (
-                    <tr key={i} style={{ background: o.ocStatus === 'NAO_ATENDIDA' ? '#fff1f2' : o.ocStatus === 'PARCIAL' ? '#fffbeb' : 'white' }}>
+                    <tr key={i} style={{ background: o.ocStatus === 'NAO_ATENDIDA' ? '#eff6ff' : o.ocStatus === 'PARCIAL' ? '#fffbeb' : 'white' }}>
                       <td style={{ ...TD, fontSize: 10, color: '#64748b', whiteSpace: 'nowrap' }}>{o.dataPrevista}</td>
                       <td style={{ ...TD, fontFamily: 'monospace', fontSize: 10, color: '#475569' }}>{o.oc || '—'}</td>
                       <td style={{ ...TD, fontSize: 10, color: '#64748b', maxWidth: 120 }}>{truncate(o.nomeFornecedor, 20) || '—'}</td>
@@ -708,7 +870,7 @@ export const PainelCAFV2: React.FC = () => {
                       <td style={{ ...TD, textAlign: 'right' }}>{o.qtComprada.toLocaleString('pt-BR')}</td>
                       <td style={{ ...TD, textAlign: 'right', color: o.qtRecebida > 0 ? '#059669' : '#94a3b8', fontWeight: o.qtRecebida > 0 ? 700 : 400 }}>{o.qtRecebida.toLocaleString('pt-BR')}</td>
                       <td style={{ ...TD, textAlign: 'right', fontWeight: 800, color: o.qtDiferenca > 0 ? '#d97706' : '#059669' }}>{o.qtDiferenca.toLocaleString('pt-BR')}</td>
-                      <td style={TD}><OCBadge status={o.ocStatus} /></td>
+                      <td style={TD}><OCBadge status={o.ocStatus} qtRecebida={o.qtRecebida} /></td>
                     </tr>
                   ))}
                 </tbody>
@@ -720,15 +882,13 @@ export const PainelCAFV2: React.FC = () => {
 
         {/* ── TAB: ALERTAS ── */}
         {activeTab === 'alertas' && alertas && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div ref={alertasRef} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
             {/* Resumo */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 10 }}>
               {[
-                { label: 'Ruptura s/ cobertura', value: alertas.rupturaSemCob.length, color: '#dc2626', bg: '#fef2f2', icon: '🚨' },
-                { label: 'Críticos s/ OC',        value: alertas.criticoSemOC.length, color: '#ef4444', bg: '#fff1f2', icon: '🔴' },
+                { label: 'Críticos sem OC',        value: alertas.criticoSemOC.length, color: '#ef4444', bg: '#fff1f2', icon: '🔴' },
                 { label: 'OC não atendidas',       value: alertas.ocUrgentes.length,   color: '#d97706', bg: '#fefce8', icon: '📦' },
-                { label: 'Lotes vencendo ≤90d',   value: alertas.lotesVenc.length,     color: '#f59e0b', bg: '#fffbeb', icon: '⏰' },
               ].map((s, i) => (
                 <div key={i} style={{ background: s.bg, borderRadius: 12, padding: '14px 16px', borderLeft: `4px solid ${s.color}` }}>
                   <p style={{ fontSize: 9, color: '#94a3b8', fontWeight: 800, textTransform: 'uppercase', margin: '0 0 4px' }}>{s.label}</p>
@@ -737,45 +897,35 @@ export const PainelCAFV2: React.FC = () => {
               ))}
             </div>
 
-            {/* Ruptura sem cobertura */}
-            {alertas.rupturaSemCob.length > 0 && (
-              <div style={{ background: 'white', borderRadius: 16, border: '1px solid #fecaca', overflow: 'hidden' }}>
-                <div style={{ padding: '12px 16px', background: '#fef2f2', borderBottom: '1px solid #fecaca', display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <AlertTriangle size={16} color="#dc2626" />
-                  <p style={{ fontSize: 12, fontWeight: 800, color: '#dc2626', margin: 0 }}>🚨 Ruptura sem Cobertura — sem estoque e sem OC pendente ({alertas.rupturaSemCob.length})</p>
-                </div>
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead><tr>{['Cód.', 'Produto', 'Unidade', 'Estoque', 'Lotes'].map(h => <th key={h} style={TH}>{h}</th>)}</tr></thead>
-                    <tbody>
-                      {alertas.rupturaSemCob.slice(0, 20).map((p, i) => (
-                        <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : '#fef2f2' }}>
-                          <td style={{ ...TD, fontFamily: 'monospace', fontSize: 10, color: '#475569' }}>{p.id}</td>
-                          <td style={{ ...TD, fontWeight: 600 }}>{truncate(p.nome, 60)}</td>
-                          <td style={{ ...TD, fontSize: 10, color: '#94a3b8' }}>{p.unidade}</td>
-                          <td style={{ ...TD, fontWeight: 900, color: '#dc2626', textAlign: 'right' }}>0</td>
-                          <td style={{ ...TD, textAlign: 'center', fontSize: 10, color: '#94a3b8' }}>{p.lotes.length > 0 ? `${p.lotes.length} lote(s)` : '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                {alertas.rupturaSemCob.length > 20 && <p style={{ textAlign: 'center', fontSize: 10, color: '#94a3b8', padding: '10px 0' }}>+ {alertas.rupturaSemCob.length - 20} produtos não exibidos</p>}
-              </div>
-            )}
-
             {/* Críticos sem OC */}
             {alertas.criticoSemOC.length > 0 && (
-              <div style={{ background: 'white', borderRadius: 16, border: '1px solid #fecaca', overflow: 'hidden' }}>
-                <div style={{ padding: '12px 16px', background: '#fff1f2', borderBottom: '1px solid #fecaca', display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <AlertTriangle size={16} color="#ef4444" />
-                  <p style={{ fontSize: 12, fontWeight: 800, color: '#ef4444', margin: 0 }}>🔴 Itens Críticos sem Reposição em OC ({alertas.criticoSemOC.length})</p>
+              <div style={{ background: 'white', borderRadius: 16, border: '2px solid #fecaca', overflow: 'hidden', boxShadow: '0 2px 8px rgba(220,38,38,0.08)' }}>
+                <div style={{ padding: '14px 16px', background: 'linear-gradient(135deg,#fef2f2,#fff5f5)', borderBottom: '1px solid #fecaca' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <AlertTriangle size={18} color="#ef4444" />
+                    <p style={{ fontSize: 13, fontWeight: 900, color: '#ef4444', margin: 0 }}>🔴 Itens Críticos sem Ordem de Compra ({alertas.criticoSemOC.length})</p>
+                  </div>
+                  <p style={{ fontSize: 10, color: '#b91c1c', margin: 0, paddingLeft: 26, lineHeight: 1.5 }}>
+                    Itens com <strong>estoque zerado ou projeção ≤ 3 dias</strong> e <strong>sem nenhuma Ordem de Compra em aberto</strong> — necessitam de ação imediata de compra.
+                  </p>
                 </div>
                 <div style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead><tr>{['Cód.', 'Produto', 'Saldo', 'Média', 'Projeção', 'Status'].map(h => <th key={h} style={TH}>{h}</th>)}</tr></thead>
+                    <thead><tr>
+                      <SortTH label="Cód."         col="id"     sort={sortCritico} onToggle={mkToggle(setSortCritico)} />
+                      <SortTH label="Produto"       col="nome"   sort={sortCritico} onToggle={mkToggle(setSortCritico)} />
+                      <SortTH label="Saldo"         col="saldo"  sort={sortCritico} onToggle={mkToggle(setSortCritico)} right />
+                      <SortTH label="Média"         col="media"  sort={sortCritico} onToggle={mkToggle(setSortCritico)} right />
+                      <SortTH label="Projeção"      col="proj"   sort={sortCritico} onToggle={mkToggle(setSortCritico)} right />
+                      <SortTH label="Status"        col="status" sort={sortCritico} onToggle={mkToggle(setSortCritico)} />
+                      <SortTH label="Risco Assist." col="risco"  sort={sortCritico} onToggle={mkToggle(setSortCritico)} />
+                    </tr></thead>
                     <tbody>
-                      {alertas.criticoSemOC.map((c, i) => (
+                      {applySort(alertas.criticoSemOC, sortCritico, (col, c: any) =>
+                        col === 'id' ? c.id : col === 'nome' ? c.nome : col === 'saldo' ? c.saldo : col === 'media' ? c.media : col === 'proj' ? c.proj : col === 'status' ? c.status : col === 'risco' ? getRiscoAssistencial(c.nome).ordem : 0
+                      ).map((c, i) => {
+                        const risco = getRiscoAssistencial(c.nome);
+                        return (
                         <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : '#fff1f2' }}>
                           <td style={{ ...TD, fontFamily: 'monospace', fontSize: 10, color: '#475569' }}>{c.id}</td>
                           <td style={{ ...TD, fontWeight: 600 }}>{truncate(c.nome, 55)}</td>
@@ -783,8 +933,13 @@ export const PainelCAFV2: React.FC = () => {
                           <td style={{ ...TD, textAlign: 'right', color: '#64748b' }}>{c.media.toFixed(1)}</td>
                           <td style={{ ...TD, fontWeight: 800, color: '#dc2626', textAlign: 'right' }}>{c.proj > 0 ? c.proj.toFixed(1) + 'd' : '—'}</td>
                           <td style={TD}><StatusBadge status={c.status} /></td>
+                          <td style={TD}>
+                            <span style={{ background: risco.bg, color: risco.text, padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 800, whiteSpace: 'nowrap', display: 'inline-block', marginBottom: 2 }}>{risco.label}</span>
+                            <div style={{ fontSize: 9, color: '#94a3b8', lineHeight: 1.3 }}>{risco.impacto}</div>
+                          </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -800,9 +955,22 @@ export const PainelCAFV2: React.FC = () => {
                 </div>
                 <div style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead><tr>{['Data', 'OC', 'Produto', 'Qt. Comp.', 'Qt. Rec.', 'Diferença', 'Status'].map(h => <th key={h} style={TH}>{h}</th>)}</tr></thead>
+                    <thead><tr>
+                      <SortTH label="Data"          col="dataPrevista" sort={sortOCUrg} onToggle={mkToggle(setSortOCUrg)} />
+                      <SortTH label="OC"            col="oc"           sort={sortOCUrg} onToggle={mkToggle(setSortOCUrg)} />
+                      <SortTH label="Produto"       col="nomeProduto"  sort={sortOCUrg} onToggle={mkToggle(setSortOCUrg)} />
+                      <SortTH label="Qt. Comp."     col="qtComprada"   sort={sortOCUrg} onToggle={mkToggle(setSortOCUrg)} right />
+                      <SortTH label="Qt. Rec."      col="qtRecebida"   sort={sortOCUrg} onToggle={mkToggle(setSortOCUrg)} right />
+                      <SortTH label="Diferença"     col="qtDiferenca"  sort={sortOCUrg} onToggle={mkToggle(setSortOCUrg)} right />
+                      <SortTH label="Status"        col={null}         sort={sortOCUrg} />
+                      <SortTH label="Risco Assist." col="risco"        sort={sortOCUrg} onToggle={mkToggle(setSortOCUrg)} />
+                    </tr></thead>
                     <tbody>
-                      {alertas.ocUrgentes.map((o, i) => (
+                      {applySort(alertas.ocUrgentes, sortOCUrg, (col, o: any) =>
+                        col === 'dataPrevista' ? o.dataPrevista : col === 'oc' ? o.oc : col === 'nomeProduto' ? o.nomeProduto : col === 'qtComprada' ? o.qtComprada : col === 'qtRecebida' ? o.qtRecebida : col === 'qtDiferenca' ? o.qtDiferenca : col === 'risco' ? getRiscoAssistencial(o.nomeProduto).ordem : 0
+                      ).map((o, i) => {
+                        const risco = getRiscoAssistencial(o.nomeProduto);
+                        return (
                         <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : '#fffbeb' }}>
                           <td style={{ ...TD, fontSize: 10, color: '#64748b' }}>{o.dataPrevista}</td>
                           <td style={{ ...TD, fontFamily: 'monospace', fontSize: 10 }}>{o.oc || '—'}</td>
@@ -810,44 +978,12 @@ export const PainelCAFV2: React.FC = () => {
                           <td style={{ ...TD, textAlign: 'right' }}>{o.qtComprada.toLocaleString('pt-BR')}</td>
                           <td style={{ ...TD, textAlign: 'right', color: '#94a3b8' }}>{o.qtRecebida.toLocaleString('pt-BR')}</td>
                           <td style={{ ...TD, fontWeight: 800, color: '#d97706', textAlign: 'right' }}>{o.qtDiferenca.toLocaleString('pt-BR')}</td>
-                          <td style={TD}><OCBadge status={o.ocStatus} /></td>
+                          <td style={TD}><OCBadge status={o.ocStatus} qtRecebida={o.qtRecebida} /></td>
+                          <td style={TD}>
+                            <span style={{ background: risco.bg, color: risco.text, padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 800, whiteSpace: 'nowrap', display: 'inline-block', marginBottom: 2 }}>{risco.label}</span>
+                            <div style={{ fontSize: 9, color: '#94a3b8', lineHeight: 1.3 }}>{risco.impacto}</div>
+                          </td>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* Lotes vencendo */}
-            {alertas.lotesVenc.length > 0 && (
-              <div style={{ background: 'white', borderRadius: 16, border: '1px solid #fde68a', overflow: 'hidden' }}>
-                <div style={{ padding: '12px 16px', background: '#fffbeb', borderBottom: '1px solid #fde68a', display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Clock size={16} color="#d97706" />
-                  <p style={{ fontSize: 12, fontWeight: 800, color: '#d97706', margin: 0 }}>⏰ Produtos com Lotes Vencendo ≤90 dias ({alertas.lotesVenc.length})</p>
-                </div>
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead><tr>{['Cód.', 'Produto', 'Estoque', 'Nº Lote', 'Vencimento', 'Dias', 'Urgência'].map(h => <th key={h} style={TH}>{h}</th>)}</tr></thead>
-                    <tbody>
-                      {alertas.lotesVenc.map((p, i) => {
-                        const vencLote = p.lotes.find(l => l.diasVenc === p.menorDiasVenc);
-                        return (
-                          <tr key={i} style={{ background: p.menorDiasVenc <= 30 ? '#fef2f2' : p.menorDiasVenc <= 60 ? '#fff7ed' : '#fffbeb' }}>
-                            <td style={{ ...TD, fontFamily: 'monospace', fontSize: 10, color: '#475569' }}>{p.id}</td>
-                            <td style={{ ...TD, fontWeight: 600 }}>{truncate(p.nome, 50)}</td>
-                            <td style={{ ...TD, textAlign: 'right' }}>{p.estoque.toLocaleString('pt-BR')}</td>
-                            <td style={{ ...TD, fontFamily: 'monospace', fontSize: 10, fontWeight: 700, color: '#334155' }}>{vencLote?.lote || '—'}</td>
-                            <td style={{ ...TD, fontWeight: 700, color: p.menorDiasVenc <= 30 ? '#dc2626' : '#d97706' }}>{vencLote?.validade || '—'}</td>
-                            <td style={{ ...TD, fontWeight: 900, textAlign: 'right', color: p.menorDiasVenc <= 30 ? '#dc2626' : p.menorDiasVenc <= 60 ? '#ea580c' : '#d97706' }}>{p.menorDiasVenc}d</td>
-                            <td style={TD}>
-                              {p.menorDiasVenc <= 30
-                                ? <span style={{ background: '#fef2f2', color: '#dc2626', padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 800 }}>⚠ Urgente</span>
-                                : p.menorDiasVenc <= 60
-                                  ? <span style={{ background: '#fff7ed', color: '#ea580c', padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 800 }}>Atenção</span>
-                                  : <span style={{ background: '#fefce8', color: '#d97706', padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 800 }}>Monitorar</span>}
-                            </td>
-                          </tr>
                         );
                       })}
                     </tbody>
@@ -856,7 +992,7 @@ export const PainelCAFV2: React.FC = () => {
               </div>
             )}
 
-            {alertas.rupturaSemCob.length === 0 && alertas.criticoSemOC.length === 0 && alertas.ocUrgentes.length === 0 && alertas.lotesVenc.length === 0 && (
+            {alertas.criticoSemOC.length === 0 && alertas.ocUrgentes.length === 0 && (
               <div style={{ background: 'white', borderRadius: 16, padding: 40, textAlign: 'center', border: '1px solid #f1f5f9' }}>
                 <CheckCircle size={40} color="#10b981" style={{ margin: '0 auto 12px' }} />
                 <p style={{ fontSize: 16, fontWeight: 800, color: '#059669', margin: '0 0 6px' }}>Nenhum alerta crítico detectado</p>

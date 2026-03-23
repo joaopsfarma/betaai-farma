@@ -632,6 +632,29 @@ function Dashboard({ data, onReset }: { data: any; onReset: () => void }) {
     return { topProdutos, topAtend, taxaFalso, taxaDesvio, unidadesFantasma, desvioLiqReal, recs };
   }, [cruzSolic]);
 
+  // ── KPI REVISADO — nível de linha, considerando falso resultado como atendido ─
+  const cruzKPI = useMemo(() => {
+    if (!cruzSolic) return null;
+    const dispensadoTotalmente = statusCount["Item dispensado totalmente"] || 0;
+    const rowsFalso       = cruzSolic.falsoResultado.reduce((a: number, g: any) => a + g.rowAMais.length + g.rowAMenos.length + g.rowNaoDisp.length, 0);
+    const desvioMaisRows  = cruzSolic.desvioReal.reduce((a: number, g: any) => a + g.rowAMais.length, 0);
+    const desvioMenosRows = cruzSolic.desvioReal.reduce((a: number, g: any) => a + g.rowAMenos.length + g.rowNaoDisp.length, 0);
+    const rowsSoAMais     = cruzSolic.soAMais.reduce((a: number, g: any) => a + g.rowAMais.length, 0);
+    const rowsSoAMenos    = cruzSolic.soAMenos.reduce((a: number, g: any) => a + g.rowAMenos.length + g.rowNaoDisp.length, 0);
+    const atendidoEfetivo = dispensadoTotalmente + rowsFalso;
+    const deficitReal     = rowsSoAMenos + desvioMenosRows;
+    const excessoReal     = rowsSoAMais + desvioMaisRows;
+    const total           = rows.length;
+    const taxaAparente    = total > 0 ? dispensadoTotalmente / total * 100 : 0;
+    const taxaReal        = total > 0 ? atendidoEfetivo / total * 100 : 0;
+    const ganho           = taxaReal - taxaAparente;
+    return {
+      dispensadoTotalmente, rowsFalso, desvioMaisRows, desvioMenosRows,
+      rowsSoAMais, rowsSoAMenos, atendidoEfetivo, deficitReal, excessoReal,
+      taxaAparente, taxaReal, ganho, total,
+    };
+  }, [cruzSolic, statusCount, rows]);
+
   const tableRows = useMemo(()=>{
     let f=rows;
     if(statusFilter!=="todos") f=f.filter((r: any)=>r.Status===statusFilter);
@@ -1028,7 +1051,51 @@ function Dashboard({ data, onReset }: { data: any; onReset: () => void }) {
               </div>
             </div>
 
-            {/* KPIs */}
+            {/* ── KPIs REVISADOS — Análise com Cruzamentos (nível de linha) ── */}
+            {cruzKPI && (
+              <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+                <SecTitle accent="#0f172a">📊 KPIs Revisados — Análise com Cruzamentos</SecTitle>
+
+                {/* Comparativo Taxa Aparente vs Taxa Real */}
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12 }}>
+                  <div style={{ background:"#f8fafc", border:"2px solid #e2e8f0", borderRadius:14, padding:"16px 18px" }}>
+                    <div style={{ fontSize:11, color:"#64748b", fontWeight:700, textTransform:"uppercase", letterSpacing:.5, marginBottom:6 }}>Taxa Aparente (7400)</div>
+                    <div style={{ fontSize:32, fontWeight:800, color:"#475569", fontFamily:"'Syne',sans-serif", lineHeight:1 }}>{cruzKPI.taxaAparente.toFixed(1)}<span style={{ fontSize:16 }}>%</span></div>
+                    <div style={{ marginTop:8, height:7, background:"#e2e8f0", borderRadius:99, overflow:"hidden" }}>
+                      <div style={{ height:"100%", width:`${Math.min(cruzKPI.taxaAparente,100)}%`, background:"#94a3b8", borderRadius:99 }} />
+                    </div>
+                    <div style={{ fontSize:11, color:"#64748b", marginTop:5 }}>{cruzKPI.dispensadoTotalmente.toLocaleString("pt-BR")} itens dispensados totalmente</div>
+                  </div>
+                  <div style={{ background:"#f0fdf4", border:"2px solid #86efac", borderRadius:14, padding:"16px 18px" }}>
+                    <div style={{ fontSize:11, color:"#059669", fontWeight:700, textTransform:"uppercase", letterSpacing:.5, marginBottom:6 }}>Taxa Real (c/ cruzamento)</div>
+                    <div style={{ fontSize:32, fontWeight:800, color:"#14532d", fontFamily:"'Syne',sans-serif", lineHeight:1 }}>{cruzKPI.taxaReal.toFixed(1)}<span style={{ fontSize:16 }}>%</span></div>
+                    <div style={{ marginTop:8, height:7, background:"#dcfce7", borderRadius:99, overflow:"hidden" }}>
+                      <div style={{ height:"100%", width:`${Math.min(cruzKPI.taxaReal,100)}%`, background:"linear-gradient(90deg,#059669,#34d399)", borderRadius:99 }} />
+                    </div>
+                    <div style={{ fontSize:11, color:"#166534", marginTop:5 }}>+{cruzKPI.rowsFalso.toLocaleString("pt-BR")} falsos resultados → atendidos</div>
+                  </div>
+                  <div style={{ background:"#eff6ff", border:"2px solid #93c5fd", borderRadius:14, padding:"16px 18px" }}>
+                    <div style={{ fontSize:11, color:"#2563eb", fontWeight:700, textTransform:"uppercase", letterSpacing:.5, marginBottom:6 }}>Ganho pelo Cruzamento</div>
+                    <div style={{ fontSize:32, fontWeight:800, color:"#1e3a8a", fontFamily:"'Syne',sans-serif", lineHeight:1 }}>+{cruzKPI.ganho.toFixed(1)}<span style={{ fontSize:14 }}> pp</span></div>
+                    <div style={{ marginTop:8, height:7, background:"#dbeafe", borderRadius:99, overflow:"hidden" }}>
+                      <div style={{ height:"100%", width:`${Math.min(Math.max(cruzKPI.ganho,0),100)}%`, background:"linear-gradient(90deg,#2563eb,#60a5fa)", borderRadius:99 }} />
+                    </div>
+                    <div style={{ fontSize:11, color:"#1d4ed8", marginTop:5 }}>pontos percentuais recuperados</div>
+                  </div>
+                </div>
+
+                {/* Breakdown por categoria — nível de linha */}
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))", gap:12 }}>
+                  <KPICard label="Dispensado Totalmente" value={cruzKPI.dispensadoTotalmente} icon="✅" color="#059669" light="#d1fae5" sub="atendido sem divergência" />
+                  <KPICard label="Falso Resultado → Atendido" value={cruzKPI.rowsFalso} icon="🟣" color="#7c3aed" light="#f5f3ff" sub="divergências que se anulam" />
+                  <KPICard label="Déficit Real" value={cruzKPI.deficitReal} icon="🔻" color="#dc2626" light="#fee2e2" sub={`${cruzKPI.rowsSoAMenos} só déficit · ${cruzKPI.desvioMenosRows} c/ par`} />
+                  <KPICard label="Excesso Real" value={cruzKPI.excessoReal} icon="🔺" color="#d97706" light="#fef3c7" sub={`${cruzKPI.rowsSoAMais} só excesso · ${cruzKPI.desvioMaisRows} c/ par`} />
+                  <KPICard label="Total de Registros" value={cruzKPI.total} icon="📋" color="#0284c7" light="#e0f2fe" sub="base de análise" />
+                </div>
+              </div>
+            )}
+
+            {/* KPIs de Pares (nível de grupo) */}
             <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))", gap:12 }}>
               <KPICard label="Total de Pares"        value={cruzSolic.pares.length}          icon="🔀" color="#7c3aed" light="#ede9fe" sub="mesmo produto, a mais e a menos" />
               <KPICard label="🟣 Falso Resultado"    value={cruzSolic.falsoResultado.length} icon="🟣" color="#7c3aed" light="#f5f3ff" sub="saldo líquido ≤ 0 — se anulam" />
