@@ -6,8 +6,8 @@ import {defineConfig, loadEnv} from 'vite';
 export default defineConfig(({command, mode}) => {
   const env = loadEnv(mode, '.', '');
   return {
-    // Ajustado para o nome correto do repositório no GitHub para deploy correto no GitHub Pages
-    base: command === 'build' ? '/betaai-farma/' : '/',
+    // GitHub Pages usa /betaai-farma/, Vercel usa /
+    base: process.env.VERCEL ? '/' : (command === 'build' ? '/betaai-farma/' : '/'),
     plugins: [react(), tailwindcss()],
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY || ''),
