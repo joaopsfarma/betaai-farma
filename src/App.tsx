@@ -12,7 +12,7 @@ import { TransferRequest } from './components/TransferRequest';
 import { VBACodeDisplay } from './components/VBACodeDisplay';
 import { CsvUploader } from './components/CsvUploader';
 import { ValidityUploader } from './components/ValidityUploader';
-import { LayoutDashboard, FileSpreadsheet, Code, Pill, Database, Filter, AlertCircle, PieChart, Download, ListTodo, Activity, ClipboardList, Menu, X, ChevronRight, Clock, Ban, Package, LineChart, Calculator, BarChart2, ShieldAlert, AlertTriangle, ShoppingCart, XCircle } from 'lucide-react';
+import { LayoutDashboard, FileSpreadsheet, Code, Pill, Database, Filter, AlertCircle, PieChart, Download, ListTodo, Activity, ClipboardList, Menu, X, ChevronRight, Clock, Ban, Package, LineChart, Calculator, BarChart2, ShieldAlert, AlertTriangle, ShoppingCart, XCircle, ShieldCheck } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Dashboard } from './components/Dashboard';
 import { FollowUp } from './components/FollowUp';
@@ -44,6 +44,9 @@ import { CancelamentoV2 } from './components/CancelamentoV2';
 import { PrevisibilidadeV2 } from './components/PrevisibilidadeV2';
 import { IndicadoresLogisticos } from './components/IndicadoresLogisticos';
 import { GeradorDocumentos } from './components/GeradorDocumentos';
+import { SupplierEvaluationCAF } from './components/SupplierEvaluationCAF';
+import { Ressuprimento } from './components/Ressuprimento';
+import { Supply } from './components/Supply';
 import { MobileHeader } from './components/layout/MobileHeader';
 import { Sidebar, NavItem, TabId } from './components/layout/Sidebar';
 import { exportInventoryToPDF } from './utils/pdfExport';
@@ -186,6 +189,9 @@ function App() {
     { id: 'transfer',                  label: 'Requisição',               icon: <FileSpreadsheet className="w-5 h-5" />, badge: stats.order, classes: G },
     { id: 'requisicao_v2',             label: 'Requisição V2',            icon: <ShoppingCart className="w-5 h-5" />,   classes: V },
     { id: 'daily_tracking',            label: 'Tracking Diário SV',       icon: <Activity className="w-5 h-5" />,       classes: V },
+    { id: 'avaliacao_fornecedores',    label: 'Avaliação Fornec.',        icon: <ShieldCheck className="w-5 h-5" />,    classes: V },
+    { id: 'ressuprimento',              label: 'Ressuprimento',             icon: <ShoppingCart className="w-5 h-5" />,   classes: V },
+    { id: 'supply',                    label: 'Supply',                    icon: <Package className="w-5 h-5" />,        classes: G },
   ] as const;
 
   if (!showApp) {
@@ -389,6 +395,21 @@ function App() {
         {activeTab === 'gerador_documentos' && (
           <div className="max-w-7xl mx-auto">
             <GeradorDocumentos />
+          </div>
+        )}
+        {activeTab === 'avaliacao_fornecedores' && (
+          <div className="max-w-full mx-auto">
+            <SupplierEvaluationCAF />
+          </div>
+        )}
+        {activeTab === 'ressuprimento' && (
+          <div className="max-w-7xl mx-auto">
+            <Ressuprimento />
+          </div>
+        )}
+        {activeTab === 'supply' && (
+          <div className="max-w-7xl mx-auto">
+            <Supply />
           </div>
         )}
       </motion.div>

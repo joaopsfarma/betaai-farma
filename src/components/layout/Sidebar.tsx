@@ -29,7 +29,10 @@ export type TabId =
   | 'previsibilidade_v2'
   | 'painel_caf_v2'
   | 'indicadores_logisticos'
-  | 'gerador_documentos';
+  | 'gerador_documentos'
+  | 'avaliacao_fornecedores'
+  | 'ressuprimento'
+  | 'supply';
 
 // Define the nav item structure with classes specific to Sidebar
 export interface NavItem {
