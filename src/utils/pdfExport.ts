@@ -264,3 +264,192 @@ export const exportInventoryToPDF = (
   drawPDFFooters(doc, color);
   doc.save('relatorio-estoque.pdf');
 };
+
+// ─── Supplier Evaluation Export ────────────────────────────────────────────────
+
+export const exportSupplierEvaluationPDF = (
+  displayData: any[],
+  metrics: { iqf: string; otd: string; div: string; val: string; conf: string; horario: string }
+) => {
+  const doc = new jsPDF('landscape');
+  const color = PDF_COLORS.indigo;
+
+  let currentY = drawPDFHeader(
+    doc,
+    'Painel de Performance dos Fornecedores',
+    'Avaliação consolidada de Qualidade, SLA e Prazos Logísticos',
+    color
+  );
+
+  const kpis = [
+    { label: 'Qualidade (IQF)', value: `${metrics.iqf}%`, color: PDF_COLORS.indigo },
+    { label: 'Entregas no Prazo (OTD)', value: `${metrics.otd}%`, color: PDF_COLORS.blue },
+    { label: 'Saúde Física (Conf.)', value: `${metrics.conf}%`, color: PDF_COLORS.emerald },
+    { label: 'Divergência Documental', value: `${metrics.div}%`, color: PDF_COLORS.orange },
+    { label: 'Risco de Validade', value: `${metrics.val}%`, color: PDF_COLORS.red },
+  ];
+
+  currentY = drawKPICards(doc, kpis, currentY);
+
+  const tableData = displayData.map(item => [
+    item.nome,
+    item.id,
+    item.nota !== null ? `${item.nota}` : '-',
+    item.mediaAtraso > 0 ? `${item.mediaAtraso.toFixed(1)}d` : '-',
+    item.otd !== null ? `${item.otd}%` : '-',
+    item.conformidade !== null ? `${item.conformidade}%` : '-',
+    item.divergencia !== null ? `${item.divergencia}%` : '-',
+    item.riscoValidade !== null ? `${item.riscoValidade}%` : '-',
+    item.nota === null ? 'SEM AVAL.' : item.nota >= 90 ? 'APROVADO' : item.nota >= 80 ? 'ATENÇÃO' : 'CRÍTICO'
+  ]);
+
+  autoTable(doc, {
+    startY: currentY + 4,
+    head: [['Fornecedor', 'Cód.', 'IQF', 'Média Atraso', 'OTD (%)', 'Conf. (%)', 'Diverg. (%)', 'Risco Val.', 'Status']],
+    body: tableData,
+    theme: 'grid',
+    margin: { left: 12, right: 12, bottom: 20 },
+    styles: {
+      fontSize: 7.5,
+      cellPadding: 3,
+      valign: 'middle',
+      overflow: 'linebreak',
+    },
+    headStyles: {
+      fillColor: color,
+      textColor: [255, 255, 255],
+      fontStyle: 'bold',
+      halign: 'center',
+    },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+    columnStyles: {
+      0: { cellWidth: 80, fontStyle: 'bold', textColor: [30, 41, 59] },
+      1: { cellWidth: 18, halign: 'center' },
+      2: { cellWidth: 15, halign: 'center', fontStyle: 'bold' },
+      3: { cellWidth: 22, halign: 'center' },
+      4: { cellWidth: 16, halign: 'center' },
+      5: { cellWidth: 16, halign: 'center' },
+      6: { cellWidth: 18, halign: 'center' },
+      7: { cellWidth: 20, halign: 'center' },
+      8: { cellWidth: 24, fontStyle: 'bold', halign: 'center' },
+    },
+    didParseCell(data) {
+      if (data.section === 'body') {
+        if (data.column.index === 8) {
+          const val = data.cell.raw as string;
+          if (val === 'CRÍTICO') data.cell.styles.textColor = [220, 38, 38];
+          else if (val === 'ATENÇÃO') data.cell.styles.textColor = [202, 138, 4];
+          else if (val === 'APROVADO') data.cell.styles.textColor = [22, 163, 74];
+        }
+        if (data.column.index === 2) {
+          const val = parseInt(data.cell.raw as string, 10);
+          if (!isNaN(val)) {
+             if (val < 80) data.cell.styles.textColor = [220, 38, 38];
+             else if (val < 90) data.cell.styles.textColor = [202, 138, 4];
+             else data.cell.styles.textColor = [22, 163, 74];
+          }
+        }
+      }
+    },
+  });
+
+  drawPDFFooters(doc, color);
+  doc.save('relatorio-fornecedores-srm.pdf');
+};
+
+// ─── Ressuprimento PDF ────────────────────────────────────────────────────────
+
+interface RessuprimentoItem {
+  id: string;
+  produto: string;
+  unidade: string;
+  mediaConsumo: number;
+  saldoAtual: number;
+  coberturaDias: number;
+  status: 'CRÍTICO' | 'ALERTA' | 'OK';
+  previsaoRuptura: string;
+  necessidadeCompra: number;
+  ocInfo?: { oc: string; quantidadeComprada: number; fornecedor: string; dataPrevista: string };
+}
+
+export const exportRessuprimentoPDF = (
+  data: RessuprimentoItem[],
+  filters: { status: string; search: string },
+) => {
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+
+  // Header
+  doc.setFillColor(79, 70, 229);
+  doc.rect(0, 0, 297, 20, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(13);
+  doc.setFont('helvetica', 'bold');
+  doc.text('RELATÓRIO DE RESSUPRIMENTO — INTELIGÊNCIA DE ESTOQUE', 14, 13);
+
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`FarmaIA  |  Gerado em ${new Date().toLocaleString('pt-BR')}  |  Filtro: ${filters.status}  |  Busca: ${filters.search || '—'}`, 14, 18);
+
+  // Summary row
+  const criticos = data.filter(d => d.status === 'CRÍTICO').length;
+  const alertas = data.filter(d => d.status === 'ALERTA').length;
+  const ok = data.filter(d => d.status === 'OK').length;
+  const necessidadeTotal = data.reduce((s, d) => s + d.necessidadeCompra, 0);
+
+  doc.setTextColor(30, 30, 30);
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'bold');
+  doc.text(
+    `Total: ${data.length}  |  Críticos: ${criticos}  |  Alertas: ${alertas}  |  OK: ${ok}  |  Necessidade Total: ${Math.round(necessidadeTotal)} un`,
+    14,
+    27,
+  );
+
+  autoTable(doc, {
+    startY: 31,
+    head: [['ID', 'Produto / Unidade', 'Consumo/dia', 'Saldo', 'Cobertura (d)', 'Status', 'Previsão', 'Necessidade', 'OC']],
+    body: data.map(d => [
+      d.id,
+      `${d.produto} (${d.unidade})`,
+      d.mediaConsumo.toFixed(2),
+      d.saldoAtual.toFixed(0),
+      d.coberturaDias.toFixed(2),
+      d.status,
+      d.previsaoRuptura,
+      d.necessidadeCompra.toFixed(0),
+      d.ocInfo ? `OC ${d.ocInfo.oc}\n${d.ocInfo.quantidadeComprada} un\n${d.ocInfo.dataPrevista}` : 'Sem OC',
+    ]),
+    headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: 'bold', fontSize: 8 },
+    bodyStyles: { fontSize: 7, cellPadding: 2 },
+    alternateRowStyles: { fillColor: [248, 249, 250] },
+    columnStyles: {
+      0: { cellWidth: 16 },
+      1: { cellWidth: 78 },
+      2: { cellWidth: 22, halign: 'right' },
+      3: { cellWidth: 18, halign: 'right' },
+      4: { cellWidth: 22, halign: 'right' },
+      5: { cellWidth: 18, halign: 'center' },
+      6: { cellWidth: 22, halign: 'center' },
+      7: { cellWidth: 22, halign: 'right' },
+      8: { cellWidth: 32 },
+    },
+    didParseCell(hookData) {
+      if (hookData.section === 'body' && hookData.column.index === 5) {
+        const val = hookData.cell.raw as string;
+        if (val === 'CRÍTICO') { hookData.cell.styles.textColor = [220, 38, 38]; hookData.cell.styles.fontStyle = 'bold'; }
+        else if (val === 'ALERTA') { hookData.cell.styles.textColor = [217, 119, 6]; hookData.cell.styles.fontStyle = 'bold'; }
+        else { hookData.cell.styles.textColor = [5, 150, 105]; }
+      }
+    },
+  });
+
+  const pageCount = (doc as any).internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(7);
+    doc.setTextColor(150);
+    doc.text(`Página ${i} de ${pageCount}`, 283, 205, { align: 'right' });
+  }
+
+  doc.save('relatorio-ressuprimento.pdf');
+};
