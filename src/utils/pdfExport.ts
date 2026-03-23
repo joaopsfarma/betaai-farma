@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { ProcessedProduct } from '../types';
+import { getRiscoAssistencial } from './riscoAssistencial';
 
 export type PDFAccentColor = [number, number, number];
 
@@ -452,4 +453,424 @@ export const exportRessuprimentoPDF = (
   }
 
   doc.save('relatorio-ressuprimento.pdf');
+};
+
+// ─── PAINEL CAF V2 ───────────────────────────────────────────────────────────
+
+function _riscoColor(label: string): [number, number, number] {
+  if (label === 'Crítico') return [220, 38, 38];
+  if (label === 'Alto')    return [234, 88, 12];
+  if (label === 'Médio')   return [217, 119, 6];
+  return [100, 116, 139];
+}
+
+interface PainelCAFV2Params {
+  criticoSemOC: { id: string; nome: string; saldo: number; media: number; proj: number; status: string }[];
+  rupturaSemCob: { id: string; nome: string; estoque: number; lotes: { lote: string }[] }[];
+  ocUrgentes: { dataPrevista: string; oc: string; nomeProduto: string; qtComprada: number; qtRecebida: number; qtDiferenca: number; ocStatus: string }[];
+  lotesVenc: { id: string; nome: string; estoque: number; menorDiasVenc: number; lotes: { lote: string; validade: string; diasVenc: number }[] }[];
+  kpis: {
+    totalPainel: number;
+    semEstoque: number;
+    criticos: number;
+    atencao: number;
+    criticoSemOC: number;
+    rupturaSemCob: number;
+  };
+}
+
+export const exportPainelCAFV2PDF = ({ criticoSemOC, rupturaSemCob, ocUrgentes, lotesVenc, kpis }: PainelCAFV2Params): void => {
+  const doc = new jsPDF({ orientation: 'landscape', format: 'a4' });
+  const color = PDF_COLORS.blue;
+  const pageWidth = doc.internal.pageSize.width;
+
+  let y = drawPDFHeader(doc, 'PAINEL CAF V2 — ALERTAS', `FarmaIA  |  Gerado em ${new Date().toLocaleString('pt-BR')}`, color);
+
+  // KPI cards
+  const kpiCards = [
+    { label: 'Total no Painel', value: kpis.totalPainel.toString(), color: [79, 70, 229] as [number, number, number] },
+    { label: 'Sem Estoque',     value: kpis.semEstoque.toString(),   color: [220, 38, 38] as [number, number, number] },
+    { label: 'Críticos ≤3d',   value: kpis.criticos.toString(),     color: [239, 68, 68] as [number, number, number] },
+    { label: 'Em Atenção ≤7d', value: kpis.atencao.toString(),      color: [217, 119, 6] as [number, number, number] },
+    { label: 'Críticos s/ OC', value: kpis.criticoSemOC.toString(), color: [220, 38, 38] as [number, number, number] },
+    { label: 'Ruptura s/ OC',  value: kpis.rupturaSemCob.toString(),color: [239, 68, 68] as [number, number, number] },
+  ];
+
+  const cardW = (pageWidth - 24) / kpiCards.length;
+  kpiCards.forEach((k, i) => {
+    const x = 12 + i * cardW;
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(x, y, cardW - 4, 22, 3, 3, 'F');
+    doc.setFontSize(6.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...k.color);
+    doc.text(k.value, x + (cardW - 4) / 2, y + 10, { align: 'center' });
+    doc.setFontSize(6);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text(k.label, x + (cardW - 4) / 2, y + 17, { align: 'center' });
+  });
+  y += 28;
+
+  // Section: Críticos sem OC
+  if (criticoSemOC.length > 0) {
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(220, 38, 38);
+    doc.text(`🔴 Itens Críticos sem Reposição em OC (${criticoSemOC.length})`, 12, y);
+    y += 4;
+
+    autoTable(doc, {
+      startY: y,
+      head: [['Cód.', 'Produto', 'Saldo', 'Média', 'Proj.', 'Status', 'Risco', 'Impacto Assistencial']],
+      body: criticoSemOC.map(c => {
+        const risco = getRiscoAssistencial(c.nome);
+        return [
+          c.id,
+          c.nome,
+          c.saldo.toLocaleString('pt-BR'),
+          c.media.toFixed(1),
+          c.proj > 0 ? c.proj.toFixed(1) + 'd' : '—',
+          c.status === 'SEM_ESTOQUE' ? 'Sem Estoque' : c.status === 'CRÍTICO' ? 'Crítico ≤3d' : c.status,
+          risco.label,
+          risco.impacto,
+        ];
+      }),
+      styles: { fontSize: 6.5, cellPadding: 2.5, overflow: 'linebreak' },
+      headStyles: { fillColor: color, textColor: 255, fontStyle: 'bold', fontSize: 6.5 },
+      columnStyles: { 0: { cellWidth: 14 }, 1: { cellWidth: 58 }, 2: { cellWidth: 14, halign: 'right' }, 3: { cellWidth: 14, halign: 'right' }, 4: { cellWidth: 14, halign: 'right' }, 5: { cellWidth: 22 }, 6: { cellWidth: 16 }, 7: { cellWidth: 'auto', fontSize: 6 } },
+      alternateRowStyles: { fillColor: [255, 241, 242] },
+      margin: { left: 12, right: 12, bottom: 20 },
+      didParseCell: (hookData) => {
+        if (hookData.section === 'body') {
+          if (hookData.column.index === 5) {
+            const v = String(hookData.cell.raw);
+            if (v.includes('Crítico') || v === 'Sem Estoque') { hookData.cell.styles.textColor = [220, 38, 38]; hookData.cell.styles.fontStyle = 'bold'; }
+          }
+          if (hookData.column.index === 6) {
+            hookData.cell.styles.textColor = _riscoColor(String(hookData.cell.raw));
+            hookData.cell.styles.fontStyle = 'bold';
+          }
+        }
+      },
+    });
+
+    y = (doc as any).lastAutoTable.finalY + 10;
+  }
+
+  // Section: Ruptura sem cobertura
+  if (rupturaSemCob.length > 0) {
+    if (y > doc.internal.pageSize.height - 40) { doc.addPage(); y = 20; }
+
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(220, 38, 38);
+    doc.text(`🚨 Ruptura sem Cobertura — sem estoque e sem OC pendente (${rupturaSemCob.length})`, 12, y);
+    y += 4;
+
+    autoTable(doc, {
+      startY: y,
+      head: [['Cód.', 'Produto', 'Estoque', 'Lotes', 'Risco', 'Impacto Assistencial']],
+      body: rupturaSemCob.map(p => {
+        const risco = getRiscoAssistencial(p.nome);
+        return [
+          p.id,
+          p.nome,
+          '0',
+          p.lotes.length > 0 ? `${p.lotes.length} lote(s)` : '—',
+          risco.label,
+          risco.impacto,
+        ];
+      }),
+      styles: { fontSize: 6.5, cellPadding: 2.5, overflow: 'linebreak' },
+      headStyles: { fillColor: [220, 38, 38] as [number,number,number], textColor: 255, fontStyle: 'bold', fontSize: 6.5 },
+      columnStyles: { 0: { cellWidth: 14 }, 1: { cellWidth: 62 }, 2: { cellWidth: 16, halign: 'right' }, 3: { cellWidth: 20, halign: 'center' }, 4: { cellWidth: 16 }, 5: { cellWidth: 'auto', fontSize: 6 } },
+      alternateRowStyles: { fillColor: [254, 242, 242] },
+      margin: { left: 12, right: 12, bottom: 20 },
+      didParseCell: (hookData) => {
+        if (hookData.section === 'body' && hookData.column.index === 4) {
+          hookData.cell.styles.textColor = _riscoColor(String(hookData.cell.raw));
+          hookData.cell.styles.fontStyle = 'bold';
+        }
+      },
+    });
+  }
+
+  // Section: OC Urgentes
+  if (ocUrgentes.length > 0) {
+    y = (doc as any).lastAutoTable?.finalY ?? y;
+    y += 10;
+    if (y > doc.internal.pageSize.height - 40) { doc.addPage(); y = 20; }
+
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(217, 119, 6);
+    doc.text(`OC Nao Atendidas — produto zerado aguardando entrega (${ocUrgentes.length})`, 12, y);
+    y += 4;
+
+    autoTable(doc, {
+      startY: y,
+      head: [['Data', 'OC', 'Produto', 'Comp.', 'Rec.', 'Dif.', 'Status', 'Risco', 'Impacto Assistencial']],
+      body: ocUrgentes.map(o => {
+        const risco = getRiscoAssistencial(o.nomeProduto);
+        return [
+          o.dataPrevista,
+          o.oc || '—',
+          o.nomeProduto,
+          o.qtComprada.toLocaleString('pt-BR'),
+          o.qtRecebida.toLocaleString('pt-BR'),
+          o.qtDiferenca.toLocaleString('pt-BR'),
+          o.qtRecebida > 0 ? 'Parcial' : 'Pendente',
+          risco.label,
+          risco.impacto,
+        ];
+      }),
+      styles: { fontSize: 6.5, cellPadding: 2.5, overflow: 'linebreak' },
+      headStyles: { fillColor: [217, 119, 6] as [number,number,number], textColor: 255, fontStyle: 'bold', fontSize: 6.5 },
+      columnStyles: { 0: { cellWidth: 18 }, 1: { cellWidth: 14 }, 2: { cellWidth: 50 }, 3: { cellWidth: 14, halign: 'right' }, 4: { cellWidth: 14, halign: 'right' }, 5: { cellWidth: 14, halign: 'right' }, 6: { cellWidth: 20 }, 7: { cellWidth: 16 }, 8: { cellWidth: 'auto', fontSize: 6 } },
+      alternateRowStyles: { fillColor: [255, 251, 235] },
+      margin: { left: 12, right: 12, bottom: 20 },
+      didParseCell: (hookData) => {
+        if (hookData.section === 'body') {
+          if (hookData.column.index === 5) {
+            hookData.cell.styles.textColor = [217, 119, 6];
+            hookData.cell.styles.fontStyle = 'bold';
+          }
+          if (hookData.column.index === 7) {
+            hookData.cell.styles.textColor = _riscoColor(String(hookData.cell.raw));
+            hookData.cell.styles.fontStyle = 'bold';
+          }
+        }
+      },
+    });
+    y = (doc as any).lastAutoTable.finalY + 10;
+  }
+
+  // Section: Lotes Vencendo
+  if (lotesVenc.length > 0) {
+    if (y > doc.internal.pageSize.height - 40) { doc.addPage(); y = 20; }
+
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(217, 119, 6);
+    doc.text(`Produtos com Lotes Vencendo <=90 dias (${lotesVenc.length})`, 12, y);
+    y += 4;
+
+    autoTable(doc, {
+      startY: y,
+      head: [['Cód.', 'Produto', 'Estoque', 'Nº Lote', 'Vencimento', 'Dias', 'Urgência']],
+      body: lotesVenc.map(p => {
+        const vl = p.lotes.find((l: any) => l.diasVenc === p.menorDiasVenc);
+        const urg = p.menorDiasVenc <= 30 ? 'Urgente' : p.menorDiasVenc <= 60 ? 'Atenção' : 'Monitorar';
+        return [p.id, p.nome, p.estoque.toLocaleString('pt-BR'), vl?.lote || '—', vl?.validade || '—', `${p.menorDiasVenc}d`, urg];
+      }),
+      styles: { fontSize: 7, cellPadding: 3 },
+      headStyles: { fillColor: [217, 119, 6] as [number,number,number], textColor: 255, fontStyle: 'bold', fontSize: 7 },
+      columnStyles: { 0: { cellWidth: 16 }, 1: { cellWidth: 'auto' }, 2: { cellWidth: 18, halign: 'right' }, 3: { cellWidth: 24 }, 4: { cellWidth: 22 }, 5: { cellWidth: 16, halign: 'right' }, 6: { cellWidth: 22 } },
+      alternateRowStyles: { fillColor: [255, 251, 235] },
+      didParseCell: (hookData) => {
+        if (hookData.section === 'body' && hookData.column.index === 6) {
+          const v = String(hookData.cell.raw);
+          hookData.cell.styles.textColor = v === 'Urgente' ? [220, 38, 38] : v === 'Atenção' ? [234, 88, 12] : [217, 119, 6];
+          hookData.cell.styles.fontStyle = 'bold';
+        }
+      },
+    });
+  }
+
+  drawPDFFooters(doc, color);
+  doc.save('painel-caf-v2-alertas.pdf');
+};
+
+// ─── Indicadores Logísticos PDF ───────────────────────────────────────────────
+
+interface IndicadoresLogisticosParams {
+  kpis: {
+    taxaAc: number; okAc: number; divergentes: number;
+    totalBaixas: number; pctValidade: number; vlValidade: number;
+    venc90: number; vencidos: number; vlVencendo: number;
+    totalEstoqueVal: number; classeAVal: number; classeACount: number;
+  };
+  filesLoaded: {
+    baixas: boolean; acuracidade: boolean;
+    abcConsumo: boolean; abcEstoque: boolean; validade: boolean;
+  };
+  baixasData: { produto: string; motivo: string; total: number; data: string; estoque: string }[];
+  abcEstoqueData: { cod: string; nome: string; classe: string; custoTotal: number; estoque: string }[];
+  validadeData: { nome: string; lote: string; validade: string; diasVenc: number; vlTotal: number; quantidade: number }[];
+}
+
+export const exportIndicadoresLogisticosPDF = ({
+  kpis, filesLoaded, baixasData, abcEstoqueData, validadeData,
+}: IndicadoresLogisticosParams): void => {
+  const doc = new jsPDF({ orientation: 'landscape', format: 'a4' });
+  const color = PDF_COLORS.indigo;
+
+  const fmtBRL = (n: number) => `R$ ${n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  // ── Header ──────────────────────────────────────────────────────────────
+  let y = drawPDFHeader(
+    doc,
+    'Indicadores Logísticos — Farmácia Hospitalar',
+    'Acuracidade · Baixas · Curva ABC · Controle de Validade',
+    color,
+  );
+
+  // ── KPI Row ─────────────────────────────────────────────────────────────
+  const kpiCards = [
+    { label: 'Acuracidade', value: filesLoaded.acuracidade ? `${kpis.taxaAc.toFixed(1)}%` : 'N/D', color: kpis.taxaAc < 80 ? PDF_COLORS.red : PDF_COLORS.indigo },
+    { label: 'Total Baixas', value: filesLoaded.baixas ? fmtBRL(kpis.totalBaixas) : 'N/D', color: PDF_COLORS.red },
+    { label: 'Baixas Validade', value: filesLoaded.baixas ? `${kpis.pctValidade.toFixed(1)}%` : 'N/D', color: kpis.pctValidade > 30 ? PDF_COLORS.orange : PDF_COLORS.amber },
+    { label: 'Vencendo 90d', value: filesLoaded.validade ? `${kpis.venc90} itens` : 'N/D', color: kpis.vencidos > 0 ? PDF_COLORS.red : PDF_COLORS.purple },
+    { label: 'Estoque Total', value: filesLoaded.abcEstoque ? fmtBRL(kpis.totalEstoqueVal) : 'N/D', color: PDF_COLORS.teal },
+    { label: 'Itens Classe A', value: filesLoaded.abcEstoque ? `${kpis.classeACount}` : 'N/D', color: PDF_COLORS.emerald },
+  ];
+
+  y = drawKPICards(doc, kpiCards, y);
+  y += 6;
+
+  // ── Section 1: Baixas por Produto (top 20) ───────────────────────────────
+  if (filesLoaded.baixas && baixasData.length > 0) {
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...color);
+    doc.text('BAIXAS DE ESTOQUE — TOP 20 POR VALOR', 12, y);
+    y += 2;
+
+    const top20 = [...baixasData].sort((a, b) => b.total - a.total).slice(0, 20);
+
+    autoTable(doc, {
+      startY: y,
+      head: [['Produto', 'Motivo', 'Estoque', 'Data', 'Valor (R$)']],
+      body: top20.map(b => [
+        b.produto,
+        b.motivo,
+        b.estoque,
+        b.data,
+        b.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 }),
+      ]),
+      theme: 'grid',
+      margin: { left: 12, right: 12, bottom: 20 },
+      styles: { fontSize: 7, cellPadding: 2.5, valign: 'middle', overflow: 'linebreak' },
+      headStyles: { fillColor: color, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.5 },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      columnStyles: {
+        0: { cellWidth: 80, fontStyle: 'bold' },
+        1: { cellWidth: 60 },
+        2: { cellWidth: 32, halign: 'center' },
+        3: { cellWidth: 24, halign: 'center' },
+        4: { cellWidth: 'auto', halign: 'right', fontStyle: 'bold' },
+      },
+    });
+
+    y = (doc as any).lastAutoTable.finalY + 10;
+  }
+
+  // ── Section 2: Itens Vencidos / Vencendo (top 20) ────────────────────────
+  if (filesLoaded.validade && validadeData.length > 0) {
+    if (y > doc.internal.pageSize.height - 50) { doc.addPage(); y = 20; }
+
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(220, 38, 38);
+    doc.text('CONTROLE DE VALIDADE — ITENS CRÍTICOS (TOP 20)', 12, y);
+    y += 2;
+
+    const criticos = [...validadeData]
+      .filter(i => i.diasVenc < 90)
+      .sort((a, b) => a.diasVenc - b.diasVenc)
+      .slice(0, 20);
+
+    autoTable(doc, {
+      startY: y,
+      head: [['Produto', 'Lote', 'Validade', 'Dias p/ Vencer', 'Qtd', 'Valor (R$)', 'Status']],
+      body: criticos.map(i => {
+        const isVencido = i.diasVenc < 0;
+        const isUrgente = i.diasVenc >= 0 && i.diasVenc <= 30;
+        const status = isVencido ? 'VENCIDO' : isUrgente ? 'URGENTE' : 'ATENÇÃO';
+        return [
+          i.nome,
+          i.lote,
+          i.validade,
+          isVencido ? `${Math.abs(i.diasVenc)}d atrás` : `${i.diasVenc}d`,
+          i.quantidade.toLocaleString('pt-BR'),
+          i.vlTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 }),
+          status,
+        ];
+      }),
+      theme: 'grid',
+      margin: { left: 12, right: 12, bottom: 20 },
+      styles: { fontSize: 7, cellPadding: 2.5, valign: 'middle', overflow: 'linebreak' },
+      headStyles: { fillColor: [220, 38, 38] as [number, number, number], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.5 },
+      alternateRowStyles: { fillColor: [255, 247, 247] },
+      columnStyles: {
+        0: { cellWidth: 80, fontStyle: 'bold' },
+        1: { cellWidth: 28 },
+        2: { cellWidth: 24, halign: 'center' },
+        3: { cellWidth: 26, halign: 'center', fontStyle: 'bold' },
+        4: { cellWidth: 18, halign: 'right' },
+        5: { cellWidth: 32, halign: 'right', fontStyle: 'bold' },
+        6: { cellWidth: 'auto', halign: 'center', fontStyle: 'bold' },
+      },
+      didParseCell: (hookData) => {
+        if (hookData.section === 'body' && hookData.column.index === 6) {
+          const val = String(hookData.cell.raw);
+          if (val === 'VENCIDO') hookData.cell.styles.textColor = [220, 38, 38];
+          else if (val === 'URGENTE') hookData.cell.styles.textColor = [234, 88, 12];
+          else hookData.cell.styles.textColor = [202, 138, 4];
+          hookData.cell.styles.fontStyle = 'bold';
+        }
+      },
+    });
+
+    y = (doc as any).lastAutoTable.finalY + 10;
+  }
+
+  // ── Section 3: Curva ABC — Classe A (top 20 por valor) ───────────────────
+  if (filesLoaded.abcEstoque && abcEstoqueData.length > 0) {
+    if (y > doc.internal.pageSize.height - 50) { doc.addPage(); y = 20; }
+
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...PDF_COLORS.teal);
+    doc.text('CURVA ABC — ITENS CLASSE A (TOP 20 POR VALOR)', 12, y);
+    y += 2;
+
+    const classeA = [...abcEstoqueData]
+      .filter(i => i.classe === 'A')
+      .sort((a, b) => b.custoTotal - a.custoTotal)
+      .slice(0, 20);
+
+    autoTable(doc, {
+      startY: y,
+      head: [['Cód.', 'Produto', 'Classe', 'Estoque', 'Valor Total (R$)']],
+      body: classeA.map(i => [
+        i.cod,
+        i.nome,
+        i.classe,
+        i.estoque,
+        i.custoTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 }),
+      ]),
+      theme: 'grid',
+      margin: { left: 12, right: 12, bottom: 20 },
+      styles: { fontSize: 7, cellPadding: 2.5, valign: 'middle', overflow: 'linebreak' },
+      headStyles: { fillColor: PDF_COLORS.teal, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.5 },
+      alternateRowStyles: { fillColor: [240, 253, 250] },
+      columnStyles: {
+        0: { cellWidth: 20, halign: 'center' },
+        1: { cellWidth: 'auto', fontStyle: 'bold' },
+        2: { cellWidth: 16, halign: 'center', fontStyle: 'bold' },
+        3: { cellWidth: 28, halign: 'center' },
+        4: { cellWidth: 44, halign: 'right', fontStyle: 'bold' },
+      },
+      didParseCell: (hookData) => {
+        if (hookData.section === 'body' && hookData.column.index === 2) {
+          hookData.cell.styles.textColor = [220, 38, 38];
+        }
+      },
+    });
+  }
+
+  drawPDFFooters(doc, color);
+  doc.save(`indicadores-logisticos-${new Date().toISOString().split('T')[0]}.pdf`);
 };
