@@ -532,8 +532,28 @@ export const IndicadoresLogisticos: React.FC = () => {
     return Array.from(map.entries())
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value)
-      .slice(0, 8);
+      .slice(0, 10);
   }, [baixasData]);
+
+  const top10BaixasPorProduto = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const b of baixasData) {
+      const p = b.produto || 'Desconhecido';
+      map.set(p, (map.get(p) || 0) + b.total);
+    }
+    return Array.from(map.entries())
+      .map(([nome, valor]) => ({ nome, valor }))
+      .sort((a, b) => b.valor - a.valor)
+      .slice(0, 10);
+  }, [baixasData]);
+
+  const top10Divergencias = useMemo(() => {
+    return [...acuracidadeData]
+      .map(i => ({ ...i, div: Math.abs(i.contagemQtd - i.saldoInicial) }))
+      .filter(i => i.div > 0)
+      .sort((a, b) => b.div - a.div)
+      .slice(0, 10);
+  }, [acuracidadeData]);
 
   const baixasByMonth = useMemo(() => {
     const map = new Map<string, number>();
@@ -932,6 +952,30 @@ export const IndicadoresLogisticos: React.FC = () => {
               ))}
             </div>
           )}
+
+          {/* Top 10 Produtos — Baixas */}
+          {filesLoaded.baixas && top10BaixasPorProduto.length > 0 && (
+            <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 16, padding: 20 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 16 }}>Top 10 Produtos — Baixas (R$)</h3>
+              {top10BaixasPorProduto.map((item, i) => {
+                const posBg = i === 0 ? '#f59e0b' : i === 1 ? '#94a3b8' : i === 2 ? '#d97706' : '#e2e8f0';
+                const posColor = i < 3 ? '#fff' : '#64748b';
+                const maxValor = top10BaixasPorProduto[0].valor;
+                return (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                    <div style={{ width: 24, height: 24, borderRadius: '50%', background: posBg, color: posColor, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{i + 1}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#334155', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.nome}</div>
+                      <div style={{ height: 4, borderRadius: 2, background: '#f1f5f9', marginTop: 3, overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${(item.valor / maxValor) * 100}%`, borderRadius: 2, background: '#ef4444' }} />
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#dc2626', whiteSpace: 'nowrap' }}>{fmtBRL(item.valor)}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -967,6 +1011,48 @@ export const IndicadoresLogisticos: React.FC = () => {
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* Top 10 Maiores Divergências */}
+          {top10Divergencias.length > 0 && (
+            <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 16, padding: 20, marginBottom: 20 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 14 }}>Top 10 — Maiores Divergências</h3>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr>
+                      <th style={{ ...thStyle, width: 40, textAlign: 'center' }}>#</th>
+                      <th style={thStyle}>Produto</th>
+                      <th style={thStyle}>Estoque</th>
+                      <th style={{ ...thStyle, textAlign: 'right' }}>Saldo</th>
+                      <th style={{ ...thStyle, textAlign: 'right' }}>Contagem</th>
+                      <th style={{ ...thStyle, textAlign: 'right' }}>Divergência</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {top10Divergencias.map((item, i) => {
+                      const rawDiv = item.contagemQtd - item.saldoInicial;
+                      const posBg = i === 0 ? '#f59e0b' : i === 1 ? '#94a3b8' : i === 2 ? '#d97706' : '#e2e8f0';
+                      const posColor = i < 3 ? '#fff' : '#64748b';
+                      return (
+                        <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
+                          <td style={{ ...tdStyle, textAlign: 'center' }}>
+                            <div style={{ width: 24, height: 24, borderRadius: '50%', background: posBg, color: posColor, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>{i + 1}</div>
+                          </td>
+                          <td style={{ ...tdStyle, maxWidth: 260 }}>{item.nome}</td>
+                          <td style={{ ...tdStyle, fontSize: 12 }}>{item.estoque}</td>
+                          <td style={{ ...tdStyle, textAlign: 'right' }}>{fmtNum(item.saldoInicial, 0)}</td>
+                          <td style={{ ...tdStyle, textAlign: 'right' }}>{fmtNum(item.contagemQtd, 0)}</td>
+                          <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 700, color: rawDiv > 0 ? '#2563eb' : '#dc2626' }}>
+                            {rawDiv > 0 ? '+' : ''}{fmtNum(rawDiv, 0)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
 
@@ -1050,9 +1136,9 @@ export const IndicadoresLogisticos: React.FC = () => {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20, marginBottom: 20 }}>
             {baixasByMotivo.length > 0 && (
               <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 16, padding: 20 }}>
-                <h3 style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 16 }}>Top Motivos por Valor (R$)</h3>
-                <ResponsiveContainer width="100%" height={260}>
-                  <BarChart data={baixasByMotivo.slice(0, 6)} layout="vertical" margin={{ top: 4, right: 40, bottom: 4, left: 200 }}>
+                <h3 style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 16 }}>Top 10 Motivos por Valor (R$)</h3>
+                <ResponsiveContainer width="100%" height={Math.max(260, baixasByMotivo.length * 36)}>
+                  <BarChart data={baixasByMotivo.slice(0, 10)} layout="vertical" margin={{ top: 4, right: 40, bottom: 4, left: 200 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
                     <XAxis type="number" tickFormatter={v => `${(v / 1e3).toFixed(0)}k`} tick={{ fontSize: 10 }} />
                     <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={195} />
@@ -1060,6 +1146,28 @@ export const IndicadoresLogisticos: React.FC = () => {
                     <Bar dataKey="value" fill="#ef4444" radius={[0, 6, 6, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
+              </div>
+            )}
+            {top10BaixasPorProduto.length > 0 && (
+              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 16, padding: 20 }}>
+                <h3 style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 16 }}>Top 10 Produtos — Maior Valor de Baixas (R$)</h3>
+                {top10BaixasPorProduto.map((item, i) => {
+                  const posBg = i === 0 ? '#f59e0b' : i === 1 ? '#94a3b8' : i === 2 ? '#d97706' : '#e2e8f0';
+                  const posColor = i < 3 ? '#fff' : '#64748b';
+                  const maxValor = top10BaixasPorProduto[0].valor;
+                  return (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                      <div style={{ width: 24, height: 24, borderRadius: '50%', background: posBg, color: posColor, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{i + 1}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: '#334155', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.nome}</div>
+                        <div style={{ height: 4, borderRadius: 2, background: '#f1f5f9', marginTop: 3, overflow: 'hidden' }}>
+                          <div style={{ height: '100%', width: `${(item.valor / maxValor) * 100}%`, borderRadius: 2, background: '#ef4444' }} />
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: '#dc2626', whiteSpace: 'nowrap' }}>{fmtBRL(item.valor)}</div>
+                    </div>
+                  );
+                })}
               </div>
             )}
             {baixasByMonth.length > 0 && (
@@ -1185,6 +1293,55 @@ export const IndicadoresLogisticos: React.FC = () => {
             })}
           </div>
 
+          {/* Top 10 por Valor */}
+          {filteredABC.length > 0 && (() => {
+            const top10ABC = [...filteredABC]
+              .sort((a, b) => {
+                const va = abcSource === 'estoque' ? (a as ABCEstoqueItem).custoTotal : (a as ABCConsumoItem).vlCusto;
+                const vb = abcSource === 'estoque' ? (b as ABCEstoqueItem).custoTotal : (b as ABCConsumoItem).vlCusto;
+                return vb - va;
+              })
+              .slice(0, 10);
+            const label = abcFilter === 'ALL' ? (abcSource === 'estoque' ? 'Estoque' : 'Consumo') : `Classe ${abcFilter} — ${abcSource === 'estoque' ? 'Estoque' : 'Consumo'}`;
+            return (
+              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 16, padding: 20, marginBottom: 20 }}>
+                <h3 style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 14 }}>Top 10 — Maior Valor ({label})</h3>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr>
+                        <th style={{ ...thStyle, width: 40, textAlign: 'center' }}>#</th>
+                        <th style={{ ...thStyle, textAlign: 'center', width: 60 }}>Classe</th>
+                        <th style={thStyle}>Produto</th>
+                        <th style={{ ...thStyle, textAlign: 'right' }}>Valor (R$)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {top10ABC.map((item, i) => {
+                        const c = ABC_COLORS[item.classe] || ABC_COLORS['C'];
+                        const posBg = i === 0 ? '#f59e0b' : i === 1 ? '#94a3b8' : i === 2 ? '#d97706' : '#e2e8f0';
+                        const posColor = i < 3 ? '#fff' : '#64748b';
+                        const valor = abcSource === 'estoque' ? (item as ABCEstoqueItem).custoTotal : (item as ABCConsumoItem).vlCusto;
+                        return (
+                          <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
+                            <td style={{ ...tdStyle, textAlign: 'center' }}>
+                              <div style={{ width: 24, height: 24, borderRadius: '50%', background: posBg, color: posColor, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>{i + 1}</div>
+                            </td>
+                            <td style={{ ...tdStyle, textAlign: 'center' }}>
+                              <span style={{ display: 'inline-block', padding: '2px 10px', borderRadius: 20, fontSize: 12, fontWeight: 800, background: c.bg, color: c.text, border: `1px solid ${c.border}` }}>{item.classe}</span>
+                            </td>
+                            <td style={tdStyle}>{item.nome}</td>
+                            <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 700 }}>{fmtBRL(valor)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })()}
+
           <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 16, overflow: 'hidden' }}>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -1253,6 +1410,62 @@ export const IndicadoresLogisticos: React.FC = () => {
               </ResponsiveContainer>
             </div>
           )}
+
+          {/* Top 10 Itens Mais Urgentes */}
+          {validadeData.length > 0 && (() => {
+            const top10Valid = [...validadeData]
+              .sort((a, b) => a.diasVenc - b.diasVenc)
+              .slice(0, 10);
+            return (
+              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 16, padding: 20, marginBottom: 20 }}>
+                <h3 style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 14 }}>Top 10 — Itens Mais Urgentes</h3>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr>
+                        <th style={{ ...thStyle, width: 40, textAlign: 'center' }}>#</th>
+                        <th style={thStyle}>Produto</th>
+                        <th style={thStyle}>Lote</th>
+                        <th style={{ ...thStyle, textAlign: 'center' }}>Validade</th>
+                        <th style={{ ...thStyle, textAlign: 'center' }}>Dias</th>
+                        <th style={{ ...thStyle, textAlign: 'right' }}>Valor (R$)</th>
+                        <th style={{ ...thStyle, textAlign: 'center' }}>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {top10Valid.map((item, i) => {
+                        const isVencido = item.diasVenc < 0;
+                        const isUrgente = item.diasVenc >= 0 && item.diasVenc <= 30;
+                        const isAtencao = item.diasVenc > 30 && item.diasVenc <= 90;
+                        const statusColor = isVencido ? '#dc2626' : isUrgente ? '#ea580c' : isAtencao ? '#d97706' : '#16a34a';
+                        const statusBg = isVencido ? '#fef2f2' : isUrgente ? '#fff7ed' : isAtencao ? '#fffbeb' : '#f0fdf4';
+                        const statusLabel = isVencido ? 'Vencido' : isUrgente ? 'Urgente' : isAtencao ? 'Atenção' : 'OK';
+                        const posBg = i === 0 ? '#f59e0b' : i === 1 ? '#94a3b8' : i === 2 ? '#d97706' : '#e2e8f0';
+                        const posColor = i < 3 ? '#fff' : '#64748b';
+                        return (
+                          <tr key={i} style={{ background: isVencido ? '#fff5f5' : i % 2 === 0 ? '#fff' : '#fafafa' }}>
+                            <td style={{ ...tdStyle, textAlign: 'center' }}>
+                              <div style={{ width: 24, height: 24, borderRadius: '50%', background: posBg, color: posColor, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>{i + 1}</div>
+                            </td>
+                            <td style={{ ...tdStyle, maxWidth: 220 }}>{item.nome}</td>
+                            <td style={{ ...tdStyle, fontSize: 12, fontFamily: 'monospace', color: '#475569' }}>{item.lote}</td>
+                            <td style={{ ...tdStyle, textAlign: 'center', fontSize: 12 }}>{item.validade}</td>
+                            <td style={{ ...tdStyle, textAlign: 'center', fontWeight: 700, color: statusColor }}>
+                              {item.diasVenc < 9999 ? (item.diasVenc < 0 ? `${Math.abs(item.diasVenc)}d atrás` : `${item.diasVenc}d`) : '—'}
+                            </td>
+                            <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600 }}>{fmtBRL(item.vlTotal)}</td>
+                            <td style={{ ...tdStyle, textAlign: 'center' }}>
+                              <span style={{ display: 'inline-block', padding: '2px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: statusBg, color: statusColor }}>{statusLabel}</span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Filters */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>

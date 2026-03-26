@@ -36,6 +36,14 @@ interface TransferenciaItem {
   valorTotal: number;
   categoria: CategoriaProduto;
   risco: RiscoInfo;
+  isRiskRedistribution?: boolean;
+}
+
+interface ConsumoItem {
+  id: string;
+  produto: string;
+  consumoMes: number;
+  valorUnit: number;
 }
 
 interface LoteItem {
@@ -54,11 +62,17 @@ interface AEvitarItem extends LoteItem {
   urgencia: 'VENCIDO' | 'CRÍTICO' | 'ALERTA' | 'ATENÇÃO';
 }
 
-type SubTab = 'dashboard' | 'baixas' | 'a_evitar' | 'transferencias' | 'lotes';
+type SubTab = 'dashboard' | 'baixas' | 'a_evitar' | 'transferencias' | 'lotes' | 'consumo';
 
 // ── Utils ──────────────────────────────────────────────────────────────────────
 const norm = (s: string) =>
   (s || '').trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Z0-9]/g, '');
+
+const normId = (s: string) => {
+  const t = (s || '').trim();
+  if (/^\d+$/.test(t)) return t.replace(/^0+/, '') || '0';
+  return t;
+};
 
 function parseCSVLine(line: string, sep = ','): string[] {
   const result: string[] = [];
@@ -170,7 +184,7 @@ function parseBaixaProd(csv: string): BaixaItem[] {
 
     // Extract ID and name: "36811 - DORMIRE 5MG/ML..."
     const match = produtoRaw.match(/^(\d+)\s*-\s*(.+)$/);
-    const id = match ? match[1] : `nocode_${produtoRaw.substring(0, 8)}`;
+    const id = match ? normId(match[1]) : normId(`nocode_${produtoRaw.substring(0, 8)}`);
     const nome = match ? match[2].trim() : produtoRaw;
 
     const quantidade = parseNum(cols[colQtd] || '0');
@@ -234,7 +248,7 @@ function parseTransEfet(csv: string): TransferenciaItem[] {
     const produto = (cols[colProd] || '').trim();
     if (!produto) continue;
 
-    const id       = (cols[colCod] || `${i}`).trim();
+    const id       = normId((cols[colCod] || `${i}`).trim());
     const qtd      = parseNum(cols[colQtd]     || '0');
     const vlrUnit  = parseNum(cols[colVlrUnit] || '0');
     const vlrTotal = parseNum(cols[colVlrTot]  || '0') || qtd * vlrUnit;
@@ -250,6 +264,94 @@ function parseTransEfet(csv: string): TransferenciaItem[] {
       valorTotal: vlrTotal,
       categoria: getCategoriaProduto(produto),
       risco: getRiscoAssistencial(produto),
+    });
+  }
+  return items;
+}
+
+// Consumo 332.csv — robust parser
+function parseConsumo332(csv: string): ConsumoItem[] {
+  const lines = csv.split(/\r?\n/);
+  if (lines.length < 2) return [];
+
+  // Find header: look for a row with at least 2 relevant keywords
+  let headerIdx = -1;
+  let sep = ',';
+  for (let i = 0; i < Math.min(lines.length, 25); i++) {
+    const rawLine = lines[i];
+    if (!rawLine.trim()) continue;
+    
+    const currentSep = rawLine.includes(';') ? ';' : ',';
+    const colsNorm = parseCSVLine(rawLine, currentSep).map(c => norm(c));
+    
+    const keywords = ['PRODUTO', 'DESCRI', 'CODIGO', 'CUSTO', 'UNITARIO', 'QTD', 'QUANTIDADE', 'CONSUMO', 'SAIDA', 'VLUNIT'];
+    const matchCount = colsNorm.filter(c => keywords.some(k => c.includes(k))).length;
+    
+    // Title lines often have only 1 keyword ("Relatório de Consumo..."). 
+    // Data headers usually have 2 or more (Code, Product, Qty, Cost).
+    if (matchCount >= 2) {
+      headerIdx = i;
+      sep = currentSep;
+      break;
+    }
+  }
+
+  if (headerIdx === -1) {
+    // If no header found with 2+ keywords, fallback to first row that just contains 'PRODUTO'
+    for (let i = 0; i < Math.min(lines.length, 10); i++) {
+      if (norm(lines[i]).includes('PRODUTO')) { headerIdx = i; break; }
+    }
+  }
+  
+  if (headerIdx === -1) headerIdx = 0; // Final fallback
+
+  const headers = parseCSVLine(lines[headerIdx], sep).map(c => norm(c));
+  const fi = (keys: string[]) => headers.findIndex(h => keys.some(k => h.includes(k)));
+
+  const colCod = fi(['CODIGO', 'COD']);
+  const colProd = fi(['PRODUTO', 'NOME', 'DESCRI', 'ITEM']);
+  const colConsumo = fi(['CONSUMO', 'QTD', 'QUANTIDADE', 'SAIDA', 'TOTAL']);
+  const colVlrUnit = fi(['CUSTO', 'UNITARIO', 'VLUNIT', 'MEDIO', 'PRECO', 'VALOR']);
+
+  const items: ConsumoItem[] = [];
+  for (let i = headerIdx + 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const cols = parseCSVLine(line, sep);
+
+    let id = colCod !== -1 ? normId((cols[colCod] || '').trim()) : '';
+    let produto = colProd !== -1 ? (cols[colProd] || '').trim() : '';
+
+    // If product name is purely numeric and the NEXT column has text, 
+    // then the current column is likely a row offset/index.
+    if (/^\d+$/.test(produto) && colProd + 1 < cols.length && cols[colProd + 1].trim().length > 3) {
+      if (!id) id = normId(produto);
+      produto = cols[colProd + 1].trim();
+    }
+
+    if (!produto && !id) continue;
+    
+    // In some MV Soul reports, product column is "COD_ID - NOME_DO_PRODUTO"
+    const match = produto.match(/^(\d+)\s*-\s*(.+)$/);
+    if (match) {
+      if (!id || !/^\d+$/.test(id)) id = normId(match[1]);
+      produto = match[2].trim();
+    }
+
+    // Still no ID? Use a fallback but flag it for debugging
+    if (!id) id = `row_${i}`;
+
+    const consumoMes = colConsumo !== -1 ? parseNum(cols[colConsumo]) : 0;
+    const valorUnit = colVlrUnit !== -1 ? parseNum(cols[colVlrUnit]) : 0;
+
+    // Filter out title/garbage rows: must have a name that isn't just a tiny number
+    if (produto.length < 2 || (/^\d+$/.test(produto) && produto.length < 5)) continue;
+
+    items.push({
+      id,
+      produto,
+      consumoMes,
+      valorUnit,
     });
   }
   return items;
@@ -287,7 +389,7 @@ function parseLoteInv(csv: string): LoteItem[] {
 
     // Product row: col1 is numeric ID, col2 is name
     if (maybeId && /^\d+$/.test(maybeId) && maybeNome) {
-      currentId   = maybeId;
+      currentId   = normId(maybeId);
       currentNome = maybeNome;
       currentUnid = (cols[COL_UNID] || '').trim();
     }
@@ -394,6 +496,7 @@ export const BaixasEstoque: React.FC = () => {
   const [baixaData, setBaixaData]   = useState<BaixaItem[]>([]);
   const [transData, setTransData]   = useState<TransferenciaItem[]>([]);
   const [loteData,  setLoteData]    = useState<LoteItem[]>([]);
+  const [consumoData, setConsumoData] = useState<ConsumoItem[]>([]);
 
   const [activeSubTab,    setActiveSubTab]    = useState<SubTab>('dashboard');
   const [searchTerm,      setSearchTerm]      = useState('');
@@ -418,17 +521,35 @@ export const BaixasEstoque: React.FC = () => {
     };
 
   // ── KPIs ─────────────────────────────────────────────────────────────────────
-
-  const perdaRealTotal = useMemo(() => baixaData.reduce((s, b) => s + b.valorTotal, 0), [baixaData]);
-  const skusPerdidos   = useMemo(() => new Set(baixaData.map(b => b.id)).size, [baixaData]);
-
-  // Mapa de preço unitário por produto (de baixas + transferências)
+  // Mapa de preço unitário por produto (de baixas + transferências + consumo)
   const priceMap = useMemo(() => {
     const map = new Map<string, number>();
-    baixaData.forEach(b => { if (b.valorUnit > 0) map.set(b.id, b.valorUnit); });
+    // Prioritize Consumo 332 prices if available
+    consumoData.forEach(c => { if (c.valorUnit > 0) map.set(c.id, c.valorUnit); });
+    baixaData.forEach(b => { if (b.valorUnit > 0 && !map.has(b.id)) map.set(b.id, b.valorUnit); });
     transData.forEach(t => { if (t.valorUnit > 0 && !map.has(t.id)) map.set(t.id, t.valorUnit); });
     return map;
-  }, [baixaData, transData]);
+  }, [baixaData, transData, consumoData]);
+
+  // Enrich write-offs with prioritized unit prices and recalculate totals
+  const baixasEnriched = useMemo(() => baixaData.map(b => {
+    const unitPrice = priceMap.get(b.id) || b.valorUnit;
+    return {
+      ...b,
+      valorUnit: unitPrice,
+      valorTotal: b.quantidade * unitPrice
+    };
+  }), [baixaData, priceMap]);
+
+  const perdaRealTotal = useMemo(() => baixasEnriched.reduce((s, b) => s + b.valorTotal, 0), [baixasEnriched]);
+  const skusPerdidos   = useMemo(() => new Set(baixasEnriched.map(b => b.id)).size, [baixasEnriched]);
+
+  // Mapa de consumo por produto
+  const consumoMap = useMemo(() => {
+    const map = new Map<string, number>();
+    consumoData.forEach(c => map.set(c.id, (map.get(c.id) || 0) + c.consumoMes));
+    return map;
+  }, [consumoData]);
 
   // Lotes com saldo > 0 e vencimento ≤ 180 dias (inclui já vencidos)
   const aEvitarItems = useMemo((): AEvitarItem[] =>
@@ -464,24 +585,24 @@ export const BaixasEstoque: React.FC = () => {
 
   const motivoData = useMemo(() => {
     const map = new Map<string, number>();
-    baixaData.forEach(b => map.set(b.motivoGrupo, (map.get(b.motivoGrupo) || 0) + b.valorTotal));
+    baixasEnriched.forEach(b => map.set(b.motivoGrupo, (map.get(b.motivoGrupo) || 0) + b.valorTotal));
     return Array.from(map.entries()).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
-  }, [baixaData]);
+  }, [baixasEnriched]);
 
   const categoriaData = useMemo(() => {
     const map = new Map<string, number>();
-    baixaData.forEach(b => map.set(b.categoria, (map.get(b.categoria) || 0) + b.valorTotal));
+    baixasEnriched.forEach(b => map.set(b.categoria, (map.get(b.categoria) || 0) + b.valorTotal));
     return Array.from(map.entries()).map(([name, valor]) => ({ name, valor })).sort((a, b) => b.valor - a.valor);
-  }, [baixaData]);
+  }, [baixasEnriched]);
 
   const top10 = useMemo(() => {
     const map = new Map<string, { nome: string; valor: number }>();
-    baixaData.forEach(b => {
+    baixasEnriched.forEach(b => {
       const cur = map.get(b.id) || { nome: b.nome, valor: 0 };
       map.set(b.id, { nome: b.nome, valor: cur.valor + b.valorTotal });
     });
     return Array.from(map.values()).sort((a, b) => b.valor - a.valor).slice(0, 10);
-  }, [baixaData]);
+  }, [baixasEnriched]);
 
   const comparativoData = useMemo(() => [
     { name: 'Perda Real', valor: perdaRealTotal, fill: '#ef4444' },
@@ -499,27 +620,46 @@ export const BaixasEstoque: React.FC = () => {
 
   // ── Filters ───────────────────────────────────────────────────────────────────
 
-  const motivosUnicos = useMemo(() => ['TODOS', ...Array.from(new Set(baixaData.map(b => b.motivoGrupo))).sort()], [baixaData]);
+  // IDs de produtos que possuem lotes em risco (≤ 180 dias)
+  const riskProductIds = useMemo(() => new Set(aEvitarItems.map(l => l.idProduto)), [aEvitarItems]);
 
-  const baixasFiltradas = useMemo(() => baixaData.filter(b => {
+  // Enrich transferences with prioritized unit prices and risk status
+  const transEnriched = useMemo(() => transData.map(t => {
+    const unitPrice = priceMap.get(t.id) || t.valorUnit;
+    const isRisk = riskProductIds.has(t.id);
+    return {
+      ...t,
+      valorUnit: unitPrice,
+      valorTotal: t.quantidade * unitPrice,
+      isRiskRedistribution: isRisk,
+    };
+  }), [transData, priceMap, riskProductIds]);
+
+  const totalSavedRiskValue = useMemo(() => 
+    transEnriched.filter(t => t.isRiskRedistribution).reduce((s, t) => s + t.valorTotal, 0),
+  [transEnriched]);
+
+  const motivosUnicos = useMemo(() => ['TODOS', ...Array.from(new Set(baixasEnriched.map(b => b.motivoGrupo))).sort()], [baixasEnriched]);
+
+  const baixasFiltradas = useMemo(() => baixasEnriched.filter(b => {
     const s = searchTerm.toLowerCase();
     return (!searchTerm || b.nome.toLowerCase().includes(s) || b.id.includes(searchTerm))
       && (filterCategoria === 'TODOS' || b.categoria === filterCategoria)
       && (filterMotivo === 'TODOS' || b.motivoGrupo === filterMotivo);
-  }), [baixaData, searchTerm, filterCategoria, filterMotivo]);
+  }), [baixasEnriched, searchTerm, filterCategoria, filterMotivo]);
 
-  const transFiltradas = useMemo(() => transData.filter(t => {
+  const transFiltradas = useMemo(() => transEnriched.filter(t => {
     const s = searchTerm.toLowerCase();
-    return (!searchTerm || t.produto.toLowerCase().includes(s) || t.id.includes(searchTerm))
+    return t.isRiskRedistribution && (!searchTerm || t.produto.toLowerCase().includes(s) || t.id.includes(searchTerm))
       && (filterCategoria === 'TODOS' || t.categoria === filterCategoria);
-  }), [transData, searchTerm, filterCategoria]);
+  }), [transEnriched, searchTerm, filterCategoria]);
 
   const lotesFiltrados = useMemo(() => loteData.filter(l => {
     const s = searchTerm.toLowerCase();
     return (!searchTerm || l.nomeProduto.toLowerCase().includes(s) || l.idProduto.includes(searchTerm));
   }), [loteData, searchTerm]);
 
-  const hasData = baixaData.length > 0 || transData.length > 0 || loteData.length > 0;
+  const hasData = baixaData.length > 0 || transData.length > 0 || loteData.length > 0 || consumoData.length > 0;
 
   // ── Render ────────────────────────────────────────────────────────────────────
 
@@ -542,13 +682,14 @@ export const BaixasEstoque: React.FC = () => {
               {baixaData.length > 0 && <span className="bg-red-50 text-red-700 border border-red-200 rounded-lg px-3 py-1 font-medium">{baixaData.length} baixas</span>}
               {transData.length > 0 && <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg px-3 py-1 font-medium">{transData.length} transferências</span>}
               {loteData.length > 0  && <span className="bg-amber-50 text-amber-700 border border-amber-200 rounded-lg px-3 py-1 font-medium">{loteData.length} lotes</span>}
+              {consumoData.length > 0  && <span className="bg-violet-50 text-violet-700 border border-violet-200 rounded-lg px-3 py-1 font-medium">{consumoData.length} itens consumo</span>}
             </div>
           )}
         </div>
       </div>
 
       {/* Upload cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <UploadCard
           title="Relatório de Baixas (R_BAIXA_PROD)"
           subtitle="Suprimentos › Estoque › Baixas"
@@ -575,6 +716,15 @@ export const BaixasEstoque: React.FC = () => {
           count={loteData.length}
           onUpload={handleUpload(parseLoteInv, setLoteData)}
           onClear={() => setLoteData([])}
+        />
+        <UploadCard
+          title="Consumo 332"
+          subtitle="Consumo e Custo Unitário Mensal"
+          description="Colunas: Produto, Consumo (Mensal), Custo Unitário"
+          color="amber" // Pode ser 'amber' ou outra cor se você expandir as props do UploadCard
+          count={consumoData.length}
+          onUpload={handleUpload(parseConsumo332, setConsumoData)}
+          onClear={() => setConsumoData([])}
         />
       </div>
 
@@ -617,6 +767,7 @@ export const BaixasEstoque: React.FC = () => {
               { id: 'a_evitar', label: `A Evitar (${aEvitarItems.length})` },
               { id: 'transferencias', label: `Transferências (${transData.length})` },
               ...(loteData.length > 0 ? [{ id: 'lotes', label: `Lotes (${loteData.length})` }] : []),
+              ...(consumoData.length > 0 ? [{ id: 'consumo', label: `Consumo 332 (${consumoData.length})` }] : []),
             ] as { id: SubTab; label: string }[]).map(tab => (
               <button
                 key={tab.id}
@@ -731,7 +882,7 @@ export const BaixasEstoque: React.FC = () => {
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 border-b border-slate-200">
                     <tr>
-                      {['Código', 'Produto', 'Data', 'Motivo', 'Lote', 'Validade', 'Categoria', 'Risco', 'Qtd', 'Vl Total'].map(h => (
+                      {['Código', 'Produto', 'Data', 'Motivo', 'Lote', 'Validade', 'Categoria', 'Risco', 'Consumo Mês', 'Qtd Baixa', 'Custo Unit.', 'Vl Total'].map(h => (
                         <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                       ))}
                     </tr>
@@ -751,7 +902,13 @@ export const BaixasEstoque: React.FC = () => {
                         <td className="px-4 py-3">
                           <span className="text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap" style={{ background: b.risco.bg, color: b.risco.text }}>{b.risco.label}</span>
                         </td>
-                        <td className="px-4 py-3 text-right text-slate-600">{b.quantidade.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 3 })}</td>
+                        <td className="px-4 py-3 text-right text-slate-500 font-medium">
+                          {consumoMap.get(b.id) != null ? consumoMap.get(b.id)?.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) : '—'}
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-600 font-medium">{b.quantidade.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 3 })}</td>
+                        <td className="px-4 py-3 text-right text-slate-500 text-xs">
+                          {b.valorUnit > 0 ? fmtBRL(b.valorUnit) : '—'}
+                        </td>
                         <td className="px-4 py-3 text-right font-semibold text-red-700 whitespace-nowrap">{fmtBRL(b.valorTotal)}</td>
                       </tr>
                     ))}
@@ -779,7 +936,7 @@ export const BaixasEstoque: React.FC = () => {
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 border-b border-slate-200">
                     <tr>
-                      {['Código', 'Produto', 'Lote', 'Validade', 'Dias', 'Qtd em Estoque', 'Vlr Unit', 'Perda Potencial', 'Urgência'].map(h => (
+                      {['Código', 'Produto', 'Lote', 'Validade', 'Dias', 'Consumo Mês', 'Qtd em Estoque', 'Vlr Unit', 'Perda Potencial', 'Urgência'].map(h => (
                         <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                       ))}
                     </tr>
@@ -808,6 +965,9 @@ export const BaixasEstoque: React.FC = () => {
                             <td className={`px-4 py-3 text-right font-semibold whitespace-nowrap ${l.vencido ? 'text-red-700' : l.diasRestantes <= 30 ? 'text-orange-600' : 'text-amber-600'}`}>
                               {l.vencido ? `${l.diasRestantes}d` : `${l.diasRestantes}d`}
                             </td>
+                            <td className="px-4 py-3 text-right text-slate-500 font-medium">
+                              {consumoMap.get(l.idProduto) != null ? consumoMap.get(l.idProduto)?.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) : '—'}
+                            </td>
                             <td className="px-4 py-3 text-right text-slate-700 font-medium">{l.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}</td>
                             <td className="px-4 py-3 text-right text-slate-500 text-xs">
                               {priceMap.has(l.idProduto) ? fmtBRL(priceMap.get(l.idProduto)!) : '—'}
@@ -831,18 +991,20 @@ export const BaixasEstoque: React.FC = () => {
           {/* Tabela Transferências */}
           {activeSubTab === 'transferencias' && (
             <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-              <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-                <div>
-                  <p className="font-semibold text-slate-800">Perda Evitada — Transferências Efetivadas ({transFiltradas.length})</p>
-                  <p className="text-xs text-slate-400 mt-0.5">Itens redistribuídos para outro almoxarifado — impacto financeiro evitado</p>
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 p-4 border-b border-slate-100">
+                  <div>
+                    <p className="font-semibold text-slate-800">Transferências de Risco ({transFiltradas.length})</p>
+                    <p className="text-xs text-slate-400 mt-0.5">Itens com risco de vencimento redirecionados para outras unidades — perda evitada</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm text-emerald-700 font-bold">{fmtBRL(transFiltradas.reduce((s, t) => s + t.valorTotal, 0))}</p>
+                  </div>
                 </div>
-                <p className="text-sm text-emerald-700 font-semibold">{fmtBRL(transFiltradas.reduce((s, t) => s + t.valorTotal, 0))}</p>
-              </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 border-b border-slate-200">
                     <tr>
-                      {['Código', 'Produto', 'Origem', 'Destino', 'Categoria', 'Risco', 'Qtd', 'Vl Total'].map(h => (
+                      {['Código', 'Produto', 'Origem', 'Destino', 'Categoria', 'Risco', 'Status', 'Qtd', 'Vlr Unit', 'Total Evitado'].map(h => (
                         <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                       ))}
                     </tr>
@@ -858,7 +1020,17 @@ export const BaixasEstoque: React.FC = () => {
                         <td className="px-4 py-3">
                           <span className="text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap" style={{ background: t.risco.bg, color: t.risco.text }}>{t.risco.label}</span>
                         </td>
-                        <td className="px-4 py-3 text-right text-slate-600">{t.quantidade.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 4 })}</td>
+                        <td className="px-4 py-3">
+                          {t.isRiskRedistribution ? (
+                            <span className="bg-orange-100 text-orange-800 border border-orange-200 text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-tighter">ITEM RISCO</span>
+                          ) : (
+                            <span className="text-slate-300 text-[10px]">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-600 font-medium">{t.quantidade.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 4 })}</td>
+                        <td className="px-4 py-3 text-right text-slate-500 text-xs">
+                          {t.valorUnit > 0 ? fmtBRL(t.valorUnit) : '—'}
+                        </td>
                         <td className="px-4 py-3 text-right font-semibold text-emerald-700 whitespace-nowrap">{fmtBRL(t.valorTotal)}</td>
                       </tr>
                     ))}
@@ -919,6 +1091,45 @@ export const BaixasEstoque: React.FC = () => {
                   </tbody>
                 </table>
                 {lotesFiltrados.length > 500 && <p className="p-4 text-center text-sm text-slate-400">Exibindo 500 de {lotesFiltrados.length} lotes</p>}
+              </div>
+            </div>
+          )}
+
+          {/* Tabela Consumo (View only) */}
+          {activeSubTab === 'consumo' && consumoData.length > 0 && (
+            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+              <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+                <div>
+                  <p className="font-semibold text-slate-800">Consumo 332 ({consumoData.length})</p>
+                  <p className="text-xs text-slate-400 mt-0.5">Visão geral do consumo mensal e preço unitário informados</p>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 border-b border-slate-200">
+                    <tr>
+                      {['Código', 'Produto', 'Consumo (Mês)', 'Custo Unit.'].map(h => (
+                        <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {consumoData
+                      .filter(c => {
+                        const s = searchTerm.toLowerCase();
+                        return (!searchTerm || c.produto.toLowerCase().includes(s) || c.id.includes(searchTerm));
+                      })
+                      .slice(0, 500)
+                      .map((c, i) => (
+                        <tr key={i} className="hover:bg-slate-50 transition-colors">
+                          <td className="px-4 py-3 text-xs font-mono text-slate-500">{c.id}</td>
+                          <td className="px-4 py-3 font-medium text-slate-800 max-w-[250px] truncate">{c.produto}</td>
+                          <td className="px-4 py-3 text-right text-slate-700 font-medium">{c.consumoMes.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}</td>
+                          <td className="px-4 py-3 text-right text-slate-600 font-semibold whitespace-nowrap">{c.valorUnit > 0 ? fmtBRL(c.valorUnit) : '—'}</td>
+                        </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
