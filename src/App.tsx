@@ -12,7 +12,7 @@ import { TransferRequest } from './components/TransferRequest';
 import { VBACodeDisplay } from './components/VBACodeDisplay';
 import { CsvUploader } from './components/CsvUploader';
 import { ValidityUploader } from './components/ValidityUploader';
-import { LayoutDashboard, FileSpreadsheet, Code, Pill, Database, Filter, AlertCircle, PieChart, Download, ListTodo, Activity, ClipboardList, Menu, X, ChevronRight, Clock, Ban, Package, LineChart, Calculator, BarChart2, ShieldAlert, AlertTriangle, ShoppingCart, XCircle, ShieldCheck } from 'lucide-react';
+import { LayoutDashboard, FileSpreadsheet, Code, Pill, Database, Filter, AlertCircle, PieChart, Download, ListTodo, Activity, ClipboardList, Menu, X, ChevronRight, Clock, Ban, Package, LineChart, Calculator, BarChart2, ShieldAlert, AlertTriangle, ShoppingCart, XCircle, ShieldCheck, TrendingDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Dashboard } from './components/Dashboard';
 import { FollowUp } from './components/FollowUp';
@@ -47,6 +47,8 @@ import { GeradorDocumentos } from './components/GeradorDocumentos';
 import { SupplierEvaluationCAF } from './components/SupplierEvaluationCAF';
 import { Ressuprimento } from './components/Ressuprimento';
 import { Supply } from './components/Supply';
+import { Multidose } from './components/Multidose';
+import { BaixasEstoque } from './components/BaixasEstoque';
 import { MobileHeader } from './components/layout/MobileHeader';
 import { Sidebar, NavItem, TabId } from './components/layout/Sidebar';
 import { exportInventoryToPDF } from './utils/pdfExport';
@@ -192,6 +194,8 @@ function App() {
     { id: 'avaliacao_fornecedores',    label: 'Avaliação Fornec.',        icon: <ShieldCheck className="w-5 h-5" />,    classes: V },
     { id: 'ressuprimento',              label: 'Ressuprimento',             icon: <ShoppingCart className="w-5 h-5" />,   classes: V },
     { id: 'supply',                    label: 'Supply',                    icon: <Package className="w-5 h-5" />,        classes: G },
+    { id: 'multidose',                 label: 'Multidose',                 icon: <Activity className="w-5 h-5" />,       classes: V },
+    { id: 'baixas_estoque',            label: 'Baixas Estoque',            icon: <TrendingDown className="w-5 h-5" />,   classes: G },
   ] as const;
 
   if (!showApp) {
@@ -410,6 +414,16 @@ function App() {
         {activeTab === 'supply' && (
           <div className="max-w-7xl mx-auto">
             <Supply />
+          </div>
+        )}
+        {activeTab === 'multidose' && (
+          <div className="max-w-[1400px] mx-auto">
+            <Multidose />
+          </div>
+        )}
+        {activeTab === 'baixas_estoque' && (
+          <div className="max-w-7xl mx-auto">
+            <BaixasEstoque />
           </div>
         )}
       </motion.div>

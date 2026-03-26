@@ -9,7 +9,7 @@ import {
   ChevronLeft, ChevronRight, RefreshCw, TrendingDown,
   FileText, Layers, BarChart2, X, Download,
 } from 'lucide-react';
-import { exportPainelCAFV2PDF } from '../utils/pdfExport';
+import { exportPainelCAFV2PDF, exportConsumoTabPDF, exportOCTabPDF } from '../utils/pdfExport';
 import { getRiscoAssistencial } from '../utils/riscoAssistencial';
 
 // ─── CSV PARSING ──────────────────────────────────────────────────────────────
@@ -51,6 +51,7 @@ type OCStatus = 'NAO_ATENDIDA' | 'PARCIAL' | 'RECEBIDO';
 
 interface ConsumoItem {
   id: string; nome: string; unidade: string;
+  dias: number[]; dayLabels: string[];
   d19: number; d20: number; d21: number; d22: number; d23: number;
   total: number; media: number;
   saldo: number; proj: number; status: ConsumoStatus;
@@ -69,25 +70,109 @@ interface OCItem {
 
 // ─── PARSERS ──────────────────────────────────────────────────────────────────
 
+function normalizeCol(s: string): string {
+  return s.trim().toUpperCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Z0-9]/g, '');
+}
+
 function parseConsumo(text: string): ConsumoItem[] {
   if (!text) return [];
   const lines = text.split('\n').filter(l => l.trim());
+  if (lines.length < 2) return [];
+
+  // ── Detecta cabeçalho dinamicamente ──
+  const rawHeader = parseCSVLine(lines[0]);
+  const header = rawHeader.map(normalizeCol);
+
+  // Detecta o formato do arquivo:
+  //
+  //  Formato COMBINADO — id e nome juntos em c[0] separados por vírgula:
+  //    Header:  Produto , Unidade , 07 , 08 , ...
+  //    Dado:   "38,ACICLOVIR...", AMP , 15 , 8  , ...
+  // ── Detecta colunas-chave dinamicamente ──
+  const pIdx   = header.findIndex(h => h === 'PRODUTO' || h === 'NOME');
+  const uIdx   = header.findIndex(h => h === 'UNIDADE' || h === 'UNID');
+  const idIdx  = header.findIndex(h => h === 'CODIGO' || h === 'ID' || h === 'COD');
+  const tIdx   = header.findIndex(h => h === 'TOTAL');
+  const mIdx   = header.findIndex(h => h.includes('MEDIA') || h.includes('MÉDIA') || h.includes('MEDDIARIA'));
+  const sIdx   = header.findIndex(h => h.includes('SALDO') && !h.includes('MÉDIO'));
+
+  // Lógica para detectar se ID e Produto estão separados (Ex: Produto, , Unidade)
+  const isSeparado = (pIdx === 0 && rawHeader[1] === '');
+  const idIdxToUse = idIdx !== -1 ? idIdx : (isSeparado ? 0 : -1);
+  const pIdxToUse  = isSeparado ? 1 : (pIdx !== -1 ? pIdx : 0);
+
+  // Define os pontos de partida para os dias (entre Unidade/Produto e Total)
+  const dayStart = uIdx !== -1 ? uIdx + 1 : (pIdxToUse !== -1 ? pIdxToUse + 1 : 3);
+  const dayEnd   = tIdx !== -1 ? tIdx : header.length;
+
+  const dayColIndices: number[] = [];
+  const dayColLabels: string[] = [];
+  for (let d = dayStart; d < dayEnd; d++) {
+    if (d === pIdxToUse || d === uIdx || d === idIdxToUse || d === tIdx || d === mIdx || d === sIdx) continue;
+    dayColIndices.push(d);
+    dayColLabels.push(rawHeader[d]?.trim() || `D${d - dayStart + 1}`);
+  }
+
   const result: ConsumoItem[] = [];
   for (let i = 1; i < lines.length; i++) {
     const c = parseCSVLine(lines[i]);
-    const id = c[0]?.trim();
-    if (!id || !/^\d+$/.test(id)) continue;
-    const saldo = parseBR(c[10]);
-    const media = parseBR(c[9]);
-    const proj  = parseBR(c[12]);
+    if (c.length < 3) continue;
+
+    let id = '';
+    let nome = '';
+
+    // Lógica inteligente para ID e Nome
+    if (idIdxToUse !== -1) {
+      id = c[idIdxToUse]?.trim();
+      nome = c[pIdxToUse]?.trim();
+    } else {
+      // Se não há coluna ID, verifica se está combinado no nome "38, ACICLOVIR"
+      const rawProd = c[pIdxToUse]?.trim() || '';
+      const sep = rawProd.indexOf(',');
+      if (sep > 0) {
+        id = rawProd.substring(0, sep).trim();
+        nome = rawProd.substring(sep + 1).trim();
+      } else {
+        // Tenta pegar a primeira coluna se for numérica
+        const first = c[0]?.trim();
+        if (first && /^\d+$/.test(first)) {
+          const idString = first;
+          const nameString = c[1]?.trim() || first;
+          id = idString; nome = nameString;
+        } else {
+          id = rawProd.substring(0, 8);
+          nome = rawProd;
+        }
+      }
+    }
+
+    if (!id || !nome || nome.toLowerCase() === 'produto') continue;
+
+    const unidade = c[uIdx !== -1 ? uIdx : (pIdx !== -1 ? pIdx + 1 : 2)]?.trim() || '';
+    const diasVals = dayColIndices.map(ci => parseBR(c[ci]));
+
+    // Últimos 5 para compatibilidade Legada (Gráficos)
+    const last5 = diasVals.slice(-5);
+    while (last5.length < 5) last5.unshift(0);
+    const [d19, d20, d21, d22, d23] = last5;
+
+    const total = parseBR(c[tIdx !== -1 ? tIdx : mIdx - 1]);
+    const media = parseBR(c[mIdx !== -1 ? mIdx : tIdx + 1]);
+    const saldo = Math.max(0, parseBR(c[sIdx !== -1 ? sIdx : mIdx + 1]));
+    const proj = media > 0 ? (saldo / media) : 0;
+
     let status: ConsumoStatus = 'ADEQUADO';
-    if (saldo === 0)              status = 'SEM_ESTOQUE';
-    else if (proj > 0 && proj <= 3)  status = 'CRÍTICO';
-    else if (proj > 3 && proj <= 7)  status = 'ATENÇÃO';
+    if (saldo === 0)                    status = 'SEM_ESTOQUE';
+    else if (proj > 0 && proj <= 3)     status = 'CRÍTICO';
+    else if (proj > 3 && proj <= 7)     status = 'ATENÇÃO';
+
     result.push({
-      id, nome: c[1]?.trim() || '', unidade: c[2]?.trim() || '',
-      d19: parseBR(c[3]), d20: parseBR(c[4]), d21: parseBR(c[5]), d22: parseBR(c[6]), d23: parseBR(c[7]),
-      total: parseBR(c[8]), media, saldo, proj, status,
+      id, nome, unidade,
+      dias: diasVals, dayLabels: dayColLabels,
+      d19, d20, d21, d22, d23,
+      total, media, saldo, proj, status,
     });
   }
   return result;
@@ -102,14 +187,14 @@ function parsePainel(text: string): PainelItem[] {
     const c = parseCSVLine(lines[i]);
     const id = c[1]?.trim();
     if (id && /^\d+$/.test(id)) {
-      current = { id, nome: c[2]?.trim() || '', unidade: c[4]?.trim() || '', estoque: parseBR(c[6]), lotes: [], menorDiasVenc: 9999 };
+      current = { id, nome: c[2]?.trim() || '', unidade: c[4]?.trim() || '', estoque: Math.max(0, parseBR(c[6])), lotes: [], menorDiasVenc: 9999 };
       result.push(current);
     }
     if (current) {
       const lote = c[8]?.trim();
       const val  = c[10]?.trim() || '';
       if (lote) {
-        const qtd     = parseBR(c[18]);
+        const qtd     = Math.max(0, parseBR(c[18]));
         const diasVenc = diasParaVencer(val);
         current.lotes.push({ lote, validade: val, qtd, diasVenc });
         if (diasVenc < current.menorDiasVenc) current.menorDiasVenc = diasVenc;
@@ -144,19 +229,18 @@ function parseOC(text: string): OCItem[] {
     });
   }
 
-  // Recalcula status no nível da OC:
-  // Uma OC só é RECEBIDO quando TODOS os seus produtos têm qtDiferenca === 0.
-  // Se qualquer produto ainda tem diferença mas algum foi recebido → PARCIAL.
-  const ocGroups = new Map<string, OCItem[]>();
-  for (const item of result) {
-    if (!ocGroups.has(item.oc)) ocGroups.set(item.oc, []);
-    ocGroups.get(item.oc)!.push(item);
-  }
-  for (const [, items] of ocGroups) {
-    const todosRecebidos = items.every(it => it.qtDiferenca === 0 && it.qtComprada > 0);
-    const algumRecebido  = items.some(it => it.qtRecebida > 0);
-    const status: OCStatus = todosRecebidos ? 'RECEBIDO' : algumRecebido ? 'PARCIAL' : 'NAO_ATENDIDA';
-    for (const it of items) it.ocStatus = status;
+  // Calcula status por item:
+  // RECEBIDO  → qtRecebida >= qtComprada (recebimento total, sem contar cancelamentos)
+  // PARCIAL   → qtRecebida > 0 mas qtRecebida < qtComprada
+  // NAO_ATENDIDA → qtRecebida === 0
+  for (const it of result) {
+    if (it.qtComprada > 0 && it.qtRecebida >= it.qtComprada) {
+      it.ocStatus = 'RECEBIDO';
+    } else if (it.qtRecebida > 0) {
+      it.ocStatus = 'PARCIAL';
+    } else {
+      it.ocStatus = 'NAO_ATENDIDA';
+    }
   }
 
   return result;
@@ -190,13 +274,8 @@ function StatusBadge({ status }: { status: ConsumoStatus }) {
     </span>
   );
 }
-function OCBadge({ status, qtRecebida }: { status: OCStatus; qtRecebida?: number }) {
-  // Show "Parcial" only when this specific line has quantity received > 0
-  const effectiveStatus: OCStatus =
-    status === 'RECEBIDO' ? 'RECEBIDO'
-    : (qtRecebida !== undefined && qtRecebida > 0) ? 'PARCIAL'
-    : 'NAO_ATENDIDA';
-  const m = OC_META[effectiveStatus];
+function OCBadge({ status }: { status: OCStatus; qtRecebida?: number }) {
+  const m = OC_META[status];
   return (
     <span style={{ background: m.bg, color: m.text, padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 800, whiteSpace: 'nowrap' }}>
       {m.label}
@@ -254,8 +333,8 @@ function SortTH({ label, col, sort, onToggle, right }: { label: string; col: str
 
 type FileKey = 'consumo' | 'painel' | 'oc';
 const FILE_CONFIG: { key: FileKey; label: string; hint: string; icon: React.ReactNode; color: string }[] = [
-  { key: 'consumo', label: 'Consumo do Painel', hint: 'CONSUMODPAINEL.csv — Produto, Dias, Total, Média, Saldo, Projeção', icon: <Activity size={24} />, color: '#4f46e5' },
-  { key: 'painel',  label: 'Painel CAF 2',      hint: 'PAINEL CAF2.csv — Estoque atual, Lotes, Validade',                  icon: <Database size={24} />, color: '#0891b2' },
+  { key: 'consumo', label: 'Consumo do Painel', hint: 'CONSUMODPAINEL.csv — Produto, Dias, Total, Média, Saldo, Projeção', icon: <Activity size={24} />, color: '#7c3aed' },
+  { key: 'painel',  label: 'Painel CAF 2',      hint: 'PAINEL CAF2.csv — Estoque atual, Lotes, Validade',                  icon: <Database size={24} />, color: '#10b981' },
   { key: 'oc',      label: 'Ordens de Compra',  hint: 'R_ORD_COM_PROD.csv — OC, Fornecedor, Produto, Quantidades',         icon: <ShoppingCart size={24} />, color: '#059669' },
 ];
 
@@ -275,6 +354,14 @@ export const PainelCAFV2: React.FC = () => {
   const [filterEstoque, setFilterEstoque] = useState<'ALL' | 'SEM_ESTOQUE' | 'VENCENDO'>('ALL');
   const [filterOC, setFilterOC]           = useState<'ALL' | OCStatus>('ALL');
 
+  // Per-column filters for consumo table
+  // Key: column key (e.g. 'id', 'nome', 'unidade', 'day_0', 'total', etc.)
+  const [colFiltersConsumo, setColFiltersConsumo] = useState<Record<string, string>>({});
+  const setColFilter = (col: string, val: string) => {
+    setColFiltersConsumo(prev => ({ ...prev, [col]: val }));
+    setPageConsumo(0);
+  };
+
   // Pages
   const [pageConsumo, setPageConsumo] = useState(0);
   const [pageEstoque, setPageEstoque] = useState(0);
@@ -286,6 +373,14 @@ export const PainelCAFV2: React.FC = () => {
   const toggleSortOC = (col: string) => {
     setSortOC(prev => prev?.col === col ? { col, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'asc' });
     setPageOC(0);
+  };
+
+  // Consumo column sort
+  const [sortConsumo, setSortConsumo] = useState<{ col: string; dir: 'asc' | 'desc' } | null>(null);
+
+  const toggleSortConsumo = (col: string) => {
+    setSortConsumo(prev => prev?.col === col ? { col, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'asc' });
+    setPageConsumo(0);
   };
 
   // Alertas tables sort
@@ -312,7 +407,7 @@ export const PainelCAFV2: React.FC = () => {
   }, []);
 
   // Reset pages on filter change
-  useEffect(() => { setPageConsumo(0); }, [filterConsumo, searchConsumo]);
+  useEffect(() => { setPageConsumo(0); }, [filterConsumo, searchConsumo, colFiltersConsumo]);
   useEffect(() => { setPageEstoque(0); }, [filterEstoque, searchEstoque]);
   useEffect(() => { setPageOC(0); },      [filterOC, searchOC]);
 
@@ -387,13 +482,59 @@ export const PainelCAFV2: React.FC = () => {
     return { rupturaSemCob, criticoSemOC, ocUrgentes, lotesVenc };
   }, [ready, consumoData, painelData, ocData]);
 
+  // ── Mapa id → média de consumo ──
+  const consumoMediaMap = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const c of consumoData) m.set(c.id, c.media);
+    return m;
+  }, [consumoData]);
+
   // ── Filtered tables ──
   const consumoFilt = useMemo(() => {
     let items = consumoData;
     if (filterConsumo !== 'ALL') items = items.filter(c => c.status === filterConsumo);
     if (searchConsumo) { const q = searchConsumo.toLowerCase(); items = items.filter(c => c.nome.toLowerCase().includes(q) || c.id.includes(q)); }
+    // Apply per-column filters
+    for (const [col, val] of Object.entries(colFiltersConsumo) as [string, string][]) {
+      if (!val) continue;
+      const q = val.toLowerCase();
+      items = items.filter(c => {
+        if (col === 'id')      return c.id.toLowerCase().includes(q);
+        if (col === 'nome')    return c.nome.toLowerCase().includes(q);
+        if (col === 'unidade') return c.unidade.toLowerCase().includes(q);
+        if (col === 'total')   return String(c.total).includes(q);
+        if (col === 'media')   return String(c.media).includes(q);
+        if (col === 'saldo')   return String(c.saldo).includes(q);
+        if (col === 'proj')    return String(c.proj).includes(q);
+        if (col === 'status')  return c.status.toLowerCase().includes(q);
+        if (col.startsWith('day_')) {
+          const di = parseInt(col.slice(4));
+          return String(c.dias[di] ?? '').includes(q);
+        }
+        return true;
+      });
+    }
+    if (sortConsumo) {
+      const { col, dir } = sortConsumo;
+      const mult = dir === 'asc' ? 1 : -1;
+      items = [...items].sort((a, b) => {
+        let va: number | string, vb: number | string;
+        if      (col === 'id')     { va = a.id;     vb = b.id; }
+        else if (col === 'nome')   { va = a.nome;   vb = b.nome; }
+        else if (col === 'unidade'){ va = a.unidade; vb = b.unidade; }
+        else if (col === 'total')  { va = a.total;  vb = b.total; }
+        else if (col === 'media')  { va = a.media;  vb = b.media; }
+        else if (col === 'saldo')  { va = a.saldo;  vb = b.saldo; }
+        else if (col === 'proj')   { va = a.proj;   vb = b.proj; }
+        else if (col === 'status') { va = a.status; vb = b.status; }
+        else if (col.startsWith('day_')) { const di = parseInt(col.slice(4)); va = a.dias[di] ?? 0; vb = b.dias[di] ?? 0; }
+        else return 0;
+        if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * mult;
+        return String(va).localeCompare(String(vb)) * mult;
+      });
+    }
     return items;
-  }, [consumoData, filterConsumo, searchConsumo]);
+  }, [consumoData, filterConsumo, searchConsumo, colFiltersConsumo, sortConsumo]);
 
   const estoqueFilt = useMemo(() => {
     let items = painelData;
@@ -443,41 +584,6 @@ export const PainelCAFV2: React.FC = () => {
 
   const handleExportPDF = async () => {
     if (!kpis || !alertas) return;
-    if (activeTab === 'alertas' && alertasRef.current) {
-      try {
-        // @ts-ignore
-        const canvas = await window.html2canvas(alertasRef.current, { scale: 2, useCORS: true, backgroundColor: '#f8fafc', logging: false });
-        const imgData = canvas.toDataURL('image/png');
-        const { jsPDF } = await import('jspdf');
-        const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-        const pageW = pdf.internal.pageSize.getWidth();
-        const pageH = pdf.internal.pageSize.getHeight();
-        const ratio = canvas.height / canvas.width;
-        const imgH = pageW * ratio;
-        if (imgH <= pageH) {
-          pdf.addImage(imgData, 'PNG', 0, 0, pageW, imgH);
-        } else {
-          // Multi-page: slice canvas into page-height chunks
-          const sliceH = Math.floor(canvas.width * (pageH / pageW));
-          let y = 0;
-          while (y < canvas.height) {
-            const tmpCanvas = document.createElement('canvas');
-            tmpCanvas.width = canvas.width;
-            tmpCanvas.height = Math.min(sliceH, canvas.height - y);
-            const ctx = tmpCanvas.getContext('2d')!;
-            ctx.drawImage(canvas, 0, -y);
-            const slice = tmpCanvas.toDataURL('image/png');
-            if (y > 0) pdf.addPage();
-            pdf.addImage(slice, 'PNG', 0, 0, pageW, pageH * (tmpCanvas.height / sliceH));
-            y += sliceH;
-          }
-        }
-        pdf.save(`alertas-caf-${new Date().toISOString().split('T')[0]}.pdf`);
-      } catch (e) {
-        console.error('Erro ao exportar PDF:', e);
-      }
-      return;
-    }
     exportPainelCAFV2PDF({
       criticoSemOC: alertas.criticoSemOC,
       rupturaSemCob: alertas.rupturaSemCob,
@@ -499,7 +605,7 @@ export const PainelCAFV2: React.FC = () => {
     return (
       <div style={{ minHeight: '60vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 32, padding: '40px 20px' }}>
         <div style={{ textAlign: 'center' }}>
-          <div style={{ width: 64, height: 64, background: 'linear-gradient(135deg,#4f46e5,#0891b2)', borderRadius: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+          <div style={{ width: 64, height: 64, background: 'linear-gradient(135deg,#7c3aed,#10b981)', borderRadius: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
             <BarChart2 size={32} color="white" />
           </div>
           <h2 style={{ fontSize: 24, fontWeight: 900, color: '#0f172a', margin: 0 }}>Painel CAF V2</h2>
@@ -549,7 +655,7 @@ export const PainelCAFV2: React.FC = () => {
       {/* Header */}
       <div style={{ background: 'white', borderBottom: '1px solid #f1f5f9', padding: '20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div style={{ width: 44, height: 44, background: 'linear-gradient(135deg,#4f46e5,#0891b2)', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: 44, height: 44, background: 'linear-gradient(135deg,#7c3aed,#10b981)', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <BarChart2 size={22} color="white" />
           </div>
           <div>
@@ -560,7 +666,7 @@ export const PainelCAFV2: React.FC = () => {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={handleExportPDF} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#3b82f6', border: 'none', borderRadius: 10, padding: '8px 14px', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: 'white' }}>
+          <button onClick={handleExportPDF} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#7c3aed', border: 'none', borderRadius: 10, padding: '8px 14px', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: 'white' }}>
             <Download size={13} /> Exportar PDF
           </button>
           <button onClick={handleReset} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#f1f5f9', border: 'none', borderRadius: 10, padding: '8px 14px', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#64748b' }}>
@@ -574,12 +680,12 @@ export const PainelCAFV2: React.FC = () => {
         {/* KPI Cards */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 20 }}>
           {[
-            { label: 'Produtos no Painel', value: kpis!.totalPainel.toLocaleString('pt-BR'), sub: `${kpis!.totalConsumo} com dados de consumo`, icon: <Package size={20} />, bg: '#4f46e5', light: '#eef2ff' },
+            { label: 'Produtos no Painel', value: kpis!.totalPainel.toLocaleString('pt-BR'), sub: `${kpis!.totalConsumo} com dados de consumo`, icon: <Package size={20} />, bg: '#7c3aed', light: '#f5f3ff' },
             { label: 'Sem Estoque (Painel)', value: kpis!.semEstoque.toLocaleString('pt-BR'), sub: `${(100 - kpis!.cobertura)}% sem cobertura`, icon: <TrendingDown size={20} />, bg: '#dc2626', light: '#fef2f2' },
             { label: 'Críticos ≤ 3 dias', value: kpis!.criticos.toLocaleString('pt-BR'), sub: `${kpis!.atencao} em atenção (≤7d)`, icon: <AlertTriangle size={20} />, bg: '#ef4444', light: '#fff1f2' },
             { label: 'Cobertura de Estoque', value: `${kpis!.cobertura}%`, sub: `${kpis!.adequados} itens adequados`, icon: <CheckCircle size={20} />, bg: kpis!.cobertura >= 80 ? '#059669' : kpis!.cobertura >= 60 ? '#d97706' : '#dc2626', light: kpis!.cobertura >= 80 ? '#f0fdf4' : kpis!.cobertura >= 60 ? '#fefce8' : '#fef2f2' },
             { label: 'Lotes Vencendo ≤90d', value: kpis!.vencendo90.toLocaleString('pt-BR'), sub: `${kpis!.vencendo30} vencendo em ≤30 dias`, icon: <Clock size={20} />, bg: '#f59e0b', light: '#fefce8' },
-            { label: 'OC Não Atendidas / Parciais', value: `${kpis!.ocNaoAtendidas + kpis!.ocParciais}`, sub: `${kpis!.ocNaoAtendidas} não atendidas · ${kpis!.ocParciais} parciais`, icon: <ShoppingCart size={20} />, bg: '#0891b2', light: '#ecfeff' },
+            { label: 'OC Não Atendidas / Parciais', value: `${kpis!.ocNaoAtendidas + kpis!.ocParciais}`, sub: `${kpis!.ocNaoAtendidas} não atendidas · ${kpis!.ocParciais} parciais`, icon: <ShoppingCart size={20} />, bg: '#10b981', light: '#f0fdf4' },
           ].map((k, i) => (
             <div key={i} style={{ background: 'white', borderRadius: 16, padding: '18px 20px', border: '1px solid #f1f5f9', boxShadow: '0 1px 4px rgba(0,0,0,.04)', display: 'flex', alignItems: 'center', gap: 14 }}>
               <div style={{ width: 44, height: 44, background: k.light, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', color: k.bg, flexShrink: 0 }}>
@@ -597,7 +703,7 @@ export const PainelCAFV2: React.FC = () => {
         {/* Tabs */}
         <div style={{ display: 'flex', gap: 4, background: '#f1f5f9', borderRadius: 14, padding: 4, marginBottom: 20, overflowX: 'auto' }}>
           {tabs.map(t => (
-            <button key={t.id} onClick={() => setActiveTab(t.id)} style={{ flex: 1, minWidth: 'max-content', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '9px 16px', borderRadius: 10, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 800, transition: 'all .2s', background: activeTab === t.id ? 'white' : 'transparent', color: activeTab === t.id ? '#4f46e5' : '#64748b', boxShadow: activeTab === t.id ? '0 1px 4px rgba(0,0,0,.1)' : 'none' }}>
+            <button key={t.id} onClick={() => setActiveTab(t.id)} style={{ flex: 1, minWidth: 'max-content', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '9px 16px', borderRadius: 10, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 800, transition: 'all .2s', background: activeTab === t.id ? 'white' : 'transparent', color: activeTab === t.id ? '#7c3aed' : '#64748b', boxShadow: activeTab === t.id ? '0 1px 4px rgba(0,0,0,.1)' : 'none' }}>
               {t.icon}{t.label}
             </button>
           ))}
@@ -771,16 +877,90 @@ export const PainelCAFV2: React.FC = () => {
                   </button>
                 ))}
               </div>
-              <div style={{ position: 'relative' }}>
-                <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-                <input value={searchConsumo} onChange={e => setSearchConsumo(e.target.value)} placeholder="Buscar…" style={{ paddingLeft: 30, paddingRight: 10, paddingTop: 8, paddingBottom: 8, border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 11, outline: 'none', width: 200 }} />
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <div style={{ position: 'relative' }}>
+                  <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                  <input value={searchConsumo} onChange={e => setSearchConsumo(e.target.value)} placeholder="Buscar…" style={{ paddingLeft: 30, paddingRight: 10, paddingTop: 8, paddingBottom: 8, border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 11, outline: 'none', width: 200 }} />
+                </div>
+                {Object.values(colFiltersConsumo).some(Boolean) && (
+                  <button onClick={() => setColFiltersConsumo({})}
+                    title="Limpar filtros de coluna"
+                    style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '8px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700, background: '#fef2f2', color: '#dc2626' }}>
+                    <X size={13} /> Limpar filtros
+                  </button>
+                )}
+                <button onClick={() => exportConsumoTabPDF({ items: consumoFilt, filterLabel: filterConsumo, dayLabels: consumoData[0]?.dayLabels ?? [] })}
+                  style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '8px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700, background: '#4f46e5', color: 'white' }}>
+                  <Download size={13} /> PDF
+                </button>
               </div>
             </div>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead style={{ background: '#f8fafc' }}>
+                  {/* Sort header row */}
                   <tr>
-                    {['ID MV', 'Produto', 'Unidade', 'D19', 'D20', 'D21', 'D22', 'D23', 'Total', 'Média/Dia', 'Saldo', 'Projeção (d)', 'Status'].map(h => <th key={h} style={TH}>{h}</th>)}
+                    {(() => {
+                      const allLabels = consumoData[0]?.dayLabels ?? [];
+                      const fixedCols = [
+                        { label: 'ID MV',        col: 'id'     },
+                        { label: 'Produto',       col: 'nome'   },
+                        { label: 'Unidade',       col: 'unidade'},
+                      ];
+                      const dayCols = allLabels.map((lbl, di) => ({ label: lbl, col: `day_${di}` }));
+                      const endCols = [
+                        { label: 'Total',        col: 'total'  },
+                        { label: 'Média/Dia',    col: 'media'  },
+                        { label: 'Saldo',        col: 'saldo'  },
+                        { label: 'Projeção (d)', col: 'proj'   },
+                        { label: 'Status',       col: 'status' },
+                      ];
+                      return [...fixedCols, ...dayCols, ...endCols].map(h => (
+                        <th key={h.col} style={{ ...TH, cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }} onClick={() => toggleSortConsumo(h.col)}>
+                          {h.label}{' '}
+                          <span style={{ opacity: sortConsumo?.col === h.col ? 1 : 0.3, fontSize: 9 }}>
+                            {sortConsumo?.col === h.col ? (sortConsumo.dir === 'asc' ? '▲' : '▼') : '▲'}
+                          </span>
+                        </th>
+                      ));
+                    })()}
+                  </tr>
+                  {/* Per-column filter row */}
+                  <tr style={{ background: '#f0f4ff' }}>
+                    {(() => {
+                      const allLabels = consumoData[0]?.dayLabels ?? [];
+                      const cols = [
+                        { col: 'id', numeric: false },
+                        { col: 'nome', numeric: false },
+                        { col: 'unidade', numeric: false },
+                        ...allLabels.map((_, di) => ({ col: `day_${di}`, numeric: true })),
+                        { col: 'total',  numeric: true },
+                        { col: 'media',  numeric: true },
+                        { col: 'saldo',  numeric: true },
+                        { col: 'proj',   numeric: true },
+                        { col: 'status', numeric: false },
+                      ];
+                      const inputStyle: React.CSSProperties = {
+                        width: '100%', boxSizing: 'border-box',
+                        padding: '3px 5px', fontSize: 10, border: '1px solid #e2e8f0',
+                        borderRadius: 5, outline: 'none', background: 'white',
+                        color: '#334155',
+                      };
+                      return cols.map(({ col }) => (
+                        <td key={col} style={{ padding: '4px 6px', borderBottom: '2px solid #e2e8f0' }}>
+                          <input
+                            value={colFiltersConsumo[col] ?? ''}
+                            onChange={e => setColFilter(col, e.target.value)}
+                            placeholder="…"
+                            style={{
+                              ...inputStyle,
+                              borderColor: colFiltersConsumo[col] ? '#4f46e5' : '#e2e8f0',
+                              background: colFiltersConsumo[col] ? '#eef2ff' : 'white',
+                            }}
+                          />
+                        </td>
+                      ));
+                    })()}
                   </tr>
                 </thead>
                 <tbody>
@@ -789,11 +969,9 @@ export const PainelCAFV2: React.FC = () => {
                       <td style={{ ...TD, fontFamily: 'monospace', color: '#475569', fontSize: 10 }}>{c.id}</td>
                       <td style={{ ...TD, fontWeight: 600, maxWidth: 260 }}>{truncate(c.nome, 50)}</td>
                       <td style={{ ...TD, color: '#94a3b8', fontSize: 10 }}>{c.unidade}</td>
-                      <td style={{ ...TD, textAlign: 'right', color: '#475569' }}>{c.d19.toLocaleString('pt-BR')}</td>
-                      <td style={{ ...TD, textAlign: 'right', color: '#475569' }}>{c.d20.toLocaleString('pt-BR')}</td>
-                      <td style={{ ...TD, textAlign: 'right', color: '#475569' }}>{c.d21.toLocaleString('pt-BR')}</td>
-                      <td style={{ ...TD, textAlign: 'right', color: '#475569' }}>{c.d22.toLocaleString('pt-BR')}</td>
-                      <td style={{ ...TD, textAlign: 'right', color: '#475569' }}>{c.d23.toLocaleString('pt-BR')}</td>
+                      {c.dias.map((v, di) => (
+                        <td key={di} style={{ ...TD, textAlign: 'right', color: '#475569' }}>{v.toLocaleString('pt-BR')}</td>
+                      ))}
                       <td style={{ ...TD, textAlign: 'right', fontWeight: 700, color: '#334155' }}>{c.total.toLocaleString('pt-BR')}</td>
                       <td style={{ ...TD, textAlign: 'right', color: '#64748b' }}>{c.media.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}</td>
                       <td style={{ ...TD, textAlign: 'right', fontWeight: 800, color: c.saldo === 0 ? '#dc2626' : c.saldo < c.media * 3 ? '#d97706' : '#059669' }}>
@@ -828,9 +1006,15 @@ export const PainelCAFV2: React.FC = () => {
                   </button>
                 ))}
               </div>
-              <div style={{ position: 'relative' }}>
-                <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-                <input value={searchOC} onChange={e => setSearchOC(e.target.value)} placeholder="Buscar produto, OC…" style={{ paddingLeft: 30, paddingRight: 10, paddingTop: 8, paddingBottom: 8, border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 11, outline: 'none', width: 200 }} />
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <div style={{ position: 'relative' }}>
+                  <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                  <input value={searchOC} onChange={e => setSearchOC(e.target.value)} placeholder="Buscar produto, OC…" style={{ paddingLeft: 30, paddingRight: 10, paddingTop: 8, paddingBottom: 8, border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 11, outline: 'none', width: 200 }} />
+                </div>
+                <button onClick={() => exportOCTabPDF({ items: ocFilt, filterLabel: filterOC })}
+                  style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '8px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700, background: '#2563eb', color: 'white' }}>
+                  <Download size={13} /> PDF
+                </button>
               </div>
             </div>
             <div style={{ overflowX: 'auto' }}>
@@ -962,14 +1146,16 @@ export const PainelCAFV2: React.FC = () => {
                       <SortTH label="Qt. Comp."     col="qtComprada"   sort={sortOCUrg} onToggle={mkToggle(setSortOCUrg)} right />
                       <SortTH label="Qt. Rec."      col="qtRecebida"   sort={sortOCUrg} onToggle={mkToggle(setSortOCUrg)} right />
                       <SortTH label="Diferença"     col="qtDiferenca"  sort={sortOCUrg} onToggle={mkToggle(setSortOCUrg)} right />
+                      <SortTH label="Méd. Consumo"  col="mediaConsumo" sort={sortOCUrg} onToggle={mkToggle(setSortOCUrg)} right />
                       <SortTH label="Status"        col={null}         sort={sortOCUrg} />
                       <SortTH label="Risco Assist." col="risco"        sort={sortOCUrg} onToggle={mkToggle(setSortOCUrg)} />
                     </tr></thead>
                     <tbody>
                       {applySort(alertas.ocUrgentes, sortOCUrg, (col, o: any) =>
-                        col === 'dataPrevista' ? o.dataPrevista : col === 'oc' ? o.oc : col === 'nomeProduto' ? o.nomeProduto : col === 'qtComprada' ? o.qtComprada : col === 'qtRecebida' ? o.qtRecebida : col === 'qtDiferenca' ? o.qtDiferenca : col === 'risco' ? getRiscoAssistencial(o.nomeProduto).ordem : 0
+                        col === 'dataPrevista' ? o.dataPrevista : col === 'oc' ? o.oc : col === 'nomeProduto' ? o.nomeProduto : col === 'qtComprada' ? o.qtComprada : col === 'qtRecebida' ? o.qtRecebida : col === 'qtDiferenca' ? o.qtDiferenca : col === 'mediaConsumo' ? (consumoMediaMap.get(o.codProduto) ?? -1) : col === 'risco' ? getRiscoAssistencial(o.nomeProduto).ordem : 0
                       ).map((o, i) => {
                         const risco = getRiscoAssistencial(o.nomeProduto);
+                        const mediaConsumo = consumoMediaMap.get(o.codProduto);
                         return (
                         <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : '#fffbeb' }}>
                           <td style={{ ...TD, fontSize: 10, color: '#64748b' }}>{o.dataPrevista}</td>
@@ -978,6 +1164,9 @@ export const PainelCAFV2: React.FC = () => {
                           <td style={{ ...TD, textAlign: 'right' }}>{o.qtComprada.toLocaleString('pt-BR')}</td>
                           <td style={{ ...TD, textAlign: 'right', color: '#94a3b8' }}>{o.qtRecebida.toLocaleString('pt-BR')}</td>
                           <td style={{ ...TD, fontWeight: 800, color: '#d97706', textAlign: 'right' }}>{o.qtDiferenca.toLocaleString('pt-BR')}</td>
+                          <td style={{ ...TD, textAlign: 'right', fontWeight: 600, color: mediaConsumo != null ? '#0891b2' : '#94a3b8' }}>
+                            {mediaConsumo != null ? mediaConsumo.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) : '—'}
+                          </td>
                           <td style={TD}><OCBadge status={o.ocStatus} qtRecebida={o.qtRecebida} /></td>
                           <td style={TD}>
                             <span style={{ background: risco.bg, color: risco.text, padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 800, whiteSpace: 'nowrap', display: 'inline-block', marginBottom: 2 }}>{risco.label}</span>

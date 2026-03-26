@@ -116,24 +116,50 @@ function detectFile(text: string): 'conferencia' | 'consumo' | 'unknown' {
 }
 
 // ─── CATEGORY ────────────────────────────────────────────────────────────────
-type Category = 'Comprimidos' | 'Ampolas' | 'Soluções' | 'Materiais Hospitalares';
+type Category = 'Psicotrópicos' | 'Alta Vigilância' | 'Comprimidos' | 'Ampolas' | 'Frascos' | 'Materiais';
 
 function getCategory(descricao: string, unidade: string): Category {
   const text = (descricao + ' ' + unidade).toUpperCase();
-  if (/\bCOMP\b|COMPRIMIDO|CAPS\b|CÁPSULA|CAPSULA|\bDRG\b|DRÁGEA|DRAGEA/.test(text)) return 'Comprimidos';
-  if (/\bAMP\b|AMPOLA|INJETÁVEL|INJETAVEL|\bINJ\b|FR\.?AMP|FRASCO.AMP/.test(text)) return 'Ampolas';
-  if (/\bSOL\b|SOLUÇÃO|SOLUCAO|\bSORO\b|\bSF\b|\bSG\b|BOLSA|INFUSÃO|INFUSAO|\bBLC\b|\bBLF\b/.test(text)) return 'Soluções';
-  return 'Materiais Hospitalares';
+
+  // 1. Psicotrópicos (Portaria 344/1998 - listas B1, B2, C1)
+  if (/DIAZEPAM|CLONAZEPAM|ALPRAZOLAM|LORAZEPAM|MIDAZOLAM|BROMAZEPAM|CLORDIAZEPOX|NITRAZEPAM|FLUNITRAZEPAM|TRIAZOLAM|ZOLPIDEM|ZOPICLONA|FENOBARBITAL|CARBAMAZEPINA|FENITOINA|VALPROAT|AMITRIPTILINA|NORTRIPTILINA|IMIPRAMINA|CLOMIPRAMINA|HALOPERIDOL|CLORPROMAZINA|TIORIDAZINA|LEVOMEPROMAZINA|RISPERIDONA|OLANZAPINA|QUETIAPINA|CLOZAPINA|ARIPIPRAZOL|ZIPRASIDONA|LITIO|CARBONATO DE LITIO|BIPERIDENO|PROMETAZINA|MORFINA|CODEINA|FENTANIL|TRAMADOL|METADONA|OXICODONA|BUPRENORFINA|NALOXONA|PETIDINA|SUFENTANIL|REMIFENTANIL/.test(text)) {
+    return 'Psicotrópicos';
+  }
+
+  // 2. Medicamentos Alta Vigilância (ISMP Brasil)
+  if (/INSULINA|HEPARINA|VARFARINA|WARFARINA|ENOXAPARINA|FONDAPARINUX|CLORETO DE POTASSIO|KCL|POTASSIO|SULFATO DE MAGNESIO|MAGNESIO|CLORETO DE SODIO.*20%|NACL.*20%|GLUCONATO DE CALCIO|CLORETO DE CALCIO|BICARBONATO DE SODIO|NOREPINEFRINA|NORADRENALINA|EPINEFRINA|ADRENALINA|DOPAMINA|DOBUTAMINA|VASOPRESSINA|NITROPRUSSIATO|AMIODARONA|DIGOXINA|LIDOCAINA|METFORMINA|GLIBENCLAMIDA|QUIMIOTERAPICO|ANTINEOPLAS|CITOTOX|METOTREXATO|CICLOFOSFAMIDA|CISPLATINA|OXALIPLATINA|CARBOPLATINA|VINCRISTINA|DOXORRUBICINA|BLEOMICINA|CONCENTRADO DE HEMATIES|PLASMA|PLAQUETAS|ALBUMINA|IMUNOGLOBULINA|NEUROBLOQ|SUCCINILCOLINA|PANCURONIO|ROCURONIO|VECURONIO|ATRACURIO/.test(text)) {
+    return 'Alta Vigilância';
+  }
+
+  // 3. Comprimidos / Cápsulas / Drágeas
+  if (/\bCOMP\b|COMPRIMIDO|CAPS\b|CÁPSULA|CAPSULA|\bDRG\b|DRÁGEA|DRAGEA|\bCP\b|\bCPR\b/.test(text)) {
+    return 'Comprimidos';
+  }
+
+  // 4. Ampolas (injetáveis em ampola de vidro)
+  if (/\bAMP\b|AMPOLA/.test(text) && !/FRASCO|FR\./.test(text)) {
+    return 'Ampolas';
+  }
+
+  // 5. Frascos (frascos-ampola, soluções injetáveis em frasco, soros, bolsas)
+  if (/\bFR\b|FRASCO|FR\.AMP|FRASCO.AMP|\bFCO\b|BOLSA|SOLUÇÃO|SOLUCAO|\bSF\b|\bSG\b|\bSORO\b|\bINFUSÃO\b|INFUSAO|\bBLC\b|\bBLF\b|INJETÁVEL|INJETAVEL|\bINJ\b/.test(text)) {
+    return 'Frascos';
+  }
+
+  // 6. Materiais
+  return 'Materiais';
 }
 
 const CATEGORY_CFG: Record<Category, { color: string; bg: string; border: string; emoji: string }> = {
-  'Comprimidos':            { color: '#0891b2', bg: '#ecfeff', border: '#a5f3fc', emoji: '💊' },
-  'Ampolas':                { color: '#7c3aed', bg: '#f5f3ff', border: '#c4b5fd', emoji: '💉' },
-  'Soluções':               { color: '#0d9488', bg: '#f0fdfa', border: '#99f6e4', emoji: '🧴' },
-  'Materiais Hospitalares': { color: '#d97706', bg: '#fffbeb', border: '#fcd34d', emoji: '🩺' },
+  'Psicotrópicos':   { color: '#7c3aed', bg: '#f5f3ff', border: '#c4b5fd', emoji: '⚠️' },
+  'Alta Vigilância': { color: '#dc2626', bg: '#fff1f2', border: '#fca5a5', emoji: '🔴' },
+  'Comprimidos':     { color: '#0891b2', bg: '#ecfeff', border: '#a5f3fc', emoji: '💊' },
+  'Ampolas':         { color: '#9333ea', bg: '#faf5ff', border: '#d8b4fe', emoji: '💉' },
+  'Frascos':         { color: '#0d9488', bg: '#f0fdfa', border: '#99f6e4', emoji: '🧴' },
+  'Materiais':       { color: '#d97706', bg: '#fffbeb', border: '#fcd34d', emoji: '🩺' },
 };
 
-const CATEGORY_ORDER: Category[] = ['Comprimidos', 'Ampolas', 'Soluções', 'Materiais Hospitalares'];
+const CATEGORY_ORDER: Category[] = ['Psicotrópicos', 'Alta Vigilância', 'Comprimidos', 'Ampolas', 'Frascos', 'Materiais'];
 
 // ─── STATUS CONFIG ────────────────────────────────────────────────────────────
 const STATUS_CFG = {

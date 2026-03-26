@@ -32,7 +32,9 @@ export type TabId =
   | 'gerador_documentos'
   | 'avaliacao_fornecedores'
   | 'ressuprimento'
-  | 'supply';
+  | 'supply'
+  | 'multidose'
+  | 'baixas_estoque';
 
 // Define the nav item structure with classes specific to Sidebar
 export interface NavItem {
