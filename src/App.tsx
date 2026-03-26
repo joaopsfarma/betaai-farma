@@ -43,12 +43,14 @@ import { RequisicaoV2 } from './components/RequisicaoV2';
 import { CancelamentoV2 } from './components/CancelamentoV2';
 import { PrevisibilidadeV2 } from './components/PrevisibilidadeV2';
 import { IndicadoresLogisticos } from './components/IndicadoresLogisticos';
+import { IndicadoresLogisticosV2 } from './components/IndicadoresLogisticosV2';
 import { GeradorDocumentos } from './components/GeradorDocumentos';
 import { SupplierEvaluationCAF } from './components/SupplierEvaluationCAF';
 import { Ressuprimento } from './components/Ressuprimento';
 import { Supply } from './components/Supply';
 import { Multidose } from './components/Multidose';
 import { BaixasEstoque } from './components/BaixasEstoque';
+import { AnaliseOperacional } from './components/AnaliseOperacional';
 import { MobileHeader } from './components/layout/MobileHeader';
 import { Sidebar, NavItem, TabId } from './components/layout/Sidebar';
 import { exportInventoryToPDF } from './utils/pdfExport';
@@ -164,6 +166,7 @@ function App() {
 
   const G = { activeBg: 'bg-emerald-50', activeText: 'text-emerald-700', activeBorder: 'border-emerald-100', iconActive: 'text-emerald-600', badgeBg: 'bg-emerald-200', badgeText: 'text-emerald-800' };
   const V = { activeBg: 'bg-violet-50',  activeText: 'text-violet-700',  activeBorder: 'border-violet-100',  iconActive: 'text-violet-600',  badgeBg: 'bg-violet-200',  badgeText: 'text-violet-800'  };
+  const A = { activeBg: 'bg-amber-50',   activeText: 'text-amber-700',   activeBorder: 'border-amber-100',   iconActive: 'text-amber-600',   badgeBg: 'bg-amber-200',   badgeText: 'text-amber-800'   };
 
   const navItems = [
     { id: 'analise_dispensacao',       label: 'Análise Dispensação',      icon: <BarChart2 className="w-5 h-5" />,      classes: V },
@@ -177,7 +180,7 @@ function App() {
     { id: 'equivalencia',              label: 'Equivalência',             icon: <Database className="w-5 h-5" />,       classes: G },
     { id: 'gerador_documentos',         label: 'Gerador de Documentos',    icon: <FileSpreadsheet className="w-5 h-5" />, classes: G },
     { id: 'indicadores_caf',           label: 'Indicadores CAF',          icon: <LineChart className="w-5 h-5" />,      classes: V },
-    { id: 'indicadores_logisticos',    label: 'Indicadores Logísticos',   icon: <BarChart2 className="w-5 h-5" />,      classes: V },
+    { id: 'indicadores_logisticos_v2', label: 'Indicadores Logísticos V2',icon: <BarChart2 className="w-5 h-5" />,      classes: G },
     { id: 'analytics',                 label: 'Insights do Farma',        icon: <PieChart className="w-5 h-5" />,       classes: G },
     { id: 'inteligencia_devolucoes',   label: 'Inteligência Devoluções',  icon: <FileSpreadsheet className="w-5 h-5" />, classes: V },
     { id: 'vba',                       label: 'Macro VBA',                icon: <Code className="w-5 h-5" />,           classes: G },
@@ -196,6 +199,7 @@ function App() {
     { id: 'supply',                    label: 'Supply',                    icon: <Package className="w-5 h-5" />,        classes: G },
     { id: 'multidose',                 label: 'Multidose',                 icon: <Activity className="w-5 h-5" />,       classes: V },
     { id: 'baixas_estoque',            label: 'Baixas Estoque',            icon: <TrendingDown className="w-5 h-5" />,   classes: G },
+    { id: 'analise_operacional',       label: 'Análise Operacional',       icon: <Activity className="w-5 h-5" />,       classes: A },
   ] as const;
 
   if (!showApp) {
@@ -391,9 +395,9 @@ function App() {
             <PrevisibilidadeV2 equivalenceMap={equivalenceMap} />
           </div>
         )}
-        {activeTab === 'indicadores_logisticos' && (
+        {activeTab === 'indicadores_logisticos_v2' && (
           <div className="max-w-7xl mx-auto">
-            <IndicadoresLogisticos />
+            <IndicadoresLogisticosV2 />
           </div>
         )}
         {activeTab === 'gerador_documentos' && (
@@ -424,6 +428,11 @@ function App() {
         {activeTab === 'baixas_estoque' && (
           <div className="max-w-7xl mx-auto">
             <BaixasEstoque />
+          </div>
+        )}
+        {activeTab === 'analise_operacional' && (
+          <div className="max-w-7xl mx-auto">
+            <AnaliseOperacional />
           </div>
         )}
       </motion.div>
