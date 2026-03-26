@@ -3,99 +3,186 @@
 export type RiscoLevel = 'CRITICO' | 'ALTO' | 'MEDIO' | 'BAIXO';
 export interface RiscoInfo { label: string; level: RiscoLevel; bg: string; text: string; impacto: string; ordem: number }
 
+const CRITICO = (impacto: string): RiscoInfo => ({ label: 'Crítico', level: 'CRITICO', bg: '#fef2f2', text: '#dc2626', impacto, ordem: 4 });
+const ALTO    = (impacto: string): RiscoInfo => ({ label: 'Alto',    level: 'ALTO',    bg: '#fff7ed', text: '#ea580c', impacto, ordem: 3 });
+const MEDIO   = (impacto: string): RiscoInfo => ({ label: 'Médio',   level: 'MEDIO',   bg: '#fefce8', text: '#d97706', impacto, ordem: 2 });
+const BAIXO   = (): RiscoInfo => ({ label: 'Baixo', level: 'BAIXO', bg: '#f8fafc', text: '#64748b', impacto: 'Impacto operacional/administrativo — sem risco direto ao paciente', ordem: 1 });
+
 export function getRiscoAssistencial(nome: string): RiscoInfo {
   const n = nome.toUpperCase();
   const has = (k: string) => n.includes(k);
+  const matchAny = (arr: string[]) => arr.some(has);
 
-  // ── CRÍTICO ── risco imediato de vida
-  if (has('VANCOMICIN') || has('MEROPENEM') || has('TAZOBACT') || has('CEFEPIM') || has('IMIPENEM') || has('POLIMIXIN') || has('AMICACIN') || has('GENTAMICIN') || has('CEFTRIAX') || has('CEFTAZID'))
-    return { label: 'Crítico', level: 'CRITICO', bg: '#fef2f2', text: '#dc2626', impacto: 'Falha terapêutica em sepse/infecção grave — risco de óbito', ordem: 4 };
-  if (has('CIRCUITO') && (has('RESPIRAT') || has('ANESTESIA') || has('VENTILA')))
-    return { label: 'Crítico', level: 'CRITICO', bg: '#fef2f2', text: '#dc2626', impacto: 'Impossibilidade de ventilação mecânica/anestesia — risco de óbito por falência respiratória', ordem: 4 };
-  if (has('CANULA') && (has('TRAQUEOST') || has('TRAQUEO')))
-    return { label: 'Crítico', level: 'CRITICO', bg: '#fef2f2', text: '#dc2626', impacto: 'Perda de via aérea em paciente traqueostomizado — risco de óbito por asfixia', ordem: 4 };
-  if (has('NORADRENALI') || has('DOPAMINA') || has('DOBUTAMIN') || has('ADRENALI') || has('VASOPRES') || has('EPINEFRINA'))
-    return { label: 'Crítico', level: 'CRITICO', bg: '#fef2f2', text: '#dc2626', impacto: 'Choque refratário sem vasopressor — parada cardíaca iminente', ordem: 4 };
-  if (has('HEPARIN') || has('HEPARINA'))
-    return { label: 'Crítico', level: 'CRITICO', bg: '#fef2f2', text: '#dc2626', impacto: 'Tromboembolismo pulmonar / coagulopatia — risco de óbito', ordem: 4 };
-  if (has('AMIODARONA') || has('NITROPRUSSI') || has('ADENOSINA'))
-    return { label: 'Crítico', level: 'CRITICO', bg: '#fef2f2', text: '#dc2626', impacto: 'Arritmia grave / crise hipertensiva sem controle', ordem: 4 };
-  if (has('MORFINA') || has('FENTANIL') || has('SUFENTANIL') || has('REMIFENTANIL') || has('FENTANEST') || has('RELYON'))
-    return { label: 'Crítico', level: 'CRITICO', bg: '#fef2f2', text: '#dc2626', impacto: 'Dor aguda sem controle / depressão respiratória em UTI', ordem: 4 };
-  if (has('MIDAZOLAM') || has('PROPOFOL') || has('CETAMINA') || has('DEXMEDETOM'))
-    return { label: 'Crítico', level: 'CRITICO', bg: '#fef2f2', text: '#dc2626', impacto: 'Sedação inadequada em UTI ou cirurgia — agitação e trauma', ordem: 4 };
-  if (has('INSULINA'))
-    return { label: 'Crítico', level: 'CRITICO', bg: '#fef2f2', text: '#dc2626', impacto: 'Cetoacidose diabética / coma hiperosmolar — risco de óbito', ordem: 4 };
+  // ══════════════════════════════════════════════════════════════════════════
+  // ██  CRÍTICO  — risco imediato de vida / suporte orgânico invasivo
+  // ══════════════════════════════════════════════════════════════════════════
 
-  if (has('ALBUMINA'))
-    return { label: 'Crítico', level: 'CRITICO', bg: '#fef2f2', text: '#dc2626', impacto: 'Hipoalbuminemia crítica — edema, infecção e falência orgânica', ordem: 4 };
-  if (has('IMUNOGLOBULIN'))
-    return { label: 'Crítico', level: 'CRITICO', bg: '#fef2f2', text: '#dc2626', impacto: 'Imunodeficiência grave sem cobertura — infecções oportunistas', ordem: 4 };
-  if (has('ERITROPOETIN'))
-    return { label: 'Crítico', level: 'CRITICO', bg: '#fef2f2', text: '#dc2626', impacto: 'Anemia grave em paciente dialítico — dependência transfusional', ordem: 4 };
-  if (has('PLASMA') || has('HEMÁCIAS') || has('PLAQUETA') || has('CRIOPRECIP'))
-    return { label: 'Crítico', level: 'CRITICO', bg: '#fef2f2', text: '#dc2626', impacto: 'Choque hemorrágico / coagulopatia grave — risco de óbito', ordem: 4 };
-  if (has('QUIMIO') || has('ANTINEOPLÁS') || has('CISPLAT') || has('CARBOPLAT') || has('METOTREXAT') || has('VINCRIST') || has('DOXORRUB') || has('ETOPOSID') || has('PACLITAX') || has('RITUXIMAB'))
-    return { label: 'Crítico', level: 'CRITICO', bg: '#fef2f2', text: '#dc2626', impacto: 'Interrupção de protocolo oncológico — progressão tumoral', ordem: 4 };
+  // Antimicrobianos de Amplo Espectro / Reserva Terapêutica
+  const amCritico = ['VANCOMICIN', 'MEROPENEM', 'TAZOBACT', 'CEFEPIM', 'IMIPENEM', 'POLIMIXIN', 'AMICACIN', 'GENTAMICIN', 'CEFTRIAX', 'CEFTAZID', 'ERTAPENEM', 'NVANZ', 'DAPTOMICIN', 'EXFUNO', 'LINEZOLID', 'TIGECICLINA', 'CEFTAROLINA', 'COLISTINA', 'ANFOTERICINA', 'CASPOFUNGIN', 'MICAFUNGINA', 'VORICONAZ', 'AZTREONAM'];
+  if (matchAny(amCritico)) return CRITICO('Falha terapêutica em sepse/infecção grave — risco de choque e óbito');
 
-  // ── ALTO ── risco clínico significativo
-  if (has('AZITROMICIN') || has('AMOXICILI') || has('CIPROFLOX') || has('CLINDAMIC') || has('FLUCONAZ') || has('METRONIDAZ') || has('SULFAMETOX') || has('NITROFURANT') || has('SULBACTAM') || has('AMPICILIN'))
-    return { label: 'Alto', level: 'ALTO', bg: '#fff7ed', text: '#ea580c', impacto: 'Falha no tratamento de infecção bacteriana/fúngica — risco de complicações', ordem: 3 };
-  if (has('ACICLOVIR'))
-    return { label: 'Alto', level: 'ALTO', bg: '#fff7ed', text: '#ea580c', impacto: 'Encefalite herpética / herpes grave sem antiviral — sequelas neurológicas', ordem: 3 };
-  if (has('ENOXAPARIN') || has('WARFARIN') || has('DABIGATR') || has('RIVAROX') || has('APIXAB') || has('CLEXANE') || has('FONDAPAR'))
-    return { label: 'Alto', level: 'ALTO', bg: '#fff7ed', text: '#ea580c', impacto: 'Trombose venosa profunda / TEP — AVC isquêmico em pacientes anticoagulados', ordem: 3 };
-  if (has('DIETA ENTERAL') || has('ENTERAL') || has('SURVIMED') || has('NUTRISON') || has('FRESUBIN') || has('ISOSOURCE'))
-    return { label: 'Alto', level: 'ALTO', bg: '#fff7ed', text: '#ea580c', impacto: 'Desnutrição hospitalar — piora clínica, infecções e maior mortalidade', ordem: 3 };
-  if (has('LEVODOPA') || has('BENSERAZIDA') || has('PRAMIPEX') || has('PROLOPA'))
-    return { label: 'Alto', level: 'ALTO', bg: '#fff7ed', text: '#ea580c', impacto: 'Rigidez, crise e hospitalização prolongada em paciente com Parkinson', ordem: 3 };
-  if (has('CODEINA') || has('TRAMADOL') || has('DULOXETIN') || has('PREGABALINA') || has('GABAPENTIN') || has('CETOROLACO') || has('TORAGESIC') || has('CETOROLAC'))
-    return { label: 'Alto', level: 'ALTO', bg: '#fff7ed', text: '#ea580c', impacto: 'Dor aguda/crônica sem controle — piora funcional e qualidade de vida', ordem: 3 };
-  if (has('ONDANSETR') || has('PALONOSETR') || has('ANSENTRON') || has('METOCLOPRA'))
-    return { label: 'Alto', level: 'ALTO', bg: '#fff7ed', text: '#ea580c', impacto: 'Náuseas/vômitos sem controle — desidratação, aspiração e interrupção de quimio', ordem: 3 };
-  if (has('DEXAMETASON') || has('PREDNISOLON') || has('METILPREDNISOLON') || has('HIDROCORTISON'))
-    return { label: 'Alto', level: 'ALTO', bg: '#fff7ed', text: '#ea580c', impacto: 'Crise adrenal / resposta inflamatória descontrolada — choque', ordem: 3 };
-  if (has('OMEPRAZOL') || has('PANTOPRAZOL') || has('RANITIDINA') || has('LANSOPRAZOL'))
-    return { label: 'Alto', level: 'ALTO', bg: '#fff7ed', text: '#ea580c', impacto: 'Hemorragia digestiva alta em paciente de risco / úlcera de estresse em UTI', ordem: 3 };
-  if (has('PROCTYL') || has('POLICRESULENO') || has('XYLOPROCT'))
-    return { label: 'Alto', level: 'ALTO', bg: '#fff7ed', text: '#ea580c', impacto: 'Dor e desconforto anorretal sem tratamento — piora clínica em pós-operatório proctológico', ordem: 3 };
-  if (has('FUROSEMIDA') || has('CAPTOPRIL') || has('ENALAPRIL') || has('METOPROLOL') || has('ATENOLOL') || has('LOSARTAN') || has('AMLODIP') || has('ROSUVASTAT') || has('ATORVASTAT') || has('SINVASTAT'))
-    return { label: 'Alto', level: 'ALTO', bg: '#fff7ed', text: '#ea580c', impacto: 'Crise hipertensiva / descompensação cardíaca / risco cardiovascular elevado sem controle lipídico', ordem: 3 };
-  if (has('SORO FISIOL') || has('SOLUÇÃO FISIOL') || has('RINGER') || has('GLICOSE') || has('SORO GLICO'))
-    return { label: 'Alto', level: 'ALTO', bg: '#fff7ed', text: '#ea580c', impacto: 'Impossibilidade de hidratação IV e diluição de medicamentos críticos', ordem: 3 };
-  if (has('SONDA') || has('CATETER') || has('DRENO'))
-    return { label: 'Alto', level: 'ALTO', bg: '#fff7ed', text: '#ea580c', impacto: 'Impossibilidade de procedimento invasivo — risco de infecção e complicação', ordem: 3 };
-  if (has('BISTURI') || has('PLACA DE BISTURI') || has('LAMINA DE BISTURI') || has('CABO DE BISTURI'))
-    return { label: 'Alto', level: 'ALTO', bg: '#fff7ed', text: '#ea580c', impacto: 'Impossibilidade de procedimento cirúrgico — atraso em cirurgias e risco ao paciente', ordem: 3 };
-  if (has('SERINGA') || has('AGULHA'))
-    return { label: 'Alto', level: 'ALTO', bg: '#fff7ed', text: '#ea580c', impacto: 'Interrupção da administração de medicamentos injetáveis', ordem: 3 };
-  if (has('CURATIVO') || has('ATADURA') || has('FILME TRANSPAR') || has('TEGADERM'))
-    return { label: 'Alto', level: 'ALTO', bg: '#fff7ed', text: '#ea580c', impacto: 'Ferida exposta sem cobertura — infecção e retardo da cicatrização', ordem: 3 };
-  if (has('FLUOXETIN') || has('ESCITALOPRAM') || has('LEXAPRO') || has('SERTRALINA') || has('CLONAZEP') || has('HALOPERIDOL') || has('QUETIAPINA') || has('RISPERIDON'))
-    return { label: 'Alto', level: 'ALTO', bg: '#fff7ed', text: '#ea580c', impacto: 'Descompensação psiquiátrica / ansiedade grave — risco para si e outros', ordem: 3 };
+  // Vasopressores, Inotrópicos e Ressuscitação
+  const vasoCritico = ['NORADRENALI', 'DOPAMINA', 'DOBUTAMIN', 'ADRENALI', 'VASOPRES', 'EPINEFRINA', 'EFEDRINA', 'UNIFEDRINE', 'MILRINON', 'LEVOSIMENDAN', 'METARAMINOL', 'ARAMIN'];
+  if (matchAny(vasoCritico)) return CRITICO('Choque refratário sem suporte hemodinâmico — parada cardíaca iminente');
 
-  // ── MÉDIO ── risco de suporte / operacional
-  if (has('FRALDA'))
-    return { label: 'Médio', level: 'MEDIO', bg: '#fefce8', text: '#d97706', impacto: 'Lesão por pressão e dermatite — aumento de internação e custos', ordem: 2 };
-  if (has('MASCARA') || has('LUVA') || has('AVENTAL') || has('CAPOTE') || has('PROPÉ') || has('TOUCA'))
-    return { label: 'Médio', level: 'MEDIO', bg: '#fefce8', text: '#d97706', impacto: 'Risco de infecção cruzada e IRAS — comprometimento da biossegurança', ordem: 2 };
-  if (has('ELETRODO') || has('OXIMETRO') || has('OXÍMETRO') || has('GLICOSIMETRO') || has('TERMÔMETRO') || has('ESFIGMO'))
-    return { label: 'Médio', level: 'MEDIO', bg: '#fefce8', text: '#d97706', impacto: 'Comprometimento da monitorização do paciente', ordem: 2 };
-  if (has('EQUIPO') || has('EXTENSOR') || has('NEBULIZ') || has('ESPACADOR') || has('AGACHAMBER'))
-    return { label: 'Médio', level: 'MEDIO', bg: '#fefce8', text: '#d97706', impacto: 'Atraso na administração de medicamentos / terapia inalatória', ordem: 2 };
-  if (has('PROBIOTICO') || has('ENTEROGERMINA') || has('FLORATIL'))
-    return { label: 'Médio', level: 'MEDIO', bg: '#fefce8', text: '#d97706', impacto: 'Comprometimento da recomposição de flora intestinal — risco de diarreia associada a antibióticos', ordem: 2 };
-  if (has('GAZE') || has('COMPRESSA') || has('BANDAGEM') || has('ESPARADRAPO') || has('MICROPORE'))
-    return { label: 'Médio', level: 'MEDIO', bg: '#fefce8', text: '#d97706', impacto: 'Comprometimento de curativos e procedimentos menores', ordem: 2 };
-  if (has('SENSOR DESCART') || has('SENSOR'))
-    return { label: 'Médio', level: 'MEDIO', bg: '#fefce8', text: '#d97706', impacto: 'Comprometimento da monitorização contínua', ordem: 2 };
-  if (has('FIO SUTURA') || has('SUTURA'))
-    return { label: 'Médio', level: 'MEDIO', bg: '#fefce8', text: '#d97706', impacto: 'Impossibilidade de sutura cirúrgica — risco de deiscência', ordem: 2 };
-  if (has('ESPESSANTE') || has('THICKEN'))
-    return { label: 'Médio', level: 'MEDIO', bg: '#fefce8', text: '#d97706', impacto: 'Risco de aspiração em pacientes disfágicos', ordem: 2 };
-  if (has('BOBINA') || has('SACO PLAST') || has('SACO LIXO') || has('LACRE') || has('HAMPER'))
-    return { label: 'Médio', level: 'MEDIO', bg: '#fefce8', text: '#d97706', impacto: 'Comprometimento da gestão de resíduos hospitalares', ordem: 2 };
+  // Antiarrítmicos e Vasodilatadores Potentes IV
+  const arrCritico = ['AMIODARONA', 'NITROPRUSSI', 'NIPRIDE', 'ADENOSINA', 'ATROPINA', 'ESMOLOL', 'BREVIBLOC', 'PROPAFENONA', 'LIDOCAINA EV', 'LIDOCAÍNA EV'];
+  if (matchAny(arrCritico)) return CRITICO('Arritmia grave / crise hipertensiva aguda não controlada');
 
-  // ── BAIXO ── impacto operacional/administrativo
-  return { label: 'Baixo', level: 'BAIXO', bg: '#f8fafc', text: '#64748b', impacto: 'Impacto operacional/administrativo — sem risco direto ao paciente', ordem: 1 };
+  // Sedação Profunda e Analgesia Opióide em UTI/Centro Cirúrgico
+  const sedCritico = ['MORFINA', 'FENTANIL', 'SUFENTANIL', 'REMIFENTANIL', 'FENTANEST', 'RELYON', 'MIDAZOLAM', 'PROPOFOL', 'CETAMINA', 'KETAMINA', 'DEXMEDETOM', 'PRECEDEX', 'TIOPENTAL', 'ETOMIDATO', 'DORMONID', 'METADONA', 'MYTEDON', 'SEVOFLURANO', 'SEVONESS'];
+  if (matchAny(sedCritico)) return CRITICO('Depressão respiratória descontrolada / sedação inadequada em via aérea avançada');
+
+  // Bloqueadores Neuromusculares e Reversão
+  const bnmCritico = ['SUGAMADEX', 'BRYONY', 'ROCURONIO', 'ROCURON', 'VECURONIO', 'ATRACURIO', 'CISATRACURIO', 'SUCCINILCOLINA', 'NIMBEX', 'NEOSTIGMINA', 'PROSTIGMINE'];
+  if (matchAny(bnmCritico)) return CRITICO('Bloqueio neuromuscular instável ou falha na reversão pós-anestésica — apneia prolongada');
+
+  // Insulinas (Risco de Hipoglicemia Severa ou CAD)
+  const insCritico = ['INSULINA', 'LANTUS', 'TRESIBA', 'NOVORAPID', 'HUMALOG', 'APIDRA', 'TOUJEO', 'LEVEMIR', 'GLARGINA', 'LISPRO'];
+  if (matchAny(insCritico)) return CRITICO('Descompensação diabética crônica (cetoacidose) ou choque hipoglicêmico');
+
+  // Eletrólitos Concentrados (MAV - Medicamentos de Alta Vigilância)
+  const eletrCritico = ['CLORETO DE POTASSIO', 'CLORETO POTASSIO', 'KCL', 'GLUCONATO CALCIO', 'GLUCONATO DE CALCIO', 'BICARBONATO SODIO', 'BICARBONATO DE SODIO', 'FOSFATO POTASSIO', 'SULFATO MAGNESIO', 'SULFATO DE MAGNESIO', 'MAGNESIO 50%', 'POTASSIO 19', 'NACL 20%'];
+  if (matchAny(eletrCritico)) return CRITICO('Distúrbio eletrolítico crítico com instabilidade cardíaca iminente');
+
+  // Hemoderivados e Volume de Resgate
+  const hemodCritico = ['ALBUMINA', 'IMUNOGLOBULIN', 'ERITROPOETIN', 'ALFAEPOETIN', 'EPREX', 'PLASMA', 'HEMÁCIAS', 'PLAQUETA', 'CRIOPRECIP', 'FILGRASTIM', 'FIPRIMA'];
+  if (matchAny(hemodCritico)) return CRITICO('Choque hipovolêmico grave / falência imunológica primária ou hematopoiética');
+
+  // Anticoagulantes Críticos e Trombolíticos
+  const coagCritico = ['HEPARIN', 'HEPARINA', 'UROQUINASE', 'AUROLOCK', 'TAUROLIDINA', 'ALTEPLASE', 'ACTILYSE', 'TENECTEPLASE', 'STREPTOQUINASE'];
+  if (matchAny(coagCritico)) return CRITICO('Hemorragia sistêmica não controlada ou isquemia aguda por trombose');
+
+  // Quimioterápicos / Imunomoduladores Oncológicos
+  const quimioCritico = ['QUIMIO', 'ANTINEOPLÁS', 'CISPLAT', 'CARBOPLAT', 'METOTREXAT', 'VINCRIST', 'DOXORRUB', 'ETOPOSID', 'PACLITAX', 'RITUXIMAB', 'IPILIMUMAB', 'YERVOY', 'PERTUZUMAB', 'TRASTUZUMAB', 'PHESGO', 'FOLINATO', 'FAULDLEUCO', 'ONCOKIT', 'CICLOFOSFAMIDA', 'FLUOROURACIL', 'PEMBROLIZUMAB'];
+  if (matchAny(quimioCritico)) return CRITICO('Atraso incompatível com protocolo oncológico rigoroso — progressão celular');
+
+  // Antídotos Específicos
+  const antidCritico = ['AZUL METILENO', 'ZUL METILENO', 'FLUMAZENIL', 'LANEXAT', 'NALOXONA', 'NARCAN', 'CARVAO ATIVADO', 'SORO ANTIOFIDICO', 'ANTIARACNIDEO'];
+  if (matchAny(antidCritico)) return CRITICO('Intoxicação severa sem antagonista/antídoto administrado a tempo');
+
+  // Vias Aéreas, Ventilação e Acesso Venoso Central
+  const vaCritico = ['CIRCUITO RESPIRAT', 'CIRCUITO VENTILA', 'CIRCUITO ANESTESIA', 'CANULA TRAQUEOST', 'TUBO ENDOTRAQUEAL', 'VALVULA TRAQUEOSTOMIA', 'ALVULA TRAQUEOSTOMIA', 'CATETER VENOSO CENTRAL', 'CATETER PICC', 'LARINGOSCOPIO', 'LAMINA DE LARINGOSCOPIO'];
+  if (matchAny(vaCritico)) return CRITICO('Acidente em via aérea avançada / impossibilidade de suporte ventilatório ou acesso venoso vital');
+
+  // Terapia Renal Substitutiva
+  const trsCritico = ['HEMOLENTA', 'HEMODIAL', 'CAPILAR DIALISE', 'FILTRO DIALISE', 'LINHA ARTERIAL E VENOSA HD', 'TRICIT', 'CITRATO SODIO'];
+  if (matchAny(trsCritico)) return CRITICO('Impossibilidade técnica de realizar Terapia Renal Substitutiva em paciente urêmico');
+
+  // Hipertensão Intracraniana
+  const neuroCritico = ['MANITOL'];
+  if (matchAny(neuroCritico)) return CRITICO('Hipertensão intracraniana não drenada — risco iminente de herniação cerebral');
+
+  // Opióide contínuo (Adesivo de Buprenorfina)
+  if (has('BUPRENORFINA') || has('RESTIVA'))
+    return CRITICO('Interrupção da analgesia por opióide forte, desencadeando crise de dor severa e abstinência');
+
+  // Aventais cirúrgicos estéreis
+  if (has('AVENTAL CIRUR') || has('AVENTAL CIRÚR'))
+    return CRITICO('Interrupção obrigatória das cirurgias agendadas da UTI e CC por quebra de barreira estéril');
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // ██  ALTO  — risco clínico significativo / interrupção de cuidado avançado
+  // ══════════════════════════════════════════════════════════════════════════
+
+  // Antimicrobianos Intermediários ou Orais/Tópicos Sistêmicos
+  const amAlto = ['AZITROMICIN', 'AMOXICILI', 'CIPROFLOX', 'CLINDAMIC', 'FLUCONAZ', 'METRONIDAZ', 'SULFAMETOX', 'NITROFURANT', 'SULBACTAM', 'AMPICILIN', 'CLARITROMICIN', 'KLARICID', 'NORFLOXACIN', 'CEFOXITINA', 'KEFOX', 'DOXICICLINA', 'CEFALEXINA', 'CEFAZOLINA', 'CEFALOTINA', 'PENICILINA', 'BENZATACIL', 'ACICLOVIR', 'OSELTAMIVIR', 'TAMIFLU'];
+  if (matchAny(amAlto)) return ALTO('Piora de quadro infeccioso ou infecção cirúrgica profilática');
+
+  // Anticoagulantes Orais, Profilaxia de TEV e Antiplaquetários
+  const coagAlto = ['ENOXAPARIN', 'WARFARIN', 'DABIGATR', 'RIVAROX', 'APIXAB', 'CLEXANE', 'FONDAPAR', 'VOLARE', 'EMBO', 'CLOPIDOGREL', 'AAS', 'ACIDO ACETILSALICILICO', 'ÁCIDO ACETILSALICÍLICO', 'CILOSTAZOL', 'CEBRALAT', 'TICAGRELOR', 'PRASUGREL'];
+  if (matchAny(coagAlto)) return ALTO('Trombose venosa profunda incipiente / falência de stent ou TEP silencioso');
+
+  // Antifibrinolíticos
+  const fibriAlto = ['TRANEXAMI', 'ACIDO TRANEXAMI', 'TRANSAMIN', 'EPSILON'];
+  if (matchAny(fibriAlto)) return ALTO('Controle sangramento perioperatório ou uterino debilitado');
+
+  // Corticosteróides e Supressão Adrenal Sistêmica
+  const cortAlto = ['DEXAMETASON', 'PREDNISOLON', 'METILPREDNISOLON', 'HIDROCORTISON', 'PREDNISONA', 'CRISPRED', 'SOLUMEDROL', 'DECADRON', 'BETAMETASONA', 'DUOFLAM', 'FLUDROCORTISONA'];
+  if (matchAny(cortAlto)) return ALTO('Imunossupressão ou crise adrenal descompensada / choque anafilático progressivo');
+
+  // Neurologia/Psiquiatria Crônica (Anticonvulsivantes, Neurolépticos, Antidepressivos de controle rígido)
+  const neuroAlto = ['LEVODOPA', 'BENSERAZIDA', 'PRAMIPEX', 'PROLOPA', 'FLUOXETIN', 'ESCITALOPRAM', 'LEXAPRO', 'SERTRALINA', 'CLONAZEP', 'CLOPAM', 'HALOPERIDOL', 'QUETIAPINA', 'RISPERIDON', 'DIAZEPAM', 'COMPAZ', 'TOPIRAMATO', 'LACOSAMIDA', 'VIMPAT', 'CARBAMAZEPIN', 'FENOBARBITAL', 'GARDENAL', 'HIDANTAL', 'FENITOIN', 'ACIDO VALPROICO', 'DEPAKENE', 'OXCARBAZEPINA', 'LITIO', 'CARBOLITIUM', 'DOLANTINA', 'GABAPENTIN', 'PREGABALINA', 'LYRICA', 'ACETAZOLAMIDA', 'DIAMOX', 'ALPRAZOLAM', 'FRONTAL', 'AMITRIPTILINA', 'AMYTRIL', 'DESVENLAFAXINA', 'PRISTIQ', 'DIVALPROATO', 'DEPAKOTE', 'LAMOTRIGINA', 'NEURAL', 'MIRTAZAPINA', 'REMERON', 'NORTRIPTILINA', 'PAMELOR', 'PAROXETINA', 'ROXETIN', 'RIVASTIGMINA', 'EXELON', 'SUMATRIPTANA', 'SUMAX', 'TRAZODONA', 'DONAREN', 'VENLAFAXINA', 'EFEXOR', 'ZOLPIDEM', 'STILNOX', 'MEMANTINA', 'EBIX', 'CLOBAZAM', 'URBANIL', 'LEVETIRACETAM', 'KEPPRA', 'ANTARA', 'CITALOPRAM', 'OLANZAPINA', 'CRISAPINA', 'DONEPEZILA', 'LABREA', 'BUPROPIONA'];
+  if (matchAny(neuroAlto)) return ALTO('Surto psicótico, convulsão espontânea ou desmame neurológico / dor de difícil controle');
+
+  // Analgesia Sistêmica Combinada (Opióides de degrau 2) e Antieméticos Refratários
+  const dolorAlto = ['CODEINA', 'TRAMADOL', 'TYLEX', 'DULOXETIN', 'CYMBALTA', 'OXYCONTIN', 'OXICODONA'];
+  if (matchAny(dolorAlto)) return ALTO('Aumento agudo da escala de dor e agravamento funcional do paciente');
+  const antiemetAlto = ['ONDANSETR', 'PALONOSETR', 'ANSENTRON', 'METOCLOPRA', 'BROMOPRIDA', 'FOSAPREPITANT', 'APREPITANT', 'PLASIL', 'VONAU', 'DOMPERIDONA'];
+  if (matchAny(antiemetAlto)) return ALTO('Êmese pós-operatória severa / desidratação e risco de aspiração brônquica');
+
+  // Cardiovasculares / Anti-hipertensivos de controle
+  const cardioAlto = ['FUROSEMIDA', 'CAPTOPRIL', 'ENALAPRIL', 'METOPROLOL', 'ATENOLOL', 'LOSARTAN', 'AMLODIP', 'ROSUVASTAT', 'ATORVASTAT', 'SINVASTAT', 'BISOPROLOL', 'CONCOR', 'CARVEDILOL', 'NIFEDIPINA', 'ANLODIPINO', 'CLONIDINA', 'ATENSINA', 'DIGOXINA', 'HIDRALAZINA', 'APRESOLINA', 'INDAPAMIDA', 'NATRILIX', 'IVABRADINA', 'PROCORALAN', 'PROPRANOLOL', 'TRIMETAZIDINA', 'VASTAREL', 'VALSARTANA', 'DIOVAN', 'VERAPAMIL', 'DILACORON', 'OLMESARTANA', 'BENICAR', 'RAMIPRIL', 'ESPIRONOLACTONA', 'METILDOPA', 'SOTALOL'];
+  if (matchAny(cardioAlto)) return ALTO('Piora de insuficiência cardíaca e risco hipertensivo progressivo nos crônicos');
+
+  // Broncodilatadores Sistêmicos ou Inalatórios Potentes
+  const broncoAlto = ['SALBUTAMOL', 'AEROLIN', 'FORMOTEROL', 'SYMBICORT', 'BUDESONID', 'BROMETO DE IPRATROPIO', 'IPRATROPIO', 'ATROVENT', 'BEROTEC', 'FENOTEROL', 'AMINOFILINA', 'MONTELUCASTE', 'SINGULAIR'];
+  if (matchAny(broncoAlto)) return ALTO('Declínio agudo da via aérea inferior / exacerbação grave de asma ou DPOC');
+
+  // Proteção Gástrica em UTI e Hepatoprotetores Severos
+  const gastroAlto = ['OMEPRAZOL', 'PANTOPRAZOL', 'RANITIDINA', 'LANSOPRAZOL', 'ESOMEPRAZOL', 'ACIDO URSODESOXICOL', 'URSCOL', 'MESALAZINA', 'MESACOL', 'SUCRALFATO', 'SUCRAFILM', 'FAMOTIDINA', 'FAMOX'];
+  if (matchAny(gastroAlto)) return ALTO('Sangramento alto não-varicoso ou agravamento de cirrose/colestase instalada');
+
+  // Endocrinológicos / Antidiabéticos Crônicos / Reposição Hormonal Vital
+  const endocrinoAlto = ['LINAGLIPTINA', 'TRAYENTA', 'METFORMINA', 'GLIFAGE', 'VILDAGLIPTINA', 'GALVUS', 'EMPAGLIFLOZINA', 'JARDIANCE', 'ARDIANCE', 'FORXIGA', 'DAPAGLIFLOZINA', 'LEVOTIROXINA', 'PURAN', 'SYNTHROID'];
+  if (matchAny(endocrinoAlto)) return ALTO('Descompensação sistêmica (ex: Cetoacidose, Coma Mixedematoso) crônica');
+
+  // Imunossupressores Crônicos e Biológicos
+  const imunoAlto = ['ENTYVIO', 'VEDOLIZUMAB', 'AZATIOPRINA', 'IMURAN', 'HIDROXICLOROQUINA', 'REUQUINOL', 'CICLOSPORINA', 'TACROLIMO', 'PROGRAF', 'MICOFENOLATO', 'CELLCEPT', 'HUMIRA', 'ADALIMUMABE'];
+  if (matchAny(imunoAlto)) return ALTO('Rejeição em transplantados / Agudização de doença imunomediada');
+
+  // Especialidades Cirúrgicas e Materiais de Risco Local
+  const instrumentariaAlto = ['PROCTYL', 'POLICRESULENO', 'XYLOPROCT', 'BISTURI', 'LAMINA DE BISTURI', 'CABO DE BISTURI', 'PLACA DE BISTURI', 'CURATIVO', 'ATADURA', 'FILME TRANSPAR', 'TEGADERM', 'PRONTOSAN', 'BETAINA', 'ALGINATO', 'COLAGENO', 'HIDROGEL', 'SUTURA', 'VICRYL', 'FIO ABSORV', 'FIO GUIA', 'CAMPO CIR', 'CAMPO CIRUR', 'CAMPO CIRÚR', 'COLAGENASE', 'KOLLAGENASE', 'ROPIVACAINA', 'ROPI', 'CANETA MARCACAO', 'KIT CIRURGICO'];
+  if (matchAny(instrumentariaAlto)) return ALTO('Adiamento de etapa cirúrgica ou agravamento crônico de estomas/UPP extensa');
+
+  const esterilAlto = ['STERIGAGE', 'COMPLY', 'INTEGRADOR QUIMICO', 'INVOLUCRO', 'BOWIE DICK', 'BOWIE-DICK', 'BIOLOGICO', 'AUTO-LEITURA', 'EMBALAGEM PLASTICA ESTERIL', 'CAPA EQUIPAMENTO VIDEOCIRURGIA', 'FILTRO PAPEL RETANGULAR'];
+  if (matchAny(esterilAlto)) return ALTO('Perda total da barreira sanitária da CME; cirurgias e CTI impactados por quebra de segurança de infecção cruzada');
+
+  // Contrastes de Imagem
+  const imagAlto = ['DOTAREM', 'GADOTERICO', 'OPTIRAY', 'IOEXOL', 'OMNIPAQUE', 'INDOCIANINA VERDE'];
+  if (matchAny(imagAlto)) return ALTO('Diagnóstico crítico vascular impedido de ser elucidado a tempo pela imagem (TC/RM)');
+
+  // Urologia Crônica (HPB)
+  const uroAlto = ['DUTASTERIDA', 'TANSULOSINA', 'TANDUO', 'DOXAZOSINA', 'FINASTERIDA'];
+  if (matchAny(uroAlto)) return ALTO('Risco de retenção urinária aguda não tratada e cateterismo de repetição');
+
+  // Dispositivos Invasivos Severos
+  const sondaAlto = ['SONDA', 'CATETER', 'DRENO', 'SCALP', 'SERINGA', 'AGULHA', 'FILTRO HME', 'FILTRO UMIDIFICADOR', 'FILTRO BACT', 'TORNEIRA', 'DISCOFIX', 'FRASCO COLETOR DRENAGEM', 'COLETOR SECRECOES', 'KIT HIGIENE ORAL VENTILA', 'EQUIPO BOMBA', 'EQUIPO SORO MAX INFUSOR'];
+  if (matchAny(sondaAlto)) return ALTO('Prejuízo agudo em administração de terapia IV segura ou manipulação do dreno torácico ou via aérea');
+
+  // Nutrição especializada / Enteral
+  const nutriAlto = ['DIETA ENTERAL', 'ENTERAL', 'SURVIMED', 'NUTRISON', 'FRESUBIN', 'ISOSOURCE', 'DIASIP', 'RESOURCE FIBER', 'MODULO ALIMENTAR', 'PARENTERAL', 'OLIGOELEMENTOS', 'NEOCATE', 'FORTINI', 'NUTRIDRINK', 'NOVASOURCE'];
+  if (matchAny(nutriAlto)) return ALTO('Depleção calórico-proteica acelerada intra-hospitalar, reduzindo resposta sistêmica do paciente acamado');
+
+  // Fluidos Básicos
+  const ivAlto = ['SORO FISIOL', 'SOLUÇÃO FISIOL', 'RINGER', 'GLICOSE', 'SORO GLICO', 'CLORETO SODIO'];
+  if (matchAny(ivAlto)) return ALTO('Impossibilidade global na central de preparo de manter todos os acessos abertos ou diluir a medicação');
+
+  // Anestésicos Tópicos Prévios a Intubação ou Alívio Imediato
+  if (has('LIDOCAINA') || has('XYLESTESIN') || has('EMLA')) return ALTO('Manobras locais extremamente invasivas feitas sem barreira tátil bloqueadora');
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // ██  MÉDIO  — risco de suporte / operacional que afeta conforto ou cronograma
+  // ══════════════════════════════════════════════════════════════════════════
+
+  // Sintomáticos e Suporte Oral/Geral
+  const sintoMedio = ['DIPIRONA', 'PIRONA', 'PARACETAMOL', 'HALEXMINOPHEN', 'IBUPROFENO', 'CETOROLACO', 'TORAGESIC', 'KETOROLAC', 'DICLOFENACO', 'VOLTAREN', 'PROFENID', 'CETOPROFENO', 'HIDROXIZINA', 'HIXIZINE', 'DRAMIN', 'DIMENIDRINATO', 'SIMETICONA', 'LUFTAL', 'LOPERAMIDA', 'IMOSEC', 'ESCOPOLAMINA', 'BUSCOPAN', 'BISACODIL', 'DUCÓLAX', 'LACTULOSE', 'FLEET', 'CLYSTER', 'BETAISTINA', 'LABIRIN', 'CICLOBENZAPRINA', 'MIOSAN', 'COLCHICINA', 'COLCHIS', 'DESLORATADINA', 'DESALEX', 'DEXPANTENOL', 'BEPANTOL', 'FEXOFENADINA', 'MACROGOL', 'MUVINLAX', 'SENNE', 'CASSIA', 'TAMARINDUS', 'NATURETTI', 'TENOXICAM', 'NAPROXENO', 'FLANAX', 'ACIDO POLIACRILICO', 'VIDISIC', 'GLICERIN', 'GLICERINA SUP', 'AVIDE', 'RACECADOTRILA', 'ESCINA', 'HEMATOM', 'ACETILCISTEINA', 'FLUCISTEIN', 'REHIDRAT', 'REIDRAT'];
+  if (matchAny(sintoMedio)) return MEDIO('Conforto térmico, analgésico e entérico mitigados — prolonga permanência do paciente pelo simples desconforto');
+
+  // Controle secundário crônico
+  const cronicoMedio = ['EZETIMIBA', 'CIPROFIBRATO', 'PLESS', 'TIAMINA', 'BENERVA', 'VIT B1', 'NISTATINA', 'MICONAZOL', 'PROBIOTICO', 'ENTEROGERMINA', 'FLORATIL', 'SACHAROMYCES', 'SACCHAROMYCES', 'ACIDO FOLICO', 'ENDOFOLIN', 'ALOPURINOL', 'ZYLORIC', 'DIOSMINA', 'HESPERIDINA', 'PERIVASC', 'POLIVITAMINICO', 'CERNE', 'REPOFLOR', 'CALCITRIOL', 'SIGMATRIOL', 'VIT D3', 'CARBONATO CALCIO', 'OSCAL', 'PIRIDOXINA'];
+  if (matchAny(cronicoMedio)) return MEDIO('Recrudescência em quadros crônicos como esteatose, neuropatia ou desequilíbrio leve da flora');
+
+  // EPI, Materiais de Barreira Simples e Dispositivos Leves
+  const epiMedio = ['FRALDA', 'MASCARA', 'LUVA', 'AVENTAL DE PROCEDIMENTO', 'CAPOTE', 'AVENTAL DESCARTAVEL', 'PROPÉ', 'PROPE', 'TOUCA', 'SAPATILHA', 'ELETRODO', 'OXIMETRO', 'OXÍMETRO', 'GLICOSIMETRO', 'TERMÔMETRO', 'TERMOMETRO', 'ESFIGMO', 'EQUIPO DE GRAVIDADE', 'EXTENSOR', 'EXTENSAO', 'NEBULIZ', 'ESPACADOR', 'AGACHAMBER', 'GAZE', 'COMPRESSA', 'BANDAGEM', 'ESPARADRAPO', 'MICROPORE', 'FITA HIPOALERGENICA', 'ALGODAO', 'ALGODÃO', 'SENSOR DESCART', 'SENSOR', 'ESPESSANTE', 'THICKEN', 'TIRA GLICEMIA', 'ACCU CHEK'];
+  if (matchAny(epiMedio)) return MEDIO('Riscos cruzados subnotificados no dia a dia da enfermaria por quebras pontuais no controle local ou falta de mobilidade das secreções e fluxos gástricos');
+
+  // Insumos Básicos Laboratoriais e Higiene
+  const apoioMedio = ['AGUA DESTILADA', 'ÁGUA DESTILADA', 'ÁGUA PARA INJE', 'AGUA PARA INJE', 'BOBINA', 'SACO PLAST', 'SACO LIXO', 'LACRE', 'HAMPER', 'CLOREXIDINA', 'DEGERMANTE', 'ALCOOL', 'ÁLCOOL', 'FORMOL', 'DESINFETANTE GERMI'];
+  if (matchAny(apoioMedio)) return MEDIO('Atrasos na rotina estritamente contábil da montagem de leitos e fluidos — retardo sem piora sistêmica declarada do status basal de vida');
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // ██  BAIXO  — impacto operacional/administrativo (administrativos, suportes triviais não classificados)
+  // ══════════════════════════════════════════════════════════════════════════
+  return BAIXO();
 }

@@ -476,122 +476,138 @@ export function RastreioFalta() {
       </div>
 
       {/* ── Filtros + Tabela ─────────────────────────────────────────────────── */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mb-8">
         {/* Toolbar */}
-        <div className="px-5 py-4 border-b border-slate-100 space-y-3">
-          <div className="flex flex-wrap gap-3 items-center">
-            {/* Nivel filter */}
-            <div className="flex gap-1 bg-slate-100 p-1 rounded-lg">
-              {(['todos', 'critico', 'alerta', 'atencao', 'ok'] as const).map(f => (
-                <button key={f} onClick={() => setFilterNivel(f)}
-                  className={`px-2.5 py-1.5 rounded-md text-[11px] font-bold transition-all whitespace-nowrap ${
-                    filterNivel === f ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                  }`}>
-                  {f === 'todos' ? `Todos (${rows.length})`
-                    : f === 'critico' ? `🔴 Crítico (${stats?.critico})`
-                    : f === 'alerta'  ? `🟠 Alerta (${stats?.alerta})`
-                    : f === 'atencao' ? `🔵 Atenção (${stats?.atencao})`
-                    : `🟢 OK (${stats?.ok})`}
-                </button>
-              ))}
-            </div>
+        <div className="px-6 py-5 border-b border-slate-100 space-y-4">
+          <div className="flex flex-wrap gap-4 items-center justify-between">
+            <div className="flex gap-2">
+              {/* Nivel filter */}
+              <div className="flex items-center bg-slate-100 border border-slate-200 p-1 rounded-xl shadow-inner">
+                {(['todos', 'critico', 'alerta', 'atencao', 'ok'] as const).map(f => (
+                  <button key={f} onClick={() => setFilterNivel(f)}
+                    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all whitespace-nowrap ${
+                      filterNivel === f ? 'bg-white text-rose-600 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-700'
+                    }`}>
+                    {f === 'todos' ? `Todos (${rows.length})`
+                      : f === 'critico' ? `Crítico (${stats?.critico})`
+                      : f === 'alerta'  ? `Alerta (${stats?.alerta})`
+                      : f === 'atencao' ? `Atenção (${stats?.atencao})`
+                      : `OK (${stats?.ok})`}
+                  </button>
+                ))}
+              </div>
 
-            {/* Tendência filter */}
-            <div className="flex gap-1 bg-slate-100 p-1 rounded-lg">
-              {(['todos', 'alta', 'estavel', 'queda'] as const).map(f => (
-                <button key={f} onClick={() => setFilterTend(f)}
-                  className={`px-2.5 py-1.5 rounded-md text-[11px] font-bold transition-all ${
-                    filterTend === f ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                  }`}>
-                  {f === 'todos' ? 'Todas tendências' : f === 'alta' ? '↑ Alta' : f === 'queda' ? '↓ Queda' : '→ Estável'}
-                </button>
-              ))}
+              {/* Tendência filter */}
+              <div className="flex items-center bg-slate-100 border border-slate-200 p-1 rounded-xl shadow-inner">
+                {(['todos', 'alta', 'estavel', 'queda'] as const).map(f => (
+                  <button key={f} onClick={() => setFilterTend(f)}
+                    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all ${
+                      filterTend === f ? 'bg-white text-rose-600 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-700'
+                    }`}>
+                    {f === 'todos' ? 'Todas Tendências' : f === 'alta' ? '↑ Alta' : f === 'queda' ? '↓ Queda' : '→ Estável'}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Sort */}
             <select value={sortBy} onChange={e => setSortBy(e.target.value as any)}
-              className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 text-slate-600 bg-white outline-none">
-              <option value="projecao">Ordenar: Menor projeção</option>
-              <option value="total">Ordenar: Maior consumo</option>
-              <option value="saldo">Ordenar: Menor saldo</option>
-              <option value="media">Ordenar: Maior média</option>
+              className="text-xs font-bold border border-slate-200 rounded-xl px-3 py-2 text-slate-600 bg-slate-50 hover:bg-white outline-none focus:ring-2 focus:ring-rose-500 transition-colors cursor-pointer">
+              <option value="projecao">Ordenar por: Projeção Crítica</option>
+              <option value="total">Ordenar por: Maior Consumo</option>
+              <option value="saldo">Ordenar por: Menor Saldo</option>
+              <option value="media">Ordenar por: Maior Média</option>
             </select>
           </div>
 
-          <div className="flex items-center gap-2">
-            <Search className="w-4 h-4 text-slate-400 shrink-0" />
-            <input
-              type="text" placeholder="Buscar por nome comercial, genérico, código ou unidade..."
-              value={search} onChange={e => setSearch(e.target.value)}
-              className="flex-1 text-xs bg-transparent outline-none text-slate-700 placeholder-slate-400 border-b border-slate-200 pb-1"
-            />
-            <span className="text-xs text-slate-400 shrink-0">{filtered.length} itens</span>
+          <div className="flex items-center gap-3">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
+              <input
+                type="text" placeholder="Buscar por nome comercial, genérico, código ou unidade..."
+                value={search} onChange={e => setSearch(e.target.value)}
+                className="w-full text-sm bg-slate-50 border border-slate-200 outline-none text-slate-700 placeholder-slate-400 rounded-xl py-2.5 pl-11 pr-4 focus:bg-white focus:ring-2 focus:ring-rose-500 transition-all font-medium"
+              />
+            </div>
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest shrink-0 px-2">{filtered.length} Itens Encontrados</span>
           </div>
         </div>
 
         {/* Table */}
         <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
-          <table className="w-full">
-            <thead className="sticky top-0 z-10">
-              <tr className="bg-slate-800">
-                <th className="text-left text-[11px] font-bold text-slate-400 px-3 py-3">#</th>
-                <th className="text-left text-[11px] font-bold text-white px-3 py-3">Código</th>
-                <th className="text-left text-[11px] font-bold text-white px-3 py-3">Produto</th>
-                <th className="text-left text-[11px] font-bold text-slate-400 px-3 py-3">Unidade</th>
+          <table className="w-full text-left border-collapse">
+            <thead className="sticky top-0 z-10 bg-slate-50 shadow-sm">
+              <tr className="border-b border-slate-200">
+                <th className="px-4 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest text-center">#</th>
+                <th className="px-4 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Produto</th>
                 {diaLabels.map(lbl => (
-                  <th key={lbl} className="text-right text-[11px] font-bold text-slate-400 px-3 py-3">{lbl}</th>
+                  <th key={lbl} className="px-3 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right">{lbl}</th>
                 ))}
-                <th className="text-right text-[11px] font-bold text-slate-400 px-3 py-3">Média</th>
-                <th className="text-right text-[11px] font-bold text-slate-400 px-3 py-3">Saldo</th>
-                <th className="text-left text-[11px] font-bold text-white px-3 py-3 min-w-[140px]">Projeção (dias)</th>
-                <th className="text-center text-[11px] font-bold text-slate-400 px-3 py-3">Tend.</th>
-                <th className="text-center text-[11px] font-bold text-slate-400 px-3 py-3">Status</th>
+                <th className="px-4 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest text-right">Média/dia</th>
+                <th className="px-4 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest text-right">Saldo</th>
+                <th className="px-4 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest min-w-[140px]">Projeção (dias)</th>
+                <th className="px-4 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest text-center">Tendência</th>
+                <th className="px-4 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest text-center">Status</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-slate-100 bg-white">
               {filtered.slice(0, 300).map((row, i) => {
                 const cfg = NIVEL_CONFIG[row.nivel];
                 return (
-                  <tr key={i}
-                    className="border-b border-slate-50 hover:bg-slate-50 transition-colors"
-                    style={{ borderLeft: `3px solid ${cfg.color}` }}>
-                    <td className="px-3 py-2.5 text-xs text-slate-400 font-black">{i + 1}</td>
-                    <td className="px-3 py-2.5 text-xs font-mono text-slate-500">{row.codigo}</td>
-                    <td className="px-3 py-2.5 max-w-[260px]">
-                      <p className="text-xs font-bold text-slate-700 leading-snug" title={row.comercial}>
-                        {row.comercial.length > 38 ? row.comercial.substring(0, 38) + '…' : row.comercial}
-                      </p>
-                      {row.generico && (
-                        <p className="text-[10px] text-slate-400 leading-snug mt-0.5" title={row.generico}>
-                          {row.generico.length > 40 ? row.generico.substring(0, 40) + '…' : row.generico}
-                        </p>
-                      )}
+                  <tr key={i} className="hover:bg-slate-50/50 transition-colors group">
+                    <td className="px-4 py-4 text-[11px] text-slate-400 font-bold text-center border-l-4" style={{ borderColor: cfg.color }}>{i + 1}</td>
+                    
+                    <td className="px-4 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-sm font-bold text-slate-900 leading-snug truncate max-w-[280px]" title={row.comercial}>{row.comercial}</span>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[10px] text-slate-500 font-mono tracking-wide">#{row.codigo}</span>
+                            <span className="text-slate-300">•</span>
+                            <span className="text-[10px] text-slate-500 font-bold tracking-widest uppercase">{row.unidade}</span>
+                          </div>
+                        </div>
+                      </div>
                     </td>
-                    <td className="px-3 py-2.5 text-[11px] text-slate-500">{row.unidade}</td>
+
                     {row.dias.map((v, k) => {
                       const isLast = k === row.dias.length - 1;
                       return (
-                        <td key={k} className="px-3 py-2.5 text-xs text-right font-mono">
-                          <span className={isLast && row.tendencia === 'alta' ? 'text-rose-600 font-bold' : isLast && row.tendencia === 'queda' ? 'text-emerald-600 font-bold' : 'text-slate-600'}>
+                        <td key={k} className="px-3 py-4 text-right">
+                          <span className={`text-xs font-bold ${isLast && row.tendencia === 'alta' ? 'text-rose-600' : isLast && row.tendencia === 'queda' ? 'text-emerald-600' : 'text-slate-600'}`}>
                             {v}
                           </span>
                         </td>
                       );
                     })}
-                    <td className="px-3 py-2.5 text-xs text-right font-mono text-slate-500">{row.media.toFixed(1)}</td>
-                    <td className={`px-3 py-2.5 text-xs text-right font-black ${row.saldo <= 0 ? 'text-red-600' : 'text-slate-700'}`}>
-                      {row.saldo.toLocaleString('pt-BR')}
+
+                    <td className="px-4 py-4 text-right">
+                      <div className="flex flex-col items-end">
+                        <span className="text-sm font-bold text-slate-700">{row.media.toFixed(1)}</span>
+                      </div>
                     </td>
-                    <td className="px-3 py-2.5 min-w-[140px]">
+
+                    <td className="px-4 py-4 text-right">
+                      <div className="flex flex-col items-end">
+                        <span className={`text-base font-black ${row.saldo <= 0 ? 'text-red-600' : 'text-slate-800'}`}>
+                          {row.saldo.toLocaleString('pt-BR')}
+                        </span>
+                      </div>
+                    </td>
+
+                    <td className="px-4 py-4 min-w-[140px]">
                       <ProjecaoBar dias={row.projecao} />
                     </td>
-                    <td className="px-3 py-2.5 text-center">
-                      {row.tendencia === 'alta'  ? <span title="Consumo em alta">↑</span> :
-                       row.tendencia === 'queda' ? <span title="Consumo em queda" className="text-emerald-500">↓</span> :
-                       <span className="text-slate-300">→</span>}
+
+                    <td className="px-4 py-4 text-center">
+                      <div className={`inline-flex items-center justify-center gap-1 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider
+                        ${row.tendencia === 'alta' ? 'bg-rose-50 text-rose-600' : row.tendencia === 'queda' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-50 text-slate-500'}`}>
+                        {row.tendencia === 'alta' ? '↑ Alta' : row.tendencia === 'queda' ? '↓ Queda' : '→ Estável'}
+                      </div>
                     </td>
-                    <td className="px-3 py-2.5 text-center">
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${cfg.badge}`}>
+
+                    <td className="px-4 py-4 text-center">
+                      <span className={`inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${cfg.badge} border-current border-opacity-20`}>
                         {cfg.label}
                       </span>
                     </td>

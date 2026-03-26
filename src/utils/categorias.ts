@@ -1,0 +1,58 @@
+export type CategoriaProduto = 'MEDICAMENTO' | 'MATERIAL' | 'DIETA' | 'PSICOTRÓPICO' | 'ALTA VIGILÂNCIA';
+
+export function getCategoriaProduto(nome: string): CategoriaProduto {
+  const n = (nome || '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  
+  // 1. Dietas / Nutrição (Checked first to catch "DIETA PARENTERAL" even with drug additives)
+  const dieta = [
+    'DIETA', 'FRESUBIN', 'ENSURE', 'NUTREN', 'ISOSOURCE', 'NOVASOURCE', 'PEPTAMEN', 
+    'TROPHIC', 'PLUMICARE', 'CUBITAN', 'MODULEN', 'MAMADEIRA', 'LEITE', 'FORMULA INFANTIL', 
+    'SND', 'NUTRICIONAL', 'SUPLEMENTO', 'BOMBA DIETA', 'NUTRI', 'PARENTERAL', 'GLICEROFOSFATO',
+    'LIPIDEOS', 'AMINOACIDOS', 'AMINOACIDO', 'NUTRIFICA'
+  ];
+  if (dieta.some(k => n.includes(k))) return 'DIETA';
+
+  // 2. Alta Vigilância (MAV)
+  const mav = [
+    'CLORETO DE POTASSIO', 'KCL', 'HEPARINA', 'INSULINA', 'FENTANIL', 'MORFINA', 
+    'ADRENALINA', 'EPINEFRINA', 'NOREPINEFRINA', 'DOBUTAMINA', 'DOPAMINA', 
+    'NIPRIDE', 'NITROPRUSSETO', 'PROPOFOL', 'SULFATO DE MAGNESIO', 'VECURONIO', 
+    'ROCURONIO', 'ATRACURIO', 'CISATRACURIO', 'SUCCINILCOLINA', 'AMIODARONA', 
+    'LIDOCAINA', 'DEXMEDETOMIDINA', 'PRECEDEX', 'WARFARINA', 'MAREVAN', 'ENOXAPARINA',
+    'CLEVANE', 'VERSA', 'TENECTEPLASE', 'ALTEPLASE', 'DIGOXINA'
+  ];
+  if (mav.some(k => n.includes(k))) return 'ALTA VIGILÂNCIA';
+
+  // 3. Psicotrópicos / Controlados (Portaria 344)
+  const psico = [
+    'CLONAZEPAM', 'DIAZEPAM', 'ALPRAZOLAM', 'BROMAZEPAM', 'LORAZEPAM', 'MIDAZOLAM', 
+    'FENOBARBITAL', 'HALOPERIDOL', 'CLORPROMAZINA', 'AMITRIPTILINA', 'FLUOXETINA', 
+    'SERTRALINA', 'ESCITALOPRAM', 'ZOLPIDEM', 'RITALINA', 'METILFENIDATO', 'CODEINA', 
+    'TRAMADOL', 'METADONA', 'BUPRENORFINA', 'QUETIAPINA', 'OLANZAPINA', 'RISPERIDONA', 
+    'CARBAMAZEPINA', 'GABAPENTINA', 'PREGABALINA', 'BIPERIDENO', 'AMOXAPINA', 'BUPROPIONA',
+    'FENITOINA', 'VALPROATO', 'DIVALPROATO', 'TOPIRAMATO', 'LEVETIRACETAM'
+  ];
+  if (psico.some(k => n.includes(k))) return 'PSICOTRÓPICO';
+
+  // 4. Materiais Médico-Hospitalares (MMH)
+  const mat = [
+    'SERINGA', 'AGULHA', 'CATETER', 'SCALP', 'EQUIPO', 'GAZE', 'COMPRESSA', 'LUVA', 
+    'ATADURA', 'FIO', 'SONDA', 'DRENO', 'CURATIVO', 'ESPARADRAPO', 'MASCARA', 'AVENTAL', 
+    'PROPE', 'TOUCA', 'ELETRODO', 'FRALDA', 'ABSORVENTE', 'LANCETA', 'COLETOR', 'ALGODAO', 
+    'BISTURI', 'LAMINA', 'BRACADEIRA', 'CANDULA', 'ESCALPE', 'MICROPORE', 'PLASTICO', 
+    'PULSEIRA', 'SWAB', 'TALA', 'TERMOMETRO', 'TESTE', 'TIRA', 'TOALHA', 'TUBO', 
+    'FRASCO', 'BOMBA', 'ABAIXADOR', 'COTO', 'CUPULA', 'PINCA', 'TESOURA', 'COLETOR',
+    'ESPATULA', 'FIXADOR', 'ADAPTADOR', 'TORNEIRA', 'EXTENSOR', 'CONECTOR', 'DISPOSITIVO'
+  ];
+  if (mat.some(k => n.includes(k))) return 'MATERIAL';
+
+  // 5. Medicamentos forms verification
+  const formsMed = [
+    'COMP', 'CAPS', 'MG', 'ML', 'AMP', 'FA', 'FR ', ' GOT', 'SUSP', 'XPE', 'POM ', 'CREME', 'LOCAO',
+    'INJ', 'SOL', 'GOTAS', 'DRG', 'CP', 'CAP'
+  ];
+  if (formsMed.some(k => n.includes(k))) return 'MEDICAMENTO';
+
+  // Default
+  return 'MEDICAMENTO';
+}
