@@ -28,15 +28,29 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
+
+      - name: Instalar pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+          run_install: false
+
+      - name: Cache do pnpm
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
 
       - name: Instalar dependências
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Build do projeto
-        run: npm run build
+        run: pnpm run build
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
-      # Copia index.html como 404.html para suporte a rotas SPA no GitHub Pages
       - name: Criar 404.html para SPA routing
         run: cp dist/index.html dist/404.html
 
