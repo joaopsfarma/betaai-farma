@@ -12,7 +12,12 @@
       "Bash(grep ^export.*Bedb 'C:/Users/Admin/Desktop/Projetos IA/Teste BETAAI/node_modules/lucide-react/dist/lucide-react.d.ts')",
       "Bash(node_modules/.bin/tsc.cmd --noEmit)",
       "Bash(node -e \"const fs=require\\(''fs''\\); const p=''src/App.tsx''; const s=fs.statSync\\(p\\); console.log\\(''size:'',s.size,''mtime:'',s.mtime\\); const c=fs.readFileSync\\(p,''utf8''\\); fs.writeFileSync\\(p,c,''utf8''\\); console.log\\(''touched, new mtime:'',fs.statSync\\(p\\).mtime\\)\")",
-      "Bash(echo \"DISABLE_HMR=$DISABLE_HMR\")"
+      "Bash(echo \"DISABLE_HMR=$DISABLE_HMR\")",
+      "Bash(powershell.exe -Command \"node_modules/.bin/tsc --noEmit 2>&1 | head -30\")",
+      "Bash(node node_modules/typescript/bin/tsc --noEmit)",
+      "Bash(node node_modules/esbuild/bin/esbuild src/main.tsx --bundle --platform=browser --jsx=automatic --loader:.tsx=tsx --loader:.ts=ts --external:react --external:react-dom)",
+      "Bash(powershell.exe -Command \"Get-Content ''C:\\\\Users\\\\Admin\\\\Desktop\\\\Projeto Claude\\\\src\\\\components\\\\AnaliseDispensariosV2.tsx'' | Measure-Object -Line\")",
+      "Bash(npx vite:*)"
     ]
   }
 }
