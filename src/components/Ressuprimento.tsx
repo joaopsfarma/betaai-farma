@@ -1,6 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { usePersistentState } from '../hooks/usePersistentState';
-import { AlertTriangle, TrendingDown, Clock, Package, Upload, Filter, FileText, BarChart2, ShoppingCart, XCircle, CheckCircle, AlertOctagon, Activity } from 'lucide-react';
+import { AlertTriangle, TrendingDown, Clock, Package, Upload, Filter, FileText, BarChart2, ShoppingCart, XCircle, CheckCircle, AlertOctagon, Activity, MessageCircle, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { exportRessuprimentoPDF, exportRessuprimentoDashboardPDF } from '../utils/pdfExport';
 import {
@@ -40,6 +40,7 @@ interface TrackingItem {
 }
 
 type SubTab = 'dashboard' | 'lista';
+type WhatsAppStatus = 'idle' | 'sending' | 'ok' | 'error' | 'unconfigured';
 
 const calcAtraso = (dtStr: string) => {
   if (!dtStr || dtStr === 'N/A') return 0;
@@ -89,7 +90,98 @@ export const Ressuprimento: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeSubTab, setActiveSubTab] = useState<SubTab>('dashboard');
   const [sortBy, setSortBy] = useState<'coberturaAsc' | 'coberturaDesc' | 'necessidadeDesc' | 'necessidadeAsc' | 'mediaDesc' | 'mediaAsc' | 'saldoAsc' | 'saldoDesc' | 'atrasoDesc' | 'riscoDesc' | 'riscoAsc'>('coberturaAsc');
+  const [waStatus, setWaStatus] = useState<WhatsAppStatus>('idle');
   const normalizeCol = (s: string) => s.trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Z0-9]/g, '');
+
+  const autoSendWhatsApp = useCallback(async (data: TrackingItem[]) => {
+    setWaStatus('sending');
+    const rows = data.map(item => ({
+      codigo: item.id,
+      comercial: item.produto,
+      unidade: item.unidade,
+      saldo: item.saldoAtual,
+      projecao: item.coberturaDias,
+      nivel: item.status === 'CRÍTICO' ? 'critico' : item.status === 'ALERTA' ? 'alerta' : 'ok',
+    }));
+    try {
+      const res = await fetch('/api/send-whatsapp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows }),
+      });
+      if (res.status === 503) {
+        setWaStatus('unconfigured');
+      } else if (res.ok) {
+        setWaStatus('ok');
+      } else {
+        setWaStatus('error');
+      }
+    } catch {
+      setWaStatus('error');
+    }
+  }, []);
+
+  const sendWhatsApp = useCallback((data: TrackingItem[]) => {
+    if (!data.length) return;
+    const criticos = data.filter(i => i.status === 'CRÍTICO').sort((a, b) => a.coberturaDias - b.coberturaDias);
+    const alertas  = data.filter(i => i.status === 'ALERTA').sort((a, b) => a.coberturaDias - b.coberturaDias);
+    const date = new Date().toLocaleDateString('pt-BR');
+    const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+    let msg = `🤖 *BOT — Ressuprimento*\n`;
+    msg += `━━━━━━━━━━━━━━━━━━━━━\n`;
+    msg += `📅 ${date} às ${hora}\n`;
+    msg += `📦 Monitorando *${data.length} produtos*\n`;
+    msg += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
+
+    const formatOC = (r: TrackingItem): string => {
+      if (!r.ocInfo || r.ocInfo.length === 0) return `   📋 OC: ❌ Sem ordem de compra\n`;
+      return r.ocInfo.map(oc => {
+        const atrasoInfo = oc.atraso <= 0 ? '✅ No prazo' : oc.atraso <= 3 ? `⚠️ ${oc.atraso}d de atraso` : `🔴 ${oc.atraso}d de atraso`;
+        return `   📋 OC ${oc.oc} — ${oc.fornecedor}\n      Qtd: ${oc.quantidadeComprada.toLocaleString('pt-BR')} ${r.unidade} | Prev: ${oc.dataPrevista} | ${atrasoInfo}\n`;
+      }).join('');
+    };
+
+    if (criticos.length) {
+      msg += `🔴 *CRÍTICO — ${criticos.length} iten${criticos.length > 1 ? 's' : ''} (0–3 dias)*\n\n`;
+      criticos.forEach((r, i) => {
+        const cob = r.coberturaDias <= 0 ? '⚠️ Esgotado' : `${r.coberturaDias.toFixed(0)}d`;
+        msg += `${i + 1}. *${r.produto}*\n`;
+        msg += `   🔑 Cód: ${r.id}\n`;
+        msg += `   📊 Saldo: ${r.saldoAtual.toLocaleString('pt-BR')} ${r.unidade}\n`;
+        msg += `   📈 Média/dia: ${r.mediaConsumo.toFixed(1)} ${r.unidade}\n`;
+        msg += `   ⏳ Cobertura: ${cob}\n`;
+        if (r.necessidadeCompra > 0) msg += `   🛒 Necessidade: ${r.necessidadeCompra.toFixed(0)} ${r.unidade}\n`;
+        msg += formatOC(r);
+        msg += `\n`;
+      });
+    }
+
+    if (alertas.length) {
+      msg += `🟡 *ALERTA — ${alertas.length} iten${alertas.length > 1 ? 's' : ''} (4–7 dias)*\n\n`;
+      alertas.forEach((r, i) => {
+        msg += `${i + 1}. *${r.produto}*\n`;
+        msg += `   🔑 Cód: ${r.id}\n`;
+        msg += `   📊 Saldo: ${r.saldoAtual.toLocaleString('pt-BR')} ${r.unidade}\n`;
+        msg += `   📈 Média/dia: ${r.mediaConsumo.toFixed(1)} ${r.unidade}\n`;
+        msg += `   ⏳ Cobertura: ${r.coberturaDias.toFixed(0)}d\n`;
+        if (r.necessidadeCompra > 0) msg += `   🛒 Necessidade: ${r.necessidadeCompra.toFixed(0)} ${r.unidade}\n`;
+        msg += formatOC(r);
+        msg += `\n`;
+      });
+    }
+
+    if (!criticos.length && !alertas.length) {
+      msg += `✅ *Nenhum item em nível Crítico ou Alerta.*\n\n`;
+      msg += `Todos os produtos estão com estoque seguro. 👍\n`;
+    }
+
+    msg += `━━━━━━━━━━━━━━━━━━━━━\n`;
+    msg += `_Mensagem gerada automaticamente pelo sistema de ressuprimento._`;
+
+    const url = `https://wa.me/?text=${encodeURIComponent(msg)}`;
+    window.open(url, '_blank');
+  }, []);
 
   const handleTrackingUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -223,6 +315,7 @@ export const Ressuprimento: React.FC = () => {
           });
         }
         setTrackingData(data);
+        autoSendWhatsApp(data);
       } catch (error) {
         console.error('Erro ao processar tracking:', error);
         alert('Erro ao processar arquivo de rastreio');
@@ -561,6 +654,33 @@ export const Ressuprimento: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-emerald-50 to-slate-50 p-6 space-y-8">
+
+      {/* ── WhatsApp status banner ──────────────────────────────────────────── */}
+      {waStatus === 'sending' && (
+        <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-4 py-2 text-xs text-slate-500">
+          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+          Enviando alertas via WhatsApp…
+        </div>
+      )}
+      {waStatus === 'ok' && (
+        <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-2 text-xs text-emerald-700 font-bold">
+          <CheckCircle className="w-3.5 h-3.5" />
+          Alertas enviados automaticamente via WhatsApp.
+        </div>
+      )}
+      {waStatus === 'error' && (
+        <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-4 py-2 text-xs text-red-700 font-bold">
+          <XCircle className="w-3.5 h-3.5" />
+          Falha ao enviar WhatsApp — verifique a Evolution API ou use o botão manual.
+        </div>
+      )}
+      {waStatus === 'unconfigured' && (
+        <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 text-xs text-amber-700">
+          <AlertTriangle className="w-3.5 h-3.5" />
+          WhatsApp automático não configurado. Use o botão manual ou defina as variáveis de ambiente da Evolution API.
+        </div>
+      )}
+
       {/* Hero Section */}
       <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}
         className="bg-white rounded-2xl shadow-lg border border-slate-200 p-8">
@@ -624,7 +744,14 @@ export const Ressuprimento: React.FC = () => {
           {activeSubTab === 'dashboard' && (
             <div className="p-4 md:p-6 space-y-6">
               {/* Dashboard header + Export */}
-              <div className="flex justify-end">
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => sendWhatsApp(allData)}
+                  className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-sm font-semibold transition shadow-sm"
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  Enviar WhatsApp
+                </button>
                 <button
                   onClick={() => exportRessuprimentoDashboardPDF({
                     allStats,
