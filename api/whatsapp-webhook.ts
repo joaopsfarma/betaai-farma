@@ -102,16 +102,18 @@ export default async function handler(req: Request): Promise<Response> {
   // Ignora mensagens enviadas pelo próprio bot
   if (!remoteJid || key?.fromMe) return new Response('OK', { status: 200 });
 
-  // ─── Detecta menção ao bot ───────────────────────────────────────────────
-  const botNumber = process.env.BOT_NUMBER; // ex: "5511999999999"
-  const botJid    = botNumber ? `${botNumber}@s.whatsapp.net` : null;
-
   const msg            = data?.message ?? {};
   const text: string   = msg.conversation ?? msg.extendedTextMessage?.text ?? '';
   const mentionedJids: string[] = msg.extendedTextMessage?.contextInfo?.mentionedJid ?? [];
 
-  const isGroup     = remoteJid.endsWith('@g.us');
-  const botMentioned = botJid ? mentionedJids.includes(botJid) : false;
+  const isGroup = remoteJid.endsWith('@g.us');
+
+  // Verifica menção por correspondência parcial do número (ignora formatação)
+  const botNumber = process.env.BOT_NUMBER ?? '';
+  const botMentioned = mentionedJids.some(jid =>
+    jid.replace(/\D/g, '').includes(botNumber.replace(/\D/g, '')) ||
+    botNumber.replace(/\D/g, '').includes(jid.replace(/\D/g, '').replace('@s.whatsapp.net', ''))
+  ) || text.includes(`@${botNumber}`);
 
   // Em grupos: responde apenas quando mencionado
   // Em DM: responde sempre
