@@ -121,8 +121,6 @@ export default async function handler(req: Request): Promise<Response> {
     );
   }) || text.includes(`@${botNumber}`);
 
-  console.log('remoteJid:', remoteJid, '| isGroup:', isGroup, '| botMentioned:', botMentioned, '| mentionedJids:', JSON.stringify(mentionedJids), '| BOT_NUMBER:', botNumber, '| BOT_LID:', botLid);
-
   // Em grupos: responde apenas quando mencionado
   // Em DM: responde sempre
   if (isGroup && !botMentioned) {
