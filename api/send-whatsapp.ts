@@ -1,6 +1,7 @@
 // Vercel Serverless Function — Envia alertas de rastreio de falta via Evolution API
 // POST /api/send-whatsapp
 // Body: { rows: TrackingRow[], diaLabels: string[] }
+// Também persiste o snapshot no Vercel KV para o webhook poder responder menções
 
 interface TrackingRow {
   codigo: string;
@@ -42,6 +43,20 @@ function buildMessage(rows: TrackingRow[]): string {
   }
 
   return msg;
+}
+
+// ─── Vercel KV (Upstash REST) — persiste snapshot para o webhook ─────────────
+
+async function kvSet(key: string, value: unknown): Promise<void> {
+  const url   = process.env.KV_REST_API_URL;
+  const token = process.env.KV_REST_API_TOKEN;
+  if (!url || !token) return; // KV não configurado — ignora silenciosamente
+
+  await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(['SET', key, JSON.stringify(value)]),
+  });
 }
 
 export default async function handler(req: Request): Promise<Response> {
@@ -96,6 +111,9 @@ export default async function handler(req: Request): Promise<Response> {
 
   const message  = buildMessage(rows);
   const numbers  = targets.split(',').map(n => n.trim()).filter(Boolean);
+
+  // Persiste snapshot no KV para o webhook responder menções
+  await kvSet('last_stock_data', rows);
 
   const results = await Promise.allSettled(
     numbers.map(number =>
