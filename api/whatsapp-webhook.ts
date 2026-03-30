@@ -59,45 +59,46 @@ function resumoEstoqueParaIA(rows: TrackingRow[]): string {
   }).join('\n');
 }
 
-// ─── Gemini Flash — análise inteligente ──────────────────────────────────────
+// ─── Groq (Llama 3) — análise inteligente ────────────────────────────────────
 
-async function askGemini(pergunta: string, rows: TrackingRow[]): Promise<string> {
-  const apiKey = process.env.GEMINI_API_KEY;
+async function askGroq(pergunta: string, rows: TrackingRow[]): Promise<string> {
+  const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) return '';
 
-  const date   = new Date().toLocaleDateString('pt-BR');
+  const date    = new Date().toLocaleDateString('pt-BR');
   const estoque = resumoEstoqueParaIA(rows);
 
-  const prompt = `Você é um assistente especialista em gestão de estoque farmacêutico hospitalar. Hoje é ${date}.
-
-DADOS DE ESTOQUE ATUAL:
-${estoque}
-
-PERGUNTA: ${pergunta || 'Faça um resumo da situação atual e indique as prioridades.'}
-
+  const sistemaMsg = `Você é um assistente especialista em gestão de estoque farmacêutico hospitalar. Hoje é ${date}.
 Responda em português brasileiro de forma clara e objetiva.
 Formate para WhatsApp: use *negrito* para destaques e • para listas.
 Seja direto e prático. Priorize o que é mais urgente. Máximo 250 palavras.`;
 
+  const usuarioMsg = `DADOS DE ESTOQUE ATUAL:\n${estoque}\n\nPERGUNTA: ${pergunta || 'Faça um resumo da situação atual e indique as prioridades.'}`;
+
   try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { maxOutputTokens: 600, temperature: 0.3 },
-        }),
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
       },
-    );
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        messages: [
+          { role: 'system',  content: sistemaMsg  },
+          { role: 'user',    content: usuarioMsg  },
+        ],
+        max_tokens: 600,
+        temperature: 0.3,
+      }),
+    });
     if (!res.ok) {
       const err = await res.text();
       return `⚠️ Erro ao consultar IA (${res.status}): ${err.slice(0, 120)}`;
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const json = await res.json() as any;
-    return (json.candidates?.[0]?.content?.parts?.[0]?.text as string) ?? '';
+    return (json.choices?.[0]?.message?.content as string) ?? '';
   } catch (e) {
     return `⚠️ Erro ao consultar IA: ${String(e).slice(0, 120)}`;
   }
@@ -311,8 +312,8 @@ export default async function handler(req: Request): Promise<Response> {
   const intencao = detectarIntencao(textoLimpo);
 
   if (intencao === 'ia') {
-    // Pergunta livre → Gemini analisa
-    const respostaIA = await askGemini(textoLimpo, rows);
+    // Pergunta livre → Groq (Llama 3) analisa
+    const respostaIA = await askGroq(textoLimpo, rows);
     if (respostaIA) {
       await sendReply(remoteJid, `🤖 ${respostaIA}`);
       return new Response('OK', { status: 200 });
