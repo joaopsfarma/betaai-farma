@@ -81,7 +81,7 @@ Seja direto e prático. Priorize o que é mais urgente. Máximo 250 palavras.`;
 
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -91,12 +91,15 @@ Seja direto e prático. Priorize o que é mais urgente. Máximo 250 palavras.`;
         }),
       },
     );
-    if (!res.ok) return '';
+    if (!res.ok) {
+      const err = await res.text();
+      return `⚠️ Erro ao consultar IA (${res.status}): ${err.slice(0, 120)}`;
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const json = await res.json() as any;
     return (json.candidates?.[0]?.content?.parts?.[0]?.text as string) ?? '';
-  } catch {
-    return '';
+  } catch (e) {
+    return `⚠️ Erro ao consultar IA: ${String(e).slice(0, 120)}`;
   }
 }
 
