@@ -63,7 +63,7 @@ function resumoEstoqueParaIA(rows: TrackingRow[]): string {
 
 async function askGroq(pergunta: string, rows: TrackingRow[]): Promise<string> {
   const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) return '';
+  if (!apiKey) return '⚠️ GROQ_API_KEY não configurada no ambiente.';
 
   const date    = new Date().toLocaleDateString('pt-BR');
   const estoque = resumoEstoqueParaIA(rows);
