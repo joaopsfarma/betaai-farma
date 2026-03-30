@@ -49,13 +49,17 @@ function formatItem(r: TrackingRow, compact = false): string {
 // ─── Monta texto compacto do estoque para enviar à IA ────────────────────────
 
 function resumoEstoqueParaIA(rows: TrackingRow[]): string {
-  const relevantes = rows.filter(r => r.nivel !== 'ok');
+  const relevantes = rows
+    .filter(r => r.nivel !== 'ok')
+    .sort((a, b) => a.projecao - b.projecao) // mais urgentes primeiro
+    .slice(0, 25); // limita a 25 itens para não estourar o limite da API
+
   if (!relevantes.length) return 'Nenhum item crítico ou em alerta no momento.';
 
   return relevantes.map(r => {
-    const proj = r.projecao <= 0 ? 'SEM ESTOQUE' : `${Math.round(r.projecao)} dias`;
-    const tend = r.tendencia === 'alta' ? 'ALTA' : r.tendencia === 'queda' ? 'QUEDA' : 'ESTÁVEL';
-    return `[${r.nivel.toUpperCase()}] ${r.codigo} | ${r.comercial} | Saldo: ${r.saldo} ${r.unidade} | Média/dia: ${r.media.toFixed(1)} | Projeção: ${proj} | Tendência: ${tend}`;
+    const proj = r.projecao <= 0 ? 'SEM ESTOQUE' : `${Math.round(r.projecao)}d`;
+    const tend = r.tendencia === 'alta' ? '↑' : r.tendencia === 'queda' ? '↓' : '→';
+    return `[${r.nivel.toUpperCase()}] ${r.codigo} ${r.comercial} | ${r.saldo}${r.unidade} | med:${r.media.toFixed(1)} | proj:${proj} | ${tend}`;
   }).join('\n');
 }
 
