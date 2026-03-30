@@ -112,14 +112,20 @@ function detectarIntencao(texto: string): Intencao {
 
   const t = texto
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
+    .toLowerCase()
+    .trim();
 
-  if (/ruptur|sem estoque|zerado|0 dia|faltando hoje|acabou/.test(t)) return 'ruptura';
-  if (/criti|urgente|emergencia|urgencia/.test(t))                     return 'critico';
-  if (/alert|atenc/.test(t))                                           return 'alerta';
-  if (/tudo|todos|completo|geral|resumo|situacao|status/.test(t))      return 'tudo';
+  // Frases longas (mais de 3 palavras) → sempre usar IA
+  const palavras = t.split(/\s+/).filter(Boolean);
+  if (palavras.length > 3) return 'ia';
 
-  // Pergunta livre → usar IA
+  // Comandos curtos → filtro por palavra-chave
+  if (/ruptur|sem estoque|zerado|acabou/.test(t)) return 'ruptura';
+  if (/^criti|^urgent|^emergenc/.test(t))         return 'critico';
+  if (/^alert|^atenc/.test(t))                    return 'alerta';
+  if (/^tudo$|^todos$|^resumo$|^status$/.test(t)) return 'tudo';
+
+  // Qualquer outra coisa → IA
   return 'ia';
 }
 
