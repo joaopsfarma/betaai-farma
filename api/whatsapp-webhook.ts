@@ -35,10 +35,10 @@ async function kvGet<T>(key: string): Promise<T | null> {
 // ─── Formata linha de um item ─────────────────────────────────────────────────
 
 function formatItem(r: TrackingRow, compact = false): string {
-  const proj     = r.projecao <= 0 ? '⛔ Sem estoque' : `${Math.round(r.projecao)}d`;
-  const media    = r.media > 0 ? r.media.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) : '0';
-  const saldo    = r.saldo.toLocaleString('pt-BR');
-  const tend     = r.tendencia === 'alta' ? '↑ Alta' : r.tendencia === 'queda' ? '↓ Queda' : '→ Estável';
+  const proj  = r.projecao <= 0 ? '⛔ Sem estoque' : `${Math.round(r.projecao)}d`;
+  const media = r.media > 0 ? r.media.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) : '0';
+  const saldo = r.saldo.toLocaleString('pt-BR');
+  const tend  = r.tendencia === 'alta' ? '↑ Alta' : r.tendencia === 'queda' ? '↓ Queda' : '→ Estável';
 
   if (compact) {
     return `• *${r.codigo}* – ${r.comercial}\n  Saldo: ${saldo} ${r.unidade} | Média/dia: ${media} | Projeção: ${proj} | ${tend}\n`;
@@ -46,72 +46,117 @@ function formatItem(r: TrackingRow, compact = false): string {
   return `• *${r.codigo}* – ${r.comercial}\n  Saldo: ${saldo} ${r.unidade}\n  Média/dia: ${media} ${r.unidade} | Projeção: ${proj}\n  Tendência: ${tend}\n`;
 }
 
-// ─── Detecta intenção da pergunta ────────────────────────────────────────────
+// ─── Monta texto compacto do estoque para enviar à IA ────────────────────────
 
-type Intencao = 'ruptura' | 'critico' | 'alerta' | 'atencao' | 'tudo' | 'geral';
+function resumoEstoqueParaIA(rows: TrackingRow[]): string {
+  const relevantes = rows.filter(r => r.nivel !== 'ok');
+  if (!relevantes.length) return 'Nenhum item crítico ou em alerta no momento.';
 
-function detectarIntencao(texto: string): Intencao {
-  const t = texto
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // remove acentos
-    .toLowerCase();
-
-  if (/ruptur|sem estoque|zerado|0 dia|faltando hoje|acabou/.test(t))  return 'ruptura';
-  if (/criti|urgente|emergencia|urgencia/.test(t))                      return 'critico';
-  if (/alert|atenc/.test(t))                                            return 'alerta';
-  if (/tudo|todos|completo|geral|resumo|situacao|status/.test(t))       return 'tudo';
-  return 'geral';
+  return relevantes.map(r => {
+    const proj = r.projecao <= 0 ? 'SEM ESTOQUE' : `${Math.round(r.projecao)} dias`;
+    const tend = r.tendencia === 'alta' ? 'ALTA' : r.tendencia === 'queda' ? 'QUEDA' : 'ESTÁVEL';
+    return `[${r.nivel.toUpperCase()}] ${r.codigo} | ${r.comercial} | Saldo: ${r.saldo} ${r.unidade} | Média/dia: ${r.media.toFixed(1)} | Projeção: ${proj} | Tendência: ${tend}`;
+  }).join('\n');
 }
 
-// ─── Formata resposta de estoque ──────────────────────────────────────────────
+// ─── Gemini Flash — análise inteligente ──────────────────────────────────────
+
+async function askGemini(pergunta: string, rows: TrackingRow[]): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return '';
+
+  const date   = new Date().toLocaleDateString('pt-BR');
+  const estoque = resumoEstoqueParaIA(rows);
+
+  const prompt = `Você é um assistente especialista em gestão de estoque farmacêutico hospitalar. Hoje é ${date}.
+
+DADOS DE ESTOQUE ATUAL:
+${estoque}
+
+PERGUNTA: ${pergunta || 'Faça um resumo da situação atual e indique as prioridades.'}
+
+Responda em português brasileiro de forma clara e objetiva.
+Formate para WhatsApp: use *negrito* para destaques e • para listas.
+Seja direto e prático. Priorize o que é mais urgente. Máximo 250 palavras.`;
+
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { maxOutputTokens: 600, temperature: 0.3 },
+        }),
+      },
+    );
+    if (!res.ok) return '';
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const json = await res.json() as any;
+    return (json.candidates?.[0]?.content?.parts?.[0]?.text as string) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+// ─── Detecta intenção da pergunta ────────────────────────────────────────────
+
+type Intencao = 'ruptura' | 'critico' | 'alerta' | 'tudo' | 'geral' | 'ia';
+
+function detectarIntencao(texto: string): Intencao {
+  if (!texto || texto.length < 3) return 'geral';
+
+  const t = texto
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+
+  if (/ruptur|sem estoque|zerado|0 dia|faltando hoje|acabou/.test(t)) return 'ruptura';
+  if (/criti|urgente|emergencia|urgencia/.test(t))                     return 'critico';
+  if (/alert|atenc/.test(t))                                           return 'alerta';
+  if (/tudo|todos|completo|geral|resumo|situacao|status/.test(t))      return 'tudo';
+
+  // Pergunta livre → usar IA
+  return 'ia';
+}
+
+// ─── Formata resposta de estoque (respostas rápidas por palavra-chave) ────────
 
 function buildReply(rows: TrackingRow[], intencao: Intencao): string {
   const date = new Date().toLocaleDateString('pt-BR');
 
-  // ── Ruptura: projeção 0–1 dia ─────────────────────────────────────────────
   if (intencao === 'ruptura') {
     const itens = rows.filter(r => r.projecao <= 1);
-    if (!itens.length) {
-      return `✅ *RUPTURAS — ${date}*\nNenhum item com ruptura hoje (projeção 0–1 dia).`;
-    }
+    if (!itens.length) return `✅ *RUPTURAS — ${date}*\nNenhum item com ruptura hoje (projeção 0–1 dia).`;
     let msg = `🚨 *RUPTURAS HOJE — ${date}*\n${itens.length} ${itens.length === 1 ? 'item' : 'itens'} com projeção de 0–1 dia\n\n`;
     itens.forEach(r => { msg += formatItem(r); });
     return msg;
   }
 
-  // ── Crítico: ≤7 dias ──────────────────────────────────────────────────────
   if (intencao === 'critico') {
     const itens = rows.filter(r => r.nivel === 'critico');
-    if (!itens.length) {
-      return `✅ *CRÍTICOS — ${date}*\nNenhum item em nível Crítico no momento.`;
-    }
+    if (!itens.length) return `✅ *CRÍTICOS — ${date}*\nNenhum item em nível Crítico no momento.`;
     let msg = `🔴 *CRÍTICOS (≤7 dias) — ${date}*\n${itens.length} ${itens.length === 1 ? 'item' : 'itens'}\n\n`;
     itens.forEach(r => { msg += formatItem(r); });
     return msg;
   }
 
-  // ── Alerta: 8–15 dias ─────────────────────────────────────────────────────
   if (intencao === 'alerta') {
     const itens = rows.filter(r => r.nivel === 'alerta');
-    if (!itens.length) {
-      return `✅ *ALERTAS — ${date}*\nNenhum item em nível Alerta no momento.`;
-    }
+    if (!itens.length) return `✅ *ALERTAS — ${date}*\nNenhum item em nível Alerta no momento.`;
     let msg = `🟡 *ALERTA (8–15 dias) — ${date}*\n${itens.length} ${itens.length === 1 ? 'item' : 'itens'}\n\n`;
     itens.forEach(r => { msg += formatItem(r); });
     return msg;
   }
 
-  // ── Tudo: todos os problemas ──────────────────────────────────────────────
   if (intencao === 'tudo') {
     const rupturas = rows.filter(r => r.projecao <= 1);
     const criticos = rows.filter(r => r.nivel === 'critico' && r.projecao > 1);
     const alertas  = rows.filter(r => r.nivel === 'alerta');
-
     if (!rupturas.length && !criticos.length && !alertas.length) {
       return `✅ *ESTOQUE COMPLETO — ${date}*\nNenhum item em situação crítica ou alerta.`;
     }
-
     let msg = `📋 *RELATÓRIO COMPLETO — ${date}*\n\n`;
-
     if (rupturas.length) {
       msg += `🚨 *RUPTURA (0–1 dia)* — ${rupturas.length} itens\n`;
       rupturas.forEach(r => { msg += formatItem(r, true); });
@@ -129,35 +174,28 @@ function buildReply(rows: TrackingRow[], intencao: Intencao): string {
     return msg;
   }
 
-  // ── Geral: resumo padrão (crítico + alerta) ───────────────────────────────
+  // Geral: resumo padrão
   const rupturas = rows.filter(r => r.projecao <= 1);
   const criticos = rows.filter(r => r.nivel === 'critico');
   const alertas  = rows.filter(r => r.nivel === 'alerta');
-
   if (!criticos.length && !alertas.length) {
     return `✅ *SITUAÇÃO DO ESTOQUE — ${date}*\nNenhum item em nível Crítico ou Alerta no momento.`;
   }
-
   let msg = `📊 *SITUAÇÃO DO ESTOQUE — ${date}*\n`;
-
   if (rupturas.length) {
-    msg += `⚠️ _${rupturas.length} ${rupturas.length === 1 ? 'item' : 'itens'} com ruptura hoje_ — pergunte sobre *rupturas* para detalhes\n`;
+    msg += `⚠️ _${rupturas.length} ${rupturas.length === 1 ? 'item' : 'itens'} com ruptura hoje_ — pergunte sobre *rupturas*\n`;
   }
-
   msg += '\n';
-
   if (criticos.length) {
     msg += `🔴 *CRÍTICO (≤7 dias)* — ${criticos.length} itens\n`;
     criticos.forEach(r => { msg += formatItem(r); });
     msg += '\n';
   }
-
   if (alertas.length) {
     msg += `🟡 *ALERTA (8–15 dias)* — ${alertas.length} itens\n`;
     alertas.forEach(r => { msg += formatItem(r); });
   }
-
-  msg += `\n💡 _Pergunte sobre: *rupturas* | *crítico* | *alerta* | *tudo*_`;
+  msg += `\n💡 _Pergunte livremente ou use: *rupturas* | *crítico* | *alerta* | *tudo*_`;
   return msg;
 }
 
@@ -239,17 +277,20 @@ export default async function handler(req: Request): Promise<Response> {
     return new Response('OK', { status: 200 });
   }
 
-  // ─── Remove menção do texto e detecta intenção ───────────────────────────
+  // ─── Remove menção do texto ───────────────────────────────────────────────
   const textoLimpo = text.replace(/@\S+/g, '').trim();
 
-  // Busca por produto específico (ex: "@bot amoxicilina")
+  // ─── Busca por produto específico (ex: "@bot amoxicilina") ───────────────
   if (textoLimpo.length >= 3) {
-    const termoBusca = textoLimpo.toLowerCase();
-    const filtrado = rows.filter(
-      r =>
-        r.codigo.toLowerCase().includes(termoBusca) ||
-        r.comercial.toLowerCase().includes(termoBusca),
+    const termoBusca = textoLimpo.toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+    const filtrado = rows.filter(r =>
+      r.codigo.toLowerCase().includes(termoBusca) ||
+      r.comercial.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').includes(termoBusca) ||
+      (r.generico ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').includes(termoBusca),
     );
+
     if (filtrado.length > 0) {
       const reply = buildReply(filtrado, 'tudo');
       await sendReply(remoteJid, reply);
@@ -257,9 +298,20 @@ export default async function handler(req: Request): Promise<Response> {
     }
   }
 
-  // Detecta intenção e responde
+  // ─── Detecta intenção e responde ─────────────────────────────────────────
   const intencao = detectarIntencao(textoLimpo);
-  const reply    = buildReply(rows, intencao);
+
+  if (intencao === 'ia') {
+    // Pergunta livre → Gemini analisa
+    const respostaIA = await askGemini(textoLimpo, rows);
+    if (respostaIA) {
+      await sendReply(remoteJid, `🤖 ${respostaIA}`);
+      return new Response('OK', { status: 200 });
+    }
+    // Fallback se Gemini falhar
+  }
+
+  const reply = buildReply(rows, intencao);
   await sendReply(remoteJid, reply);
 
   return new Response('OK', { status: 200 });
