@@ -4,10 +4,16 @@
 
 interface TrackingRow {
   codigo: string;
+  descricao: string;
   comercial: string;
+  generico: string;
   unidade: string;
+  dias: number[];
+  total: number;
+  media: number;
   saldo: number;
   projecao: number;
+  tendencia: 'alta' | 'queda' | 'estavel';
   nivel: 'critico' | 'alerta' | 'atencao' | 'ok';
 }
 
@@ -24,6 +30,20 @@ async function kvGet<T>(key: string): Promise<T | null> {
   if (!res.ok) return null;
   const json = await res.json() as { result: string | null };
   return json.result ? JSON.parse(json.result) as T : null;
+}
+
+// ─── Formata linha de um item ─────────────────────────────────────────────────
+
+function formatItem(r: TrackingRow, compact = false): string {
+  const proj     = r.projecao <= 0 ? '⛔ Sem estoque' : `${Math.round(r.projecao)}d`;
+  const media    = r.media > 0 ? r.media.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) : '0';
+  const saldo    = r.saldo.toLocaleString('pt-BR');
+  const tend     = r.tendencia === 'alta' ? '↑ Alta' : r.tendencia === 'queda' ? '↓ Queda' : '→ Estável';
+
+  if (compact) {
+    return `• *${r.codigo}* – ${r.comercial}\n  Saldo: ${saldo} ${r.unidade} | Média/dia: ${media} | Projeção: ${proj} | ${tend}\n`;
+  }
+  return `• *${r.codigo}* – ${r.comercial}\n  Saldo: ${saldo} ${r.unidade}\n  Média/dia: ${media} ${r.unidade} | Projeção: ${proj}\n  Tendência: ${tend}\n`;
 }
 
 // ─── Detecta intenção da pergunta ────────────────────────────────────────────
@@ -54,11 +74,7 @@ function buildReply(rows: TrackingRow[], intencao: Intencao): string {
       return `✅ *RUPTURAS — ${date}*\nNenhum item com ruptura hoje (projeção 0–1 dia).`;
     }
     let msg = `🚨 *RUPTURAS HOJE — ${date}*\n${itens.length} ${itens.length === 1 ? 'item' : 'itens'} com projeção de 0–1 dia\n\n`;
-    itens.forEach(r => {
-      const proj = r.projecao <= 0 ? '⛔ Sem estoque' : `⚠️ ${Math.round(r.projecao)}d`;
-      msg += `• *${r.codigo}* – ${r.comercial}\n`;
-      msg += `  Saldo: ${r.saldo.toLocaleString('pt-BR')} ${r.unidade} | Projeção: ${proj}\n`;
-    });
+    itens.forEach(r => { msg += formatItem(r); });
     return msg;
   }
 
@@ -69,11 +85,7 @@ function buildReply(rows: TrackingRow[], intencao: Intencao): string {
       return `✅ *CRÍTICOS — ${date}*\nNenhum item em nível Crítico no momento.`;
     }
     let msg = `🔴 *CRÍTICOS (≤7 dias) — ${date}*\n${itens.length} ${itens.length === 1 ? 'item' : 'itens'}\n\n`;
-    itens.forEach(r => {
-      const proj = r.projecao <= 0 ? 'Sem estoque' : `${Math.round(r.projecao)}d`;
-      msg += `• *${r.codigo}* – ${r.comercial}\n`;
-      msg += `  Saldo: ${r.saldo.toLocaleString('pt-BR')} ${r.unidade} | Projeção: ${proj}\n`;
-    });
+    itens.forEach(r => { msg += formatItem(r); });
     return msg;
   }
 
@@ -84,10 +96,7 @@ function buildReply(rows: TrackingRow[], intencao: Intencao): string {
       return `✅ *ALERTAS — ${date}*\nNenhum item em nível Alerta no momento.`;
     }
     let msg = `🟡 *ALERTA (8–15 dias) — ${date}*\n${itens.length} ${itens.length === 1 ? 'item' : 'itens'}\n\n`;
-    itens.forEach(r => {
-      msg += `• *${r.codigo}* – ${r.comercial}\n`;
-      msg += `  Saldo: ${r.saldo.toLocaleString('pt-BR')} ${r.unidade} | Projeção: ${Math.round(r.projecao)}d\n`;
-    });
+    itens.forEach(r => { msg += formatItem(r); });
     return msg;
   }
 
@@ -105,24 +114,17 @@ function buildReply(rows: TrackingRow[], intencao: Intencao): string {
 
     if (rupturas.length) {
       msg += `🚨 *RUPTURA (0–1 dia)* — ${rupturas.length} itens\n`;
-      rupturas.forEach(r => {
-        const proj = r.projecao <= 0 ? 'Sem estoque' : `${Math.round(r.projecao)}d`;
-        msg += `• *${r.codigo}* – ${r.comercial} | ${proj}\n`;
-      });
+      rupturas.forEach(r => { msg += formatItem(r, true); });
       msg += '\n';
     }
     if (criticos.length) {
       msg += `🔴 *CRÍTICO (2–7 dias)* — ${criticos.length} itens\n`;
-      criticos.forEach(r => {
-        msg += `• *${r.codigo}* – ${r.comercial} | ${Math.round(r.projecao)}d\n`;
-      });
+      criticos.forEach(r => { msg += formatItem(r, true); });
       msg += '\n';
     }
     if (alertas.length) {
       msg += `🟡 *ALERTA (8–15 dias)* — ${alertas.length} itens\n`;
-      alertas.forEach(r => {
-        msg += `• *${r.codigo}* – ${r.comercial} | ${Math.round(r.projecao)}d\n`;
-      });
+      alertas.forEach(r => { msg += formatItem(r, true); });
     }
     return msg;
   }
@@ -146,20 +148,13 @@ function buildReply(rows: TrackingRow[], intencao: Intencao): string {
 
   if (criticos.length) {
     msg += `🔴 *CRÍTICO (≤7 dias)* — ${criticos.length} itens\n`;
-    criticos.forEach(r => {
-      const proj = r.projecao <= 0 ? 'Sem estoque' : `${Math.round(r.projecao)}d`;
-      msg += `• *${r.codigo}* – ${r.comercial}\n`;
-      msg += `  Saldo: ${r.saldo.toLocaleString('pt-BR')} ${r.unidade} | Projeção: ${proj}\n`;
-    });
+    criticos.forEach(r => { msg += formatItem(r); });
     msg += '\n';
   }
 
   if (alertas.length) {
     msg += `🟡 *ALERTA (8–15 dias)* — ${alertas.length} itens\n`;
-    alertas.forEach(r => {
-      msg += `• *${r.codigo}* – ${r.comercial}\n`;
-      msg += `  Saldo: ${r.saldo.toLocaleString('pt-BR')} ${r.unidade} | Projeção: ${Math.round(r.projecao)}d\n`;
-    });
+    alertas.forEach(r => { msg += formatItem(r); });
   }
 
   msg += `\n💡 _Pergunte sobre: *rupturas* | *crítico* | *alerta* | *tudo*_`;
