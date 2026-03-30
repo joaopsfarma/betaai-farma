@@ -109,14 +109,19 @@ export default async function handler(req: Request): Promise<Response> {
 
   const isGroup = remoteJid.endsWith('@g.us');
 
-  // Verifica menção por correspondência parcial do número (ignora formatação)
+  // Verifica menção por correspondência parcial do número ou LID (WhatsApp moderno usa @lid)
   const botNumber = process.env.BOT_NUMBER ?? '';
-  const botMentioned = mentionedJids.some(jid =>
-    jid.replace(/\D/g, '').includes(botNumber.replace(/\D/g, '')) ||
-    botNumber.replace(/\D/g, '').includes(jid.replace(/\D/g, '').replace('@s.whatsapp.net', ''))
-  ) || text.includes(`@${botNumber}`);
+  const botLid    = process.env.BOT_LID ?? '';
+  const botMentioned = mentionedJids.some(jid => {
+    const jidClean = jid.replace(/\D/g, '');
+    const numClean = botNumber.replace(/\D/g, '');
+    return (
+      (numClean && (jidClean.includes(numClean) || numClean.includes(jidClean))) ||
+      (botLid   && jid.includes(botLid))
+    );
+  }) || text.includes(`@${botNumber}`);
 
-  console.log('remoteJid:', remoteJid, '| isGroup:', isGroup, '| botMentioned:', botMentioned, '| mentionedJids:', JSON.stringify(mentionedJids), '| BOT_NUMBER:', botNumber);
+  console.log('remoteJid:', remoteJid, '| isGroup:', isGroup, '| botMentioned:', botMentioned, '| mentionedJids:', JSON.stringify(mentionedJids), '| BOT_NUMBER:', botNumber, '| BOT_LID:', botLid);
 
   // Em grupos: responde apenas quando mencionado
   // Em DM: responde sempre
