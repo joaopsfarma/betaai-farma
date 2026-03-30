@@ -105,7 +105,7 @@ export default async function handler(req: Request): Promise<Response> {
           'apikey': apiKey,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ number, text: message }),
+        body: JSON.stringify({ number, textMessage: { text: message } }),
       }).then(r => {
         if (!r.ok) throw new Error(`HTTP ${r.status} para ${number}`);
         return r.json();
