@@ -1,0 +1,575 @@
+import React, { useState, useMemo } from 'react';
+import Papa from 'papaparse';
+import { UploadCloud, Search, Activity, Package, TrendingUp, TrendingDown, Minus, Filter, AlertCircle, FileText, Download, ArrowUp, ArrowDown } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { PanelGuide } from './common/PanelGuide';
+import { Target, Clock } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+
+interface DailyItem {
+  id: string;
+  name: string;
+  unit: string;
+  history: number[]; // Array with the 5 days of history
+  total: number;
+  avg: number;
+  stock: number;
+  projection: number;
+}
+
+export const DailyTracking: React.FC = () => {
+  const [data, setData] = useState<DailyItem[]>([]);
+  const [daysHeader, setDaysHeader] = useState<string[]>(['D1', 'D2', 'D3', 'D4', 'D5']);
+  const [fileName, setFileName] = useState('');
+  const [search, setSearch] = useState('');
+  const [filterType, setFilterType] = useState<'all'|'critical'|'warning'|'ok'>('all');
+  const [filterTrend, setFilterTrend] = useState<'all'|'up'|'down'|'stable'>('all');
+  const [sortConfig, setSortConfig] = useState<{ key: keyof DailyItem | 'trend' | 'status', direction: 'asc' | 'desc' } | null>(null);
+
+  const parseNumber = (val: string) => {
+    if (!val) return 0;
+    return parseFloat(val.toString().replace(/"/g, '').replace(/\./g, '').replace(',', '.')) || 0;
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setFileName(file.name);
+    const reader = new FileReader();
+
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+
+      Papa.parse(text, {
+        header: false,
+        skipEmptyLines: true,
+        complete: (results) => {
+          const rows = results.data as string[][];
+
+          let headerIdx = -1;
+          const dayStart = 3;
+          let dayEnd = 8; // default: 5 days (cols 3..7)
+          let totalColIdx = 8; // default
+
+          for (let i = 0; i < Math.min(rows.length, 10); i++) {
+            const rowStr = rows[i].join('').toLowerCase();
+            if (rowStr.includes('produto') && rowStr.includes('unidade') && rowStr.includes('saldo')) {
+              headerIdx = i;
+              const hRow = rows[i];
+              const ti = hRow.findIndex(h => /^total$/i.test((h || '').replace(/"/g, '').trim()));
+              totalColIdx = ti > dayStart ? ti : dayStart + 5;
+              dayEnd = totalColIdx;
+              const labels: string[] = [];
+              for (let j = dayStart; j < dayEnd; j++) {
+                labels.push((hRow[j] || '').replace(/"/g, '').trim() || `D${j - dayStart + 1}`);
+              }
+              setDaysHeader(labels);
+              break;
+            }
+          }
+
+          const startIndex = headerIdx !== -1 ? headerIdx + 1 : 0;
+          const parsedData: DailyItem[] = [];
+
+          for (let i = startIndex; i < rows.length; i++) {
+            const row = rows[i];
+            if (row.length < totalColIdx + 2) continue;
+
+            const prodCol = row[0] || '';
+            const match = prodCol.match(/^"?(\d+)\s*,\s*(.+)("?)$/);
+
+            let id = '';
+            let name = '';
+
+            if (match) {
+              id = match[1];
+              name = match[2].replace(/"/g, '').trim();
+            } else if (!isNaN(Number(row[0]))) {
+               id = row[0];
+               name = row[1];
+            } else {
+               continue;
+            }
+
+            const unit = row[2] || '';
+            const history: number[] = [];
+            for (let j = dayStart; j < dayEnd; j++) {
+              history.push(parseNumber(row[j]));
+            }
+
+            const total = parseNumber(row[totalColIdx]);
+            const avg = parseNumber(row[totalColIdx + 1]);
+            const stock = parseNumber(row[totalColIdx + 2]);
+            const projection = row.length > totalColIdx + 4 && row[totalColIdx + 4]
+              ? parseNumber(row[totalColIdx + 4])
+              : (avg > 0 ? stock / avg : 999);
+
+            if (id && name) {
+              parsedData.push({ id, name, unit, history, total, avg, stock, projection });
+            }
+          }
+
+          setData(parsedData);
+        }
+      });
+    };
+    reader.readAsText(file, 'ISO-8859-1');
+  };
+
+  const downloadTemplate = () => {
+    const link = document.createElement('a');
+    link.href = '/sample_daily.csv';
+    link.setAttribute('download', 'OPI_Diario_Consumo_Modelo.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const getStatus = (proj: number) => {
+    if (proj < 3) return 'critical';
+    if (proj < 7) return 'warning';
+    return 'ok';
+  };
+
+  const getTrend = (history: number[]) => {
+    const n = history.length;
+    if (n < 2) return 'stable';
+    const last = history[n - 1];
+    const prev = history[n - 2];
+    if (last > prev * 1.5) return 'up';
+    if (last < prev * 0.5) return 'down';
+    return 'stable';
+  };
+
+  const filteredData = useMemo(() => {
+    let result = data.filter(item => {
+      const sMatch = item.name.toLowerCase().includes(search.toLowerCase()) || item.id.includes(search);
+      const tMatch = filterTrend === 'all' || getTrend(item.history) === filterTrend;
+      const fMatch = filterType === 'all' || getStatus(item.projection) === filterType;
+      return sMatch && tMatch && fMatch;
+    });
+
+    if (sortConfig !== null) {
+      result.sort((a, b) => {
+        let aValue: any = a[sortConfig.key as keyof DailyItem];
+        let bValue: any = b[sortConfig.key as keyof DailyItem];
+
+        if (sortConfig.key === 'trend') {
+          const trendOrder = { up: 3, stable: 2, down: 1 };
+          aValue = trendOrder[getTrend(a.history)];
+          bValue = trendOrder[getTrend(b.history)];
+        } else if (sortConfig.key === 'status') {
+          const statusOrder = { critical: 1, warning: 2, ok: 3 };
+          aValue = statusOrder[getStatus(a.projection)];
+          bValue = statusOrder[getStatus(b.projection)];
+        } else if (sortConfig.key === 'history') {
+          // Sort by the sum of history
+          aValue = a.history.reduce((sum, val) => sum + val, 0);
+          bValue = b.history.reduce((sum, val) => sum + val, 0);
+        }
+
+        if (aValue < bValue) {
+          return sortConfig.direction === 'asc' ? -1 : 1;
+        }
+        if (aValue > bValue) {
+          return sortConfig.direction === 'asc' ? 1 : -1;
+        }
+        return 0;
+      });
+    }
+    return result;
+  }, [data, search, filterType, filterTrend, sortConfig]);
+
+  const requestSort = (key: keyof DailyItem | 'trend' | 'status') => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const stats = useMemo(() => {
+    let crit = 0, warn = 0, up = 0;
+    data.forEach(item => {
+      if (getStatus(item.projection) === 'critical') crit++;
+      else if (getStatus(item.projection) === 'warning') warn++;
+      if (getTrend(item.history) === 'up') up++;
+    });
+    return { crit, warn, up };
+  }, [data]);
+
+  const exportToPDF = () => {
+    const doc = new jsPDF();
+    const currentDate = new Date().toLocaleDateString('pt-BR');
+    
+    // Header
+    doc.setFontSize(20);
+    doc.setTextColor(30, 58, 138); // Indigo 900
+    doc.text('Tracking Diário de Consumo SV', 14, 22);
+    
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.text(`Gerado em: ${currentDate} | Itens Analisados: ${filteredData.length}`, 14, 30);
+
+    // Table
+    const nDays = daysHeader.length;
+    const statusColIdx = 3 + nDays + 4; // Cód(0) Desc(1) Unid(2) days(3..3+nDays-1) Tendência Med/Dia Saldo Projeção Status
+
+    const tableData = filteredData.map(item => {
+      const status = getStatus(item.projection);
+      const statusText = status === 'critical' ? 'CRÍTICO' : status === 'warning' ? 'ATENÇÃO' : 'NORMAL';
+      const trend = getTrend(item.history);
+      const trendText = trend === 'up' ? 'EM ALTA' : trend === 'down' ? 'EM BAIXA' : 'ESTÁVEL';
+
+      return [
+        item.id,
+        item.name.substring(0, 35),
+        item.unit,
+        ...item.history.map(v => v.toString()),
+        trendText,
+        item.avg.toFixed(1).replace('.', ','),
+        item.stock.toString(),
+        item.projection === 999 ? '∞' : item.projection.toFixed(1).replace('.', ',') + ' d',
+        statusText
+      ];
+    });
+
+    const dayColStyles: Record<number, object> = {};
+    for (let i = 0; i < nDays; i++) {
+      dayColStyles[3 + i] = { cellWidth: 12, halign: 'right' };
+    }
+
+    autoTable(doc, {
+      startY: 35,
+      head: [['Cód', 'Descrição', 'Unid.', ...daysHeader, 'Tendência', 'Med/Dia', 'Saldo', 'Projeção', 'Status']],
+      body: tableData,
+      theme: 'grid',
+      headStyles: { fillColor: [79, 70, 229], textColor: 255, fontSize: 7 },
+      bodyStyles: { fontSize: 7 },
+      columnStyles: {
+        0: { cellWidth: 14 },
+        1: { cellWidth: 'auto' },
+        2: { cellWidth: 12, halign: 'center' },
+        ...dayColStyles,
+        [3 + nDays]:     { cellWidth: 18, halign: 'center' },
+        [3 + nDays + 1]: { cellWidth: 14, halign: 'right' },
+        [3 + nDays + 2]: { cellWidth: 14, halign: 'right' },
+        [3 + nDays + 3]: { cellWidth: 14, halign: 'right' },
+        [3 + nDays + 4]: { cellWidth: 16, halign: 'center', fontStyle: 'bold' },
+      },
+      didParseCell: function(data) {
+        if (data.section === 'body' && data.column.index === statusColIdx) {
+          if (data.cell.raw === 'CRÍTICO') {
+            data.cell.styles.textColor = [225, 29, 72];
+          } else if (data.cell.raw === 'ATENÇÃO') {
+            data.cell.styles.textColor = [217, 119, 6];
+          } else {
+            data.cell.styles.textColor = [5, 150, 105];
+          }
+        }
+      }
+    });
+
+    doc.save(`Tracking_SV_Diario_${currentDate.replace(/\//g, '-')}.pdf`);
+  };
+
+  const drawSparkline = (hist: number[]) => {
+    const max = Math.max(...hist, 1);
+    return (
+      <div className="flex items-end gap-1">
+        {hist.map((val, i) => {
+          const h = Math.max(10, (val / max) * 100);
+          return (
+            <div key={i} className="flex flex-col items-center gap-1 group">
+               <div className="relative w-5 bg-slate-100 rounded-t-sm h-8 flex items-end overflow-hidden">
+                 <div 
+                   style={{ height: `${h}%` }} 
+                   className={`w-full rounded-t-sm transition-all ${i === hist.length - 1 ? 'bg-indigo-500' : 'bg-slate-300 group-hover:bg-indigo-400'}`}
+                 />
+               </div>
+               <span className="text-[9px] font-mono font-bold text-slate-500 group-hover:text-indigo-600 transition-colors">
+                 {val}
+               </span>
+               <span className="text-[8px] text-slate-400 mt-0.5" title="Dia de apuração">
+                 {daysHeader[i]}
+               </span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-6 animate-in fade-in duration-500">
+      
+      {/* HEADER */}
+      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6 relative overflow-hidden">
+        <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
+          <Activity className="w-48 h-48 text-indigo-600" />
+        </div>
+        
+        <div className="relative z-10">
+          <div className="flex items-center gap-3 mb-2">
+            <span className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
+              Painel Gerencial MV
+            </span>
+            <span className="text-slate-400 text-sm">|</span>
+            <span className="text-slate-500 text-sm font-medium">Tracking Diário de Consumo</span>
+          </div>
+          <h2 className="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-3">
+            <Activity className="w-8 h-8 text-blue-600" />
+            Daily Tracking
+          </h2>
+          <p className="text-slate-500 text-sm mt-1">
+            Importe o CSV do sistema para analisar tendências e projetar rupturas automaticamente.
+          </p>
+        </div>
+
+        <div className="flex gap-3 relative z-10">
+          <label className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition-all cursor-pointer shadow-lg shadow-slate-200">
+            <UploadCloud className="w-4 h-4" />
+            <span className="text-sm font-bold">Importar CSV</span>
+            <input type="file" className="hidden" accept=".csv" onChange={handleFileUpload} />
+          </label>
+          <button 
+            onClick={exportToPDF} 
+            disabled={data.length === 0}
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl hover:bg-slate-50 transition-all shadow-sm disabled:opacity-50"
+          >
+            <Download className="w-4 h-4" />
+            <span className="text-sm font-bold">PDF</span>
+          </button>
+        </div>
+      </div>
+
+      <PanelGuide 
+        sections={[
+          {
+            title: "Histórico de 5 Dias",
+            content: "O painel monitora as saídas reais de cada item nos últimos 5 dias para identificar padrões de uso e tendências de demanda.",
+            icon: <Clock className="w-4 h-4" />
+          },
+          {
+            title: "Projeção de Estoque",
+            content: "Calcula automaticamente a duração estimada do saldo atual com base na média móvel do consumo capturado no período.",
+            icon: <Target className="w-4 h-4" />
+          },
+          {
+            title: "Análise de Tendências",
+            content: "Indicadores visuais mostram se o consumo está acelerando (↑) ou reduzindo (↓), permitindo antecipar reposições preventivas.",
+            icon: <TrendingUp className="w-4 h-4" />
+          }
+        ]}
+      />
+
+      {data.length === 0 ? (
+        <div className="bg-white p-12 rounded-3xl border border-slate-200 border-dashed text-center">
+            <div className="max-w-md mx-auto space-y-4">
+              <div className="p-4 bg-indigo-50 rounded-2xl w-fit mx-auto">
+                <UploadCloud className="w-12 h-12 text-indigo-600" />
+              </div>
+              <h3 className="text-xl font-bold text-slate-800">Nenhum dado importado</h3>
+              <p className="text-slate-500">Importe o arquivo CSV do MV para começar a rastrear o consumo diário e as projeções de ruptura.</p>
+              <div className="flex flex-col gap-2 pt-4">
+                <button 
+                  onClick={() => {}} // Template download logic if exists
+                  className="flex items-center justify-center gap-2 px-6 py-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl font-bold transition-all text-sm"
+                >
+                  <FileText className="w-4 h-4" />
+                  Visualizar Formato Aceito
+                </button>
+                <label className="cursor-pointer flex items-center justify-center gap-3 px-6 py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold font-black shadow-lg shadow-indigo-200 transition-all hover:scale-[1.02] active:scale-[0.98]">
+                  <UploadCloud className="w-6 h-6" />
+                  <span>Selecionar Arquivo CSV</span>
+                  <input type="file" accept=".csv" className="hidden" onChange={handleFileUpload} />
+                </label>
+              </div>
+            </div>
+        </div>
+      ) : (
+        <>
+          {/* STATS */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+              <div className="flex items-center gap-3 text-slate-600 mb-2">
+                <Package className="w-5 h-5" /> <h3 className="font-bold">Itens Lidos</h3>
+              </div>
+              <p className="text-3xl font-black text-slate-800">{data.length}</p>
+            </div>
+            <div className="bg-rose-50 p-5 rounded-xl border border-rose-100 shadow-sm cursor-pointer hover:bg-rose-100 transition-colors" onClick={()=>setFilterType('critical')}>
+              <div className="flex items-center gap-3 text-rose-700 mb-2">
+                <AlertCircle className="w-5 h-5" /> <h3 className="font-bold">Projeção Crítica</h3>
+              </div>
+              <p className="text-3xl font-black text-rose-800">{stats.crit}</p>
+              <p className="text-xs text-rose-600/80 font-medium mt-1">&lt; 3 dias de cobertura</p>
+            </div>
+            <div className="bg-amber-50 p-5 rounded-xl border border-amber-100 shadow-sm cursor-pointer hover:bg-amber-100 transition-colors" onClick={()=>setFilterType('warning')}>
+              <div className="flex items-center gap-3 text-amber-700 mb-2">
+                <AlertCircle className="w-5 h-5" /> <h3 className="font-bold">Atenção</h3>
+              </div>
+              <p className="text-3xl font-black text-amber-800">{stats.warn}</p>
+              <p className="text-xs text-amber-600/80 font-medium mt-1">3 a 7 dias de cobertura</p>
+            </div>
+            <div className="bg-indigo-50 p-5 rounded-xl border border-indigo-100 shadow-sm cursor-pointer hover:bg-indigo-100 transition-colors" onClick={()=>setFilterTrend('up')}>
+               <div className="flex items-center gap-3 text-indigo-700 mb-2">
+                <TrendingUp className="w-5 h-5" /> <h3 className="font-bold">Tendência Alta</h3>
+              </div>
+              <p className="text-3xl font-black text-indigo-800">{stats.up}</p>
+              <p className="text-xs text-indigo-600/80 font-medium mt-1">Consumo subindo</p>
+            </div>
+          </div>
+
+          {/* TABLE CONTAINER */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+            
+            {/* Toolbar */}
+            <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex flex-wrap gap-4 items-center justify-between">
+               <div className="relative flex-1 min-w-[250px] max-w-md">
+                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                 <input 
+                   type="text" 
+                   placeholder="Buscar por código ou nome..."
+                   value={search}
+                   onChange={e => setSearch(e.target.value)}
+                   className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                 />
+               </div>
+               
+               <div className="flex gap-2">
+                 <div className="relative">
+                   <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                   <select 
+                     value={filterType} 
+                     onChange={e => setFilterType(e.target.value as any)}
+                     className="pl-9 pr-8 py-2 border border-slate-200 rounded-lg text-sm bg-white font-medium text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 appearance-none"
+                   >
+                     <option value="all">Todas Projeções</option>
+                     <option value="critical">🔴 Crítico</option>
+                     <option value="warning">🟡 Atenção</option>
+                     <option value="ok">🟢 Normal</option>
+                   </select>
+                 </div>
+                 
+                 <div className="relative">
+                   <Activity className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                   <select 
+                     value={filterTrend} 
+                     onChange={e => setFilterTrend(e.target.value as any)}
+                     className="pl-9 pr-8 py-2 border border-slate-200 rounded-lg text-sm bg-white font-medium text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 appearance-none"
+                   >
+                     <option value="all">Todas Tendências</option>
+                     <option value="up">📈 Em Alta</option>
+                     <option value="down">📉 Em Baixa</option>
+                     <option value="stable">➖ Estável</option>
+                   </select>
+                 </div>
+               </div>
+               
+               <div className="hidden sm:block w-px h-8 bg-slate-200 shrink-0"></div>
+
+               <button
+                 onClick={exportToPDF}
+                 className="flex items-center justify-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold transition-all text-sm shrink-0"
+               >
+                 <Download className="w-4 h-4" />
+                 PDF
+               </button>
+            </div>
+
+            {/* Table */}
+            <div className="overflow-x-auto max-h-[600px] custom-scrollbar">
+              <table className="w-full text-left text-sm border-collapse">
+                <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm">
+                  <tr className="border-b border-slate-200">
+                    <th className="px-4 py-3 font-semibold text-slate-600 w-24 cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => requestSort('id')}>
+                      <div className="flex items-center gap-1">Cód {sortConfig?.key === 'id' && (sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}</div>
+                    </th>
+                    <th className="px-4 py-3 font-semibold text-slate-600 cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => requestSort('name')}>
+                      <div className="flex items-center gap-1">Descrição {sortConfig?.key === 'name' && (sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}</div>
+                    </th>
+                    <th className="px-4 py-3 font-semibold text-slate-600 text-center w-20 cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => requestSort('unit')}>
+                      <div className="flex items-center justify-center gap-1">Unid {sortConfig?.key === 'unit' && (sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}</div>
+                    </th>
+                    <th className="px-4 py-3 font-semibold text-slate-600 text-center w-40 cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => requestSort('history')}>
+                      <div className="flex items-center justify-center gap-1">Histórico de Consumo ({daysHeader.length}d) {sortConfig?.key === 'history' && (sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}</div>
+                    </th>
+                    <th className="px-4 py-3 font-semibold text-slate-600 text-right w-24 cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => requestSort('avg')}>
+                      <div className="flex items-center justify-end gap-1">Avg/Dia {sortConfig?.key === 'avg' && (sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}</div>
+                    </th>
+                    <th className="px-4 py-3 font-semibold text-slate-600 text-right w-24 cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => requestSort('stock')}>
+                      <div className="flex items-center justify-end gap-1">Saldo {sortConfig?.key === 'stock' && (sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}</div>
+                    </th>
+                    <th className="px-4 py-3 font-semibold text-slate-600 text-right w-32 cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => requestSort('projection')}>
+                      <div className="flex items-center justify-end gap-1">Projeção {sortConfig?.key === 'projection' && (sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}</div>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  <AnimatePresence>
+                    {filteredData.map(item => {
+                      const trend = getTrend(item.history);
+                      const status = getStatus(item.projection);
+                      
+                      return (
+                        <motion.tr 
+                          key={item.id}
+                          layout
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0 }}
+                          className="hover:bg-slate-50/80 transition-colors group"
+                        >
+                          <td className="px-4 py-3 font-mono text-slate-500">{item.id}</td>
+                          <td className="px-4 py-3 font-semibold text-slate-800">{item.name}</td>
+                          <td className="px-4 py-3 text-center text-slate-500 text-xs font-mono bg-slate-50 min-w-16">{item.unit}</td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-3">
+                              {drawSparkline(item.history)}
+                              {trend === 'up' ? <TrendingUp className="w-4 h-4 text-rose-500" /> : 
+                               trend === 'down' ? <TrendingDown className="w-4 h-4 text-emerald-500" /> : 
+                               <Minus className="w-4 h-4 text-slate-300" />}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <span className="font-bold text-slate-700">{item.avg.toFixed(1).replace('.', ',')}</span>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <span className="font-mono font-bold text-slate-900 bg-slate-100 px-2 py-1 rounded">{item.stock}</span>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <div className="flex justify-end">
+                              <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md font-bold text-xs ${
+                                status === 'critical' ? 'bg-rose-100 text-rose-700 border border-rose-200' :
+                                status === 'warning' ? 'bg-amber-100 text-amber-700 border border-amber-200' :
+                                'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                              }`}>
+                                {item.projection === 999 ? '∞' : item.projection.toFixed(1).replace('.', ',')} d
+                              </span>
+                            </div>
+                          </td>
+                        </motion.tr>
+                      );
+                    })}
+                  </AnimatePresence>
+                  
+                  {filteredData.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-12 text-center text-slate-400">
+                        <FileText className="w-8 h-8 mx-auto mb-2 opacity-20" />
+                        Nenhum item encontrado.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+
+    </div>
+  );
+};
