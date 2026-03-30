@@ -90,8 +90,9 @@ export default async function handler(req: Request): Promise<Response> {
     return new Response('Bad request', { status: 400 });
   }
 
-  // Só processa novas mensagens
-  if (payload.event !== 'messages.upsert') {
+  // Só processa novas mensagens (aceita maiúsculo e minúsculo)
+  const event = (payload.event ?? '').toLowerCase().replace('_', '.');
+  if (event !== 'messages.upsert') {
     return new Response('OK', { status: 200 });
   }
 
@@ -114,6 +115,8 @@ export default async function handler(req: Request): Promise<Response> {
     jid.replace(/\D/g, '').includes(botNumber.replace(/\D/g, '')) ||
     botNumber.replace(/\D/g, '').includes(jid.replace(/\D/g, '').replace('@s.whatsapp.net', ''))
   ) || text.includes(`@${botNumber}`);
+
+  console.log('remoteJid:', remoteJid, '| isGroup:', isGroup, '| botMentioned:', botMentioned, '| mentionedJids:', JSON.stringify(mentionedJids), '| BOT_NUMBER:', botNumber);
 
   // Em grupos: responde apenas quando mencionado
   // Em DM: responde sempre
