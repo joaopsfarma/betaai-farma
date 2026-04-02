@@ -527,17 +527,17 @@ export const Remanejamento: React.FC = () => {
 
     if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
 
+    // Envia snapshot textual + análise completa por farmácia para o bot responder consultas
     fetch('/api/save-remanejamento', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ snapshot: texto }),
+      body: JSON.stringify({ snapshot: texto, analise }),
     })
       .then(r => {
         setBotSyncStatus(r.ok ? 'ok' : 'erro');
       })
       .catch(() => setBotSyncStatus('erro'))
       .finally(() => {
-        // Volta ao estado neutro depois de 4s para não poluir a UI
         syncTimeoutRef.current = setTimeout(() => setBotSyncStatus('idle'), 4000);
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps

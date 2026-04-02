@@ -1,7 +1,22 @@
 // Vercel Serverless Function — Salva snapshot de remanejamento no KV
 // POST /api/save-remanejamento
-// Body: { snapshot: string }
-// Persiste o texto formatado para o bot WhatsApp responder consultas de remanejamento
+// Body: { snapshot: string, analise?: AnaliseItem[] }
+// Persiste o texto + análise completa para o bot WhatsApp responder consultas por farmácia
+
+interface AnaliseItem {
+  produto: string;
+  unidade: string;
+  estoqueId: string;
+  estoqueName: string;
+  saldoAtual: number;
+  consumoTotal: number;
+  consumoDiario: number;
+  coberturaDias: number;
+  status: 'EXCESSO' | 'NORMAL' | 'ALERTA' | 'CRÍTICO' | 'SEM CONSUMO';
+  estMin: number;
+  estMax: number;
+  custoMedio: number;
+}
 
 async function kvSet(key: string, value: unknown): Promise<void> {
   const url   = process.env.KV_REST_API_URL;
@@ -33,7 +48,7 @@ export default async function handler(req: Request): Promise<Response> {
     });
   }
 
-  let body: { snapshot: string };
+  let body: { snapshot: string; analise?: AnaliseItem[] };
   try {
     body = await req.json();
   } catch {
@@ -50,7 +65,15 @@ export default async function handler(req: Request): Promise<Response> {
     });
   }
 
+  // Salva snapshot textual (para respostas rápidas de remanejamento)
   await kvSet('remanejamento_snapshot', body.snapshot);
+
+  // Salva análise completa por farmácia (para consultas de saldo por estoque)
+  if (body.analise && body.analise.length > 0) {
+    // Filtra apenas itens com dados úteis para não estourar o KV
+    const analiseUtil = body.analise.filter(i => i.saldoAtual > 0 || i.consumoTotal > 0);
+    await kvSet('remanejamento_analise', analiseUtil);
+  }
 
   return new Response(JSON.stringify({ ok: true }), {
     status: 200,

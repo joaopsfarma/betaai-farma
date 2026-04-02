@@ -2,6 +2,23 @@
 // Responde quando o bot é mencionado no grupo com a situação atual de faltas
 // POST /api/whatsapp-webhook
 
+// ─── Tipos da análise de farmácias (Remanejamento) ───────────────────────────
+
+interface AnaliseItem {
+  produto: string;
+  unidade: string;
+  estoqueId: string;
+  estoqueName: string;
+  saldoAtual: number;
+  consumoTotal: number;
+  consumoDiario: number;
+  coberturaDias: number;
+  status: 'EXCESSO' | 'NORMAL' | 'ALERTA' | 'CRÍTICO' | 'SEM CONSUMO';
+  estMin: number;
+  estMax: number;
+  custoMedio: number;
+}
+
 interface TrackingRow {
   codigo: string;
   descricao: string;
@@ -129,7 +146,7 @@ Quando perguntarem o que pedir/comprar, liste os itens mais críticos com sugest
 
 // ─── Detecta intenção da pergunta ────────────────────────────────────────────
 
-type Intencao = 'ruptura' | 'critico' | 'alerta' | 'tudo' | 'geral' | 'ia' | 'ajuda' | 'remanejamento';
+type Intencao = 'ruptura' | 'critico' | 'alerta' | 'tudo' | 'geral' | 'ia' | 'ajuda' | 'remanejamento' | 'farmacia';
 
 function detectarIntencao(texto: string): Intencao {
   if (!texto || texto.length < 2) return 'ajuda';
@@ -152,6 +169,7 @@ function detectarIntencao(texto: string): Intencao {
   if (/^alert|^atenc/.test(t))                    return 'alerta';
   if (/^tudo$|^todos$|^resumo$|^status$/.test(t)) return 'tudo';
   if (/remanejar|remanejamento|transferir|redistribui|sobra|excesso entre estoques/.test(t)) return 'remanejamento';
+  if (ehConsultaFarmacia(t)) return 'farmacia';
 
   // Qualquer outra coisa → IA
   return 'ia';
@@ -168,6 +186,128 @@ function pareceProduto(texto: string): boolean {
   if (VERBOS_PERGUNTA.test(t)) return false;
   // Tem pelo menos 3 chars e não é um comando conhecido
   return t.length >= 3;
+}
+
+// ─── Consultas de saldo por farmácia ─────────────────────────────────────────
+
+// Nomes curtos reconhecidos para cada farmácia
+const FARMACIAS_ALIAS: Record<string, string[]> = {
+  'central':  ['central', 'farmacia central', 'farm central', 'fc'],
+  'cti':      ['cti', 'uti', 'intensiva', 'terapia intensiva', 'farm cti', 'farmacia cti'],
+  'cc':       ['cc', 'centro cirurgico', 'cirurgico', 'cirurgia', 'farm cc', 'farmacia cc', 'centro cirúrgico'],
+  'ps':       ['ps', 'pronto socorro', 'emergencia', 'emergência', 'farm ps', 'farmacia ps'],
+};
+
+function detectarFarmacia(texto: string): string | null {
+  const t = texto.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  for (const [key, aliases] of Object.entries(FARMACIAS_ALIAS)) {
+    if (aliases.some(a => t.includes(a))) return key;
+  }
+  return null;
+}
+
+function nomeFarmaciaDisplay(key: string): string {
+  return { central: 'Farmácia Central', cti: 'Farmácia CTI', cc: 'Farmácia Centro Cirúrgico', ps: 'Farmácia Pronto Socorro' }[key] ?? key;
+}
+
+function farmaciaMatchesEstoque(farmaciaKey: string, estoqueName: string): boolean {
+  const n = estoqueName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const aliases = FARMACIAS_ALIAS[farmaciaKey] ?? [];
+  return aliases.some(a => n.includes(a));
+}
+
+// Gera resumo textual da análise para enviar à IA
+function resumoAnaliseParaIA(analise: AnaliseItem[], farmaciaKey: string | null, produto: string | null): string {
+  const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+  let filtrado = analise;
+
+  if (farmaciaKey) {
+    filtrado = filtrado.filter(i => farmaciaMatchesEstoque(farmaciaKey, i.estoqueName));
+  }
+
+  if (produto) {
+    const tokens = norm(produto).split(/\s+/).filter(t => t.length >= 3);
+    filtrado = filtrado.filter(i => tokens.some(t => norm(i.produto).includes(t)));
+  }
+
+  if (filtrado.length === 0) return 'Nenhum item encontrado para os critérios informados.';
+
+  // Ordena por status (crítico primeiro) depois por cobertura crescente
+  const prioStatus: Record<string, number> = { 'CRÍTICO': 0, 'ALERTA': 1, 'NORMAL': 2, 'EXCESSO': 3, 'SEM CONSUMO': 4 };
+  filtrado.sort((a, b) => (prioStatus[a.status] ?? 5) - (prioStatus[b.status] ?? 5) || a.coberturaDias - b.coberturaDias);
+
+  const cabecalho = farmaciaKey
+    ? `FARMÁCIA: ${nomeFarmaciaDisplay(farmaciaKey)} | ${filtrado.length} itens`
+    : `${filtrado.length} itens encontrados`;
+
+  const linhas = filtrado.slice(0, 30).map(i => {
+    const cob = i.coberturaDias >= 9999 ? '999+d' : `${i.coberturaDias.toFixed(0)}d`;
+    const cons = i.consumoDiario > 0 ? `cons:${i.consumoDiario.toFixed(1)}/d` : 'sem consumo';
+    return `[${i.status}] ${i.produto} (${i.estoqueName}) | saldo:${i.saldoAtual}${i.unidade} | ${cons} | cobertura:${cob}`;
+  });
+
+  return `${cabecalho}\n\n${linhas.join('\n')}`;
+}
+
+// Verifica se a pergunta é sobre saldo/farmácia específica
+function ehConsultaFarmacia(texto: string): boolean {
+  const t = texto.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  return (
+    detectarFarmacia(t) !== null ||
+    /saldo|cobertura|estoque|tem (no|na|em)|critico|criticos|alerta|excesso|resumo|situacao|situação/.test(t)
+  );
+}
+
+async function askGroqFarmacias(pergunta: string, analise: AnaliseItem[]): Promise<string> {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) return '⚠️ GROQ_API_KEY não configurada.';
+
+  const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const t = norm(pergunta);
+
+  const farmaciaKey = detectarFarmacia(t);
+
+  // Extrai possível nome de produto (remove palavras de farmácia e conectivos)
+  const semFarmacia = t
+    .replace(/farmacia|farm|central|cti|uti|cc|ps|pronto socorro|centro cirurgico|terapia intensiva/g, '')
+    .replace(/\b(saldo|cobertura|tem|na|no|em|de|do|da|qual|quanto|quais|critico|alerta|excesso|resumo|situacao)\b/g, '')
+    .trim();
+  const produtoQuery = semFarmacia.length >= 3 ? semFarmacia : null;
+
+  const dados = resumoAnaliseParaIA(analise, farmaciaKey, produtoQuery);
+  const date  = new Date().toLocaleDateString('pt-BR');
+
+  const sistemaMsg = `Você é um assistente de farmácia hospitalar. Hoje é ${date}.
+Responda em português, direto ao ponto, formatado para WhatsApp (*negrito*, • listas, _itálico_).
+Máximo 250 palavras.
+
+Campos disponíveis: status (CRÍTICO/ALERTA/NORMAL/EXCESSO/SEM CONSUMO), saldo, consumo diário, cobertura em dias, farmácia.
+- CRÍTICO: cobertura < 15 dias
+- ALERTA: 15–29 dias
+- NORMAL: 30–89 dias
+- EXCESSO: ≥ 90 dias`;
+
+  const usuarioMsg = `DADOS DE ESTOQUE POR FARMÁCIA:\n${dados}\n\nPERGUNTA: ${pergunta}`;
+
+  try {
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        messages: [{ role: 'system', content: sistemaMsg }, { role: 'user', content: usuarioMsg }],
+        max_tokens: 600,
+        temperature: 0.2,
+      }),
+    });
+    if (!res.ok) return `⚠️ Erro IA (${res.status})`;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const json = await res.json() as any;
+    return (json.choices?.[0]?.message?.content as string) ?? '';
+  } catch (e) {
+    return `⚠️ Erro: ${String(e).slice(0, 80)}`;
+  }
 }
 
 // ─── Remanejamento ───────────────────────────────────────────────────────────
@@ -194,6 +334,13 @@ function buildHelp(): string {
   • *alerta* — itens com 8–15 dias
   • *tudo* — relatório completo
   • *remanejamento* — sugestões de redistribuição entre estoques
+
+🏥 *Consultas por Farmácia*
+  • *saldo CTI* — situação da Farmácia CTI
+  • *resumo central* — resumo da Farmácia Central
+  • *críticos PS* — itens críticos no Pronto Socorro
+  • *meropenem nas farmácias* — saldo por estoque
+  • *excesso CC* — excessos no Centro Cirúrgico
 
 🧠 *Pergunta Livre (IA)*
   Mencione o bot com qualquer pergunta
@@ -358,6 +505,20 @@ export default async function handler(req: Request): Promise<Response> {
   if (intencaoAntecipada === 'remanejamento') {
     const snapshot = await kvGet<string>('remanejamento_snapshot');
     await sendReply(remoteJid, buildRemanejamentoReply(snapshot ?? ''));
+    return new Response('OK', { status: 200 });
+  }
+
+  if (intencaoAntecipada === 'farmacia') {
+    const analise = await kvGet<AnaliseItem[]>('remanejamento_analise');
+    if (!analise || analise.length === 0) {
+      await sendReply(
+        remoteJid,
+        '🏥 *Consulta por Farmácia*\n\nNenhum dado de estoque por farmácia disponível.\nImporte os CSVs na aba *Remanejamento* do FarmaIA para habilitar esta consulta.',
+      );
+      return new Response('OK', { status: 200 });
+    }
+    const resposta = await askGroqFarmacias(textoAntecipado, analise);
+    await sendReply(remoteJid, `🏥 ${resposta}`);
     return new Response('OK', { status: 200 });
   }
 
