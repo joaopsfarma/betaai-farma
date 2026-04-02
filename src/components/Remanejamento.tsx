@@ -972,6 +972,38 @@ export const Remanejamento: React.FC = () => {
           {/* Cards por Farmácia + Tabela de Análise */}
           {innerTab === 'analise' && (
             <>
+            {/* Painel bot WhatsApp */}
+            <div className="bg-gradient-to-r from-emerald-50 to-violet-50 border border-emerald-200 rounded-2xl p-4">
+              <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <p className="text-sm font-semibold text-emerald-700">Bot WhatsApp — Perguntas sobre esta análise</p>
+                    {botSyncStatus === 'syncing' && <span className="text-[10px] text-slate-500 flex items-center gap-1"><RefreshCw className="w-3 h-3 animate-spin"/>sincronizando...</span>}
+                    {botSyncStatus === 'ok'      && <span className="text-[10px] text-emerald-600 flex items-center gap-1"><CheckCircle className="w-3 h-3"/>bot atualizado</span>}
+                    {botSyncStatus === 'erro'    && <span className="text-[10px] text-amber-600 flex items-center gap-1"><AlertTriangle className="w-3 h-3"/>bot offline</span>}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
+                    {[
+                      { q: '@bot saldo CTI',              r: 'Situação completa da Farmácia CTI' },
+                      { q: '@bot resumo central',          r: 'Resumo da Farmácia Central' },
+                      { q: '@bot críticos PS',             r: 'Itens críticos no Pronto Socorro' },
+                      { q: '@bot excesso CC',              r: 'Produtos em excesso no Centro Cirúrgico' },
+                      { q: '@bot meropenem nas farmácias', r: 'Saldo do produto em todos os estoques' },
+                      { q: '@bot cobertura amicacina',     r: 'Cobertura da amicacina por farmácia' },
+                      { q: '@bot alerta CTI',              r: 'Itens em alerta na CTI' },
+                      { q: '@bot remanejamento',           r: 'Sugestões de transferência entre estoques' },
+                    ].map(({ q, r }) => (
+                      <div key={q} className="flex items-start gap-2 text-[11px]">
+                        <code className="bg-white border border-emerald-200 text-emerald-700 px-1.5 py-0.5 rounded font-mono whitespace-nowrap">{q}</code>
+                        <span className="text-slate-500 mt-0.5">{r}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* Cards de resumo por estoque — clique para filtrar */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {estoques.map(est => {

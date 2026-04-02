@@ -164,12 +164,20 @@ function detectarIntencao(texto: string): Intencao {
   if (palavras.length > 3) return 'ia';
 
   // Comandos curtos → filtro por palavra-chave
+  if (/remanejar|remanejamento|transferir|redistribui|sobra|excesso entre estoques/.test(t)) return 'remanejamento';
+
+  // Farmácia específica: detectar ANTES dos genéricos para que
+  // "@bot críticos PS", "@bot alerta CTI", etc. sejam roteados corretamente
+  if (detectarFarmacia(t) !== null || /farmacia|farmacias/.test(t)) return 'farmacia';
+
+  // Genéricos sem farmácia específica
   if (/ruptur|sem estoque|zerado|acabou/.test(t)) return 'ruptura';
   if (/^criti|^urgent|^emergenc/.test(t))         return 'critico';
   if (/^alert|^atenc/.test(t))                    return 'alerta';
   if (/^tudo$|^todos$|^resumo$|^status$/.test(t)) return 'tudo';
-  if (/remanejar|remanejamento|transferir|redistribui|sobra|excesso entre estoques/.test(t)) return 'remanejamento';
-  if (ehConsultaFarmacia(t)) return 'farmacia';
+
+  // Keywords de estoque sem farmácia específica → usa análise geral por farmácia
+  if (/saldo|cobertura/.test(t)) return 'farmacia';
 
   // Qualquer outra coisa → IA
   return 'ia';
@@ -250,15 +258,6 @@ function resumoAnaliseParaIA(analise: AnaliseItem[], farmaciaKey: string | null,
   return `${cabecalho}\n\n${linhas.join('\n')}`;
 }
 
-// Verifica se a pergunta é sobre saldo/farmácia específica
-function ehConsultaFarmacia(texto: string): boolean {
-  const t = texto.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  return (
-    detectarFarmacia(t) !== null ||
-    /saldo|cobertura|estoque|tem (no|na|em)|critico|criticos|alerta|excesso|resumo|situacao|situação/.test(t)
-  );
-}
-
 async function askGroqFarmacias(pergunta: string, analise: AnaliseItem[]): Promise<string> {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) return '⚠️ GROQ_API_KEY não configurada.';
@@ -268,12 +267,19 @@ async function askGroqFarmacias(pergunta: string, analise: AnaliseItem[]): Promi
 
   const farmaciaKey = detectarFarmacia(t);
 
-  // Extrai possível nome de produto (remove palavras de farmácia e conectivos)
-  const semFarmacia = t
-    .replace(/farmacia|farm|central|cti|uti|cc|ps|pronto socorro|centro cirurgico|terapia intensiva/g, '')
-    .replace(/\b(saldo|cobertura|tem|na|no|em|de|do|da|qual|quanto|quais|critico|alerta|excesso|resumo|situacao)\b/g, '')
-    .trim();
-  const produtoQuery = semFarmacia.length >= 3 ? semFarmacia : null;
+  // Stopwords a remover para isolar o nome do produto
+  const STOPWORDS = new Set([
+    'saldo','cobertura','estoque','tem','na','no','em','de','do','da','nas','nos','das','dos',
+    'qual','quanto','quais','critico','criticos','alerta','excesso','resumo','situacao','status',
+    'farmacia','farmacias','farm','central','cti','uti','cc','ps','pronto','socorro','centro',
+    'cirurgico','terapia','intensiva','urgente','urgencia','ruptura','ruptura',
+  ]);
+
+  const produtoTokens = t
+    .replace(/[^\w\s]/g, ' ')
+    .split(/\s+/)
+    .filter(tok => tok.length >= 4 && !STOPWORDS.has(tok));
+  const produtoQuery = produtoTokens.length > 0 ? produtoTokens.join(' ') : null;
 
   const dados = resumoAnaliseParaIA(analise, farmaciaKey, produtoQuery);
   const date  = new Date().toLocaleDateString('pt-BR');
