@@ -129,7 +129,7 @@ Quando perguntarem o que pedir/comprar, liste os itens mais críticos com sugest
 
 // ─── Detecta intenção da pergunta ────────────────────────────────────────────
 
-type Intencao = 'ruptura' | 'critico' | 'alerta' | 'tudo' | 'geral' | 'ia' | 'ajuda';
+type Intencao = 'ruptura' | 'critico' | 'alerta' | 'tudo' | 'geral' | 'ia' | 'ajuda' | 'remanejamento';
 
 function detectarIntencao(texto: string): Intencao {
   if (!texto || texto.length < 2) return 'ajuda';
@@ -151,6 +151,7 @@ function detectarIntencao(texto: string): Intencao {
   if (/^criti|^urgent|^emergenc/.test(t))         return 'critico';
   if (/^alert|^atenc/.test(t))                    return 'alerta';
   if (/^tudo$|^todos$|^resumo$|^status$/.test(t)) return 'tudo';
+  if (/remanejar|remanejamento|transferir|redistribui|sobra|excesso entre estoques/.test(t)) return 'remanejamento';
 
   // Qualquer outra coisa → IA
   return 'ia';
@@ -169,6 +170,15 @@ function pareceProduto(texto: string): boolean {
   return t.length >= 3;
 }
 
+// ─── Remanejamento ───────────────────────────────────────────────────────────
+
+function buildRemanejamentoReply(snapshot: string): string {
+  if (!snapshot || snapshot.trim().length === 0) {
+    return `🔄 *REMANEJAMENTO*\n\nNenhum dado de remanejamento disponível.\nAcesse a aba *Remanejamento* no FarmaIA, importe os CSVs e clique em *Copiar WhatsApp* para enviar a análise aqui.`;
+  }
+  return snapshot;
+}
+
 // ─── Menu de ajuda ───────────────────────────────────────────────────────────
 
 function buildHelp(): string {
@@ -183,6 +193,7 @@ function buildHelp(): string {
   • *crítico* — itens com ≤7 dias de estoque
   • *alerta* — itens com 8–15 dias
   • *tudo* — relatório completo
+  • *remanejamento* — sugestões de redistribuição entre estoques
 
 🧠 *Pergunta Livre (IA)*
   Mencione o bot com qualquer pergunta
@@ -335,6 +346,23 @@ export default async function handler(req: Request): Promise<Response> {
   // Em grupos: responde apenas quando mencionado
   // Em DM: responde sempre
   if (isGroup && !botMentioned) {
+    return new Response('OK', { status: 200 });
+  }
+
+  // ─── Detecta intenção antes de buscar dados (remanejamento usa snapshot próprio) ──
+  const textoAntecipado = text.replace(/@\S+/g, '').trim();
+  const intencaoAntecipada = detectarIntencao(
+    textoAntecipado.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+  );
+
+  if (intencaoAntecipada === 'remanejamento') {
+    const snapshot = await kvGet<string>('remanejamento_snapshot');
+    await sendReply(remoteJid, buildRemanejamentoReply(snapshot ?? ''));
+    return new Response('OK', { status: 200 });
+  }
+
+  if (intencaoAntecipada === 'ajuda') {
+    await sendReply(remoteJid, buildHelp());
     return new Response('OK', { status: 200 });
   }
 

@@ -36,7 +36,11 @@ export type TabId =
   | 'multidose'
   | 'baixas_estoque'
   | 'perdas_inventario'
-  | 'analise_operacional';
+  | 'analise_operacional'
+  | 'remanejamento'
+  | 'indicadores_logisticos_v2'
+  | 'daily_tracking'
+  | 'painel_tv_ressuprimento';
 
 // Define the nav item structure with classes specific to Sidebar
 export interface NavItem {

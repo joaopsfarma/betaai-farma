@@ -12,7 +12,7 @@ import { TransferRequest } from './components/TransferRequest';
 import { VBACodeDisplay } from './components/VBACodeDisplay';
 import { CsvUploader } from './components/CsvUploader';
 import { ValidityUploader } from './components/ValidityUploader';
-import { LayoutDashboard, FileSpreadsheet, Code, Pill, Database, Filter, AlertCircle, PieChart, Download, ListTodo, Activity, ClipboardList, Menu, X, ChevronRight, Clock, Ban, Package, LineChart, Calculator, BarChart2, ShieldAlert, AlertTriangle, ShoppingCart, XCircle, ShieldCheck, TrendingDown, MonitorPlay } from 'lucide-react';
+import { LayoutDashboard, FileSpreadsheet, Code, Pill, Database, Filter, AlertCircle, PieChart, Download, ListTodo, Activity, ClipboardList, Menu, X, ChevronRight, Clock, Ban, Package, LineChart, Calculator, BarChart2, ShieldAlert, AlertTriangle, ShoppingCart, XCircle, ShieldCheck, TrendingDown, MonitorPlay, ArrowLeftRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Dashboard } from './components/Dashboard';
 import { FollowUp } from './components/FollowUp';
@@ -47,6 +47,7 @@ import { IndicadoresLogisticosV2 } from './components/IndicadoresLogisticosV2';
 import { GeradorDocumentos } from './components/GeradorDocumentos';
 import { SupplierEvaluationCAF } from './components/SupplierEvaluationCAF';
 import { Ressuprimento } from './components/Ressuprimento';
+import { Remanejamento } from './components/Remanejamento';
 import { PainelTVRessuprimento } from './components/PainelTVRessuprimento';
 import { Supply } from './components/Supply';
 import { Multidose } from './components/Multidose';
@@ -198,6 +199,7 @@ function App() {
     { id: 'rastreio_falta',            label: 'Rastreio de Falta',        icon: <AlertTriangle className="w-5 h-5" />,  classes: G },
     { id: 'transfer',                  label: 'Requisição',               icon: <FileSpreadsheet className="w-5 h-5" />, badge: stats.order, classes: G },
     { id: 'requisicao_v2',             label: 'Requisição V2',            icon: <ShoppingCart className="w-5 h-5" />,   classes: V },
+    { id: 'remanejamento',              label: 'Remanejamento',             icon: <ArrowLeftRight className="w-5 h-5" />, classes: A },
     { id: 'ressuprimento',             label: 'Ressuprimento',             icon: <ShoppingCart className="w-5 h-5" />,   classes: V },
     { id: 'painel_tv_ressuprimento',   label: 'Painel TV Ressup.',         icon: <MonitorPlay className="w-5 h-5" />,    classes: V },
     { id: 'supply',                    label: 'Supply',                    icon: <Package className="w-5 h-5" />,        classes: G },
@@ -410,6 +412,11 @@ function App() {
         {activeTab === 'avaliacao_fornecedores' && (
           <div className="max-w-full mx-auto">
             <SupplierEvaluationCAF />
+          </div>
+        )}
+        {activeTab === 'remanejamento' && (
+          <div className="max-w-7xl mx-auto">
+            <Remanejamento />
           </div>
         )}
         {activeTab === 'ressuprimento' && (
