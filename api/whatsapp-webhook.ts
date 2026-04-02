@@ -159,24 +159,24 @@ function detectarIntencao(texto: string): Intencao {
   // Saudações e pedidos de ajuda → menu
   if (/^(oi|ola|bom dia|boa tarde|boa noite|oque|o que|menu|ajuda|help|comandos|como usar|o que voce faz|o que vc faz)/.test(t)) return 'ajuda';
 
-  // Frases longas (mais de 3 palavras) → sempre usar IA
+  // Remanejamento — checa antes do limite de palavras
+  if (/remanejar|remanejamento|transferir|redistribui|sobra|excesso entre estoques/.test(t)) return 'remanejamento';
+
+  // Farmácia específica — checa ANTES do limite de palavras
+  // Permite: "meronem na central", "meronem no pronto socorro", "criticos cti", etc.
+  if (detectarFarmacia(t) !== null || /farmacia|farmacias/.test(t)) return 'farmacia';
+
+  // Frases longas SEM farmácia específica → IA genérica
   const palavras = t.split(/\s+/).filter(Boolean);
   if (palavras.length > 3) return 'ia';
 
-  // Comandos curtos → filtro por palavra-chave
-  if (/remanejar|remanejamento|transferir|redistribui|sobra|excesso entre estoques/.test(t)) return 'remanejamento';
-
-  // Farmácia específica: detectar ANTES dos genéricos para que
-  // "@bot críticos PS", "@bot alerta CTI", etc. sejam roteados corretamente
-  if (detectarFarmacia(t) !== null || /farmacia|farmacias/.test(t)) return 'farmacia';
-
-  // Genéricos sem farmácia específica
+  // Comandos curtos genéricos (sem farmácia específica)
   if (/ruptur|sem estoque|zerado|acabou/.test(t)) return 'ruptura';
   if (/^criti|^urgent|^emergenc/.test(t))         return 'critico';
   if (/^alert|^atenc/.test(t))                    return 'alerta';
   if (/^tudo$|^todos$|^resumo$|^status$/.test(t)) return 'tudo';
 
-  // Keywords de estoque sem farmácia específica → usa análise geral por farmácia
+  // Keywords de estoque sem farmácia específica
   if (/saldo|cobertura/.test(t)) return 'farmacia';
 
   // Qualquer outra coisa → IA
