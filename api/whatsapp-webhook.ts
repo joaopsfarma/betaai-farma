@@ -49,18 +49,27 @@ function formatItem(r: TrackingRow, compact = false): string {
 // ─── Monta texto compacto do estoque para enviar à IA ────────────────────────
 
 function resumoEstoqueParaIA(rows: TrackingRow[]): string {
-  const relevantes = rows
+  const rupturas = rows.filter(r => r.projecao <= 0).length;
+  const criticos = rows.filter(r => r.nivel === 'critico').length;
+  const alertas  = rows.filter(r => r.nivel === 'alerta').length;
+  const atencao  = rows.filter(r => r.nivel === 'atencao').length;
+  const ok       = rows.filter(r => r.nivel === 'ok').length;
+
+  const cabecalho = `RESUMO: ${rows.length} itens total | Ruptura: ${rupturas} | Crítico: ${criticos} | Alerta: ${alertas} | Atenção: ${atencao} | OK: ${ok}`;
+
+  // Todos os itens não-ok ordenados por urgência + amostra dos ok
+  const naoOk = rows
     .filter(r => r.nivel !== 'ok')
-    .sort((a, b) => a.projecao - b.projecao) // mais urgentes primeiro
-    .slice(0, 25); // limita a 25 itens para não estourar o limite da API
+    .sort((a, b) => a.projecao - b.projecao);
 
-  if (!relevantes.length) return 'Nenhum item crítico ou em alerta no momento.';
-
-  return relevantes.map(r => {
+  const linhas = naoOk.map(r => {
     const proj = r.projecao <= 0 ? 'SEM ESTOQUE' : `${Math.round(r.projecao)}d`;
     const tend = r.tendencia === 'alta' ? '↑' : r.tendencia === 'queda' ? '↓' : '→';
     return `[${r.nivel.toUpperCase()}] ${r.codigo} ${r.comercial} | ${r.saldo}${r.unidade} | med:${r.media.toFixed(1)} | proj:${proj} | ${tend}`;
-  }).join('\n');
+  });
+
+  if (!linhas.length) return `${cabecalho}\nTodos os itens com estoque OK.`;
+  return `${cabecalho}\n\nITENS COM ATENÇÃO:\n${linhas.join('\n')}`;
 }
 
 // ─── Groq (Llama 3) — análise inteligente ────────────────────────────────────
@@ -73,9 +82,19 @@ async function askGroq(pergunta: string, rows: TrackingRow[]): Promise<string> {
   const estoque = resumoEstoqueParaIA(rows);
 
   const sistemaMsg = `Você é um assistente especialista em gestão de estoque farmacêutico hospitalar. Hoje é ${date}.
-Responda em português brasileiro de forma clara e objetiva.
-Formate para WhatsApp: use *negrito* para destaques e • para listas.
-Seja direto e prático. Priorize o que é mais urgente. Máximo 250 palavras.`;
+Responda sempre em português brasileiro, de forma direta e prática.
+Formate para WhatsApp: use *negrito* para destaques, • para listas, _itálico_ para observações.
+Máximo 300 palavras. Priorize urgências.
+
+Você tem acesso ao estoque atual com os seguintes campos:
+- nivel: critico (≤7d), alerta (8-15d), atencao (16-30d), ok (>30d)
+- projecao: dias estimados de estoque (≤0 = ruptura/sem estoque)
+- media: consumo médio diário
+- tendencia: alta/queda/estavel
+
+Quando perguntarem sobre um produto específico, foque nele.
+Quando perguntarem sobre prioridades ou urgências, ordene por menor projeção primeiro.
+Quando perguntarem o que pedir/comprar, liste os itens mais críticos com sugestão de quantidade.`;
 
   const usuarioMsg = `DADOS DE ESTOQUE ATUAL:\n${estoque}\n\nPERGUNTA: ${pergunta || 'Faça um resumo da situação atual e indique as prioridades.'}`;
 
@@ -92,7 +111,7 @@ Seja direto e prático. Priorize o que é mais urgente. Máximo 250 palavras.`;
           { role: 'system',  content: sistemaMsg  },
           { role: 'user',    content: usuarioMsg  },
         ],
-        max_tokens: 600,
+        max_tokens: 800,
         temperature: 0.3,
       }),
     });
@@ -110,15 +129,18 @@ Seja direto e prático. Priorize o que é mais urgente. Máximo 250 palavras.`;
 
 // ─── Detecta intenção da pergunta ────────────────────────────────────────────
 
-type Intencao = 'ruptura' | 'critico' | 'alerta' | 'tudo' | 'geral' | 'ia';
+type Intencao = 'ruptura' | 'critico' | 'alerta' | 'tudo' | 'geral' | 'ia' | 'ajuda';
 
 function detectarIntencao(texto: string): Intencao {
-  if (!texto || texto.length < 3) return 'geral';
+  if (!texto || texto.length < 2) return 'ajuda';
 
   const t = texto
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .trim();
+
+  // Saudações e pedidos de ajuda → menu
+  if (/^(oi|ola|bom dia|boa tarde|boa noite|oque|o que|menu|ajuda|help|comandos|como usar|o que voce faz|o que vc faz)/.test(t)) return 'ajuda';
 
   // Frases longas (mais de 3 palavras) → sempre usar IA
   const palavras = t.split(/\s+/).filter(Boolean);
@@ -132,6 +154,42 @@ function detectarIntencao(texto: string): Intencao {
 
   // Qualquer outra coisa → IA
   return 'ia';
+}
+
+// ─── Palavras que indicam pergunta livre (não nome de produto) ───────────────
+
+const VERBOS_PERGUNTA = /^(qual|quais|quanto|quantos|quando|como|porque|por que|existe|tem|ha|precisa|devo|posso|pode|o que|quem|onde)/;
+
+function pareceProduto(texto: string): boolean {
+  const t = texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  const palavras = t.split(/\s+/).filter(Boolean);
+  if (palavras.length > 3) return false;
+  if (VERBOS_PERGUNTA.test(t)) return false;
+  // Tem pelo menos 3 chars e não é um comando conhecido
+  return t.length >= 3;
+}
+
+// ─── Menu de ajuda ───────────────────────────────────────────────────────────
+
+function buildHelp(): string {
+  return `🤖 *Farmácia Bot — Comandos disponíveis*
+
+📦 *Consulta de Produto*
+  Mencione o bot + nome ou código
+  Ex: @bot amoxicilina | @bot 1234
+
+📋 *Relatórios Rápidos*
+  • *rupturas* — itens acabando hoje (0–1 dia)
+  • *crítico* — itens com ≤7 dias de estoque
+  • *alerta* — itens com 8–15 dias
+  • *tudo* — relatório completo
+
+🧠 *Pergunta Livre (IA)*
+  Mencione o bot com qualquer pergunta
+  Ex: @bot quais itens vão faltar essa semana?
+  Ex: @bot o que precisa ser pedido urgente?
+
+💡 _Dica: use os relatórios rápidos para respostas instantâneas._`;
 }
 
 // ─── Formata resposta de estoque (respostas rápidas por palavra-chave) ────────
@@ -299,21 +357,58 @@ export default async function handler(req: Request): Promise<Response> {
     const termoBusca = textoLimpo.toLowerCase()
       .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
-    const filtrado = rows.filter(r =>
-      r.codigo.toLowerCase().includes(termoBusca) ||
-      r.comercial.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').includes(termoBusca) ||
-      (r.generico ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').includes(termoBusca),
+    const normalizar = (s: string) =>
+      s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+    // Busca direta (substring exata)
+    let filtrado = rows.filter(r =>
+      normalizar(r.codigo).includes(termoBusca) ||
+      normalizar(r.comercial).includes(termoBusca) ||
+      normalizar(r.generico ?? '').includes(termoBusca),
     );
+
+    // Busca por tokens (cada palavra com ≥4 chars)
+    if (!filtrado.length) {
+      const tokens = termoBusca.split(/\s+/).filter(t => t.length >= 4);
+      if (tokens.length > 0) {
+        filtrado = rows.filter(r =>
+          tokens.some(tok =>
+            normalizar(r.codigo).includes(tok) ||
+            normalizar(r.comercial).includes(tok) ||
+            normalizar(r.generico ?? '').includes(tok),
+          ),
+        );
+      }
+    }
 
     if (filtrado.length > 0) {
       const reply = buildReply(filtrado, 'tudo');
       await sendReply(remoteJid, reply);
       return new Response('OK', { status: 200 });
     }
+
+    // Parece nome de produto mas não foi encontrado → avisa sem chamar IA
+    if (pareceProduto(textoLimpo)) {
+      const criticos = rows.filter(r => r.nivel === 'critico' || r.nivel === 'alerta').slice(0, 5);
+      let msg = `⚠️ Produto _"${textoLimpo}"_ não encontrado no estoque atual.\n`;
+      msg += `Verifique o código ou nome exato.\n\n`;
+      if (criticos.length) {
+        msg += `📋 *Itens críticos/alerta no momento:*\n`;
+        criticos.forEach(r => { msg += formatItem(r, true); });
+        msg += `\n_Use *tudo* para o relatório completo._`;
+      }
+      await sendReply(remoteJid, msg);
+      return new Response('OK', { status: 200 });
+    }
   }
 
   // ─── Detecta intenção e responde ─────────────────────────────────────────
   const intencao = detectarIntencao(textoLimpo);
+
+  if (intencao === 'ajuda') {
+    await sendReply(remoteJid, buildHelp());
+    return new Response('OK', { status: 200 });
+  }
 
   if (intencao === 'ia') {
     // Pergunta livre → Groq (Llama 3) analisa
@@ -322,7 +417,6 @@ export default async function handler(req: Request): Promise<Response> {
       await sendReply(remoteJid, `🤖 ${respostaIA}`);
       return new Response('OK', { status: 200 });
     }
-    // Fallback se Gemini falhar
   }
 
   const reply = buildReply(rows, intencao);
