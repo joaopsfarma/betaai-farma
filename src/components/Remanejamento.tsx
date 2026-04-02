@@ -1073,7 +1073,7 @@ export const Remanejamento: React.FC = () => {
                         className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer select-none hover:text-slate-700"
                         onClick={() => toggleSort('consumoDiario')}
                       >
-                        <div className="flex items-center justify-end gap-1">Cons./dia <SortIcon field="consumoDiario" /></div>
+                        <div className="flex items-center justify-end gap-1">Consumo QBR <SortIcon field="consumoDiario" /></div>
                       </th>
                       <th
                         className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer select-none hover:text-slate-700"
@@ -1101,11 +1101,11 @@ export const Remanejamento: React.FC = () => {
                           <p className="text-[10px] text-slate-400">{item.unidade}</p>
                         </td>
                         <td className="px-4 py-3 text-right">
-                          <p className="text-xs text-slate-700">
-                            {item.consumoDiario > 0 ? item.consumoDiario.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '—'}
+                          <p className="text-xs font-semibold text-slate-800">
+                            {item.consumoTotal > 0 ? item.consumoTotal.toLocaleString('pt-BR') : '—'}
                           </p>
-                          {item.consumoTotal > 0 && (
-                            <p className="text-[10px] text-slate-400">{item.consumoTotal.toLocaleString('pt-BR')} qtd/QBR</p>
+                          {item.consumoDiario > 0 && (
+                            <p className="text-[10px] text-slate-400">{item.consumoDiario.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}/dia</p>
                           )}
                         </td>
                         <td className="px-4 py-3 text-right">
