@@ -40,6 +40,16 @@ function parseCSVLine(line: string): string[] {
 }
 function parseBR(s: string) { return parseFloat((s || '').replace(/"/g, '').replace(',', '.')) || 0; }
 function fmtNum(n: number) { return n.toLocaleString('pt-BR', { maximumFractionDigits: 0 }); }
+function isWithinHours(dateStr: string, hours: number): boolean {
+  if (!dateStr) return false;
+  const [datePart] = dateStr.trim().split(' ');
+  const [d, m, y] = datePart.split('/');
+  if (!d || !m || !y) return false;
+  const date = new Date(`${y}-${m}-${d}T00:00:00`);
+  const now = new Date();
+  const diffHours = (now.getTime() - date.getTime()) / 36e5;
+  return diffHours >= 0 && diffHours <= hours;
+}
 
 // ─── PARSERS ─────────────────────────────────────────────────────────────────
 function parseEstoque(text: string): EstoqueItem[] {
@@ -163,6 +173,7 @@ export function PrevisibilidadeV2({ equivalenceMap = {} }: PrevisibilidadeV2Prop
   const [filtroCob, setFiltroCob] = useState<'todos' | 'total' | 'parcial' | 'sem_estoque' | 'equiv'>('todos');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(0);
+  const [windowHoursV2, setWindowHoursV2] = useState<0 | 48 | 72 | 96>(0);
   const [equivSearch, setEquivSearch] = useState('');
   const PAGE = 20;
 
@@ -300,12 +311,15 @@ export function PrevisibilidadeV2({ equivalenceMap = {} }: PrevisibilidadeV2Prop
     if (filtroCob === 'parcial')     r = r.filter(i => i.cobertura === 'parcial');
     if (filtroCob === 'sem_estoque') r = r.filter(i => i.cobertura === 'sem_estoque' && !i.coberturaEquiv);
     if (filtroCob === 'equiv')       r = r.filter(i => i.coberturaEquiv);
+    if (windowHoursV2 > 0) {
+      r = r.filter(i => isWithinHours(i.data, windowHoursV2));
+    }
     if (search.trim()) {
       const q = search.toLowerCase();
       r = r.filter(i => i.nomeProduto.toLowerCase().includes(q) || i.codProduto.includes(q) || i.solicitacao.includes(q) || i.atendimento.includes(q));
     }
     return r;
-  }, [cruzado, filtroCob, search]);
+  }, [cruzado, filtroCob, search, windowHoursV2]);
 
   // ── FILTERED EQUIVALÊNCIA ROWS ──
   const filteredEquivRows = useMemo(() => {
@@ -634,12 +648,46 @@ export function PrevisibilidadeV2({ equivalenceMap = {} }: PrevisibilidadeV2Prop
               <input value={search} onChange={e => { setSearch(e.target.value); setPage(0); }}
                 placeholder="🔍  Produto, código, solicitação, atendimento..."
                 style={{ flex: 1, minWidth: 240, background: '#f1f5f9', border: `1px solid ${T.border}`, borderRadius: 10, padding: '8px 13px', fontSize: 13, color: T.text, outline: 'none' }} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 10px', background: '#f8fafc', border: `1px solid ${T.border}`, borderRadius: 10 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600, color: T.text2, whiteSpace: 'nowrap' }}>
+                  <input
+                    type="checkbox"
+                    checked={windowHoursV2 > 0}
+                    onChange={e => { setWindowHoursV2(e.target.checked ? 48 : 0); setPage(0); }}
+                    style={{ accentColor: '#6366f1', width: 14, height: 14 }}
+                  />
+                  🗓️ Janela temporal
+                </label>
+                {windowHoursV2 > 0 && (
+                  <div style={{ display: 'flex', borderRadius: 7, overflow: 'hidden', border: `1px solid ${T.border}` }}>
+                    {([48, 72, 96] as const).map(h => (
+                      <button key={h} onClick={() => { setWindowHoursV2(h); setPage(0); }}
+                        style={{ padding: '4px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer', border: 'none', background: windowHoursV2 === h ? '#6366f1' : '#fff', color: windowHoursV2 === h ? '#fff' : T.text2, transition: 'all .15s' }}>
+                        {h}h
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <div style={{ fontSize: 12, color: T.text3 }}>{filteredRows.length} itens</div>
               <button onClick={exportCruzamentoPDF}
                 style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'linear-gradient(135deg,#6366f1,#7c3aed)', border: 'none', borderRadius: 10, padding: '8px 16px', fontSize: 12, fontWeight: 700, color: '#fff', cursor: 'pointer', whiteSpace: 'nowrap', boxShadow: '0 2px 8px #6366f130' }}>
                 📄 Exportar PDF
               </button>
             </div>
+
+            {/* Banner Janela Temporal */}
+            {windowHoursV2 > 0 && (
+              <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 12, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
+                <span style={{ fontSize: 20 }}>🗓️</span>
+                <div>
+                  <span style={{ fontWeight: 700, color: '#92400e' }}>Modo Fim de Semana ativo — janela de {windowHoursV2}h</span>
+                  <span style={{ color: '#b45309', marginLeft: 8 }}>
+                    Exibindo {filteredRows.length} item(s) com solicitações nas últimas {windowHoursV2}h
+                  </span>
+                </div>
+              </div>
+            )}
 
             {/* Tabela */}
             <div style={{ background: '#fff', border: `1px solid ${T.border}`, borderRadius: 14, overflow: 'hidden' }}>

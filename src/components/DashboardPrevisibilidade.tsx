@@ -43,7 +43,16 @@ interface DashboardPrevisibilidadeProps {
   setRawSource: (source: any) => void;
 }
 
-export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> = ({ 
+// Extrai string de data no formato DD/MM/YYYY de uma string de data/hora
+function extractDayKey(dateStr: string): string | null {
+  if (!dateStr || dateStr === 'Data não informada') return null;
+  const datePart = dateStr.trim().split(' ')[0];
+  const parts = datePart.split('/');
+  if (parts.length === 3 && parts[2].length === 4) return datePart;
+  return null;
+}
+
+export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> = ({
   equivalenceMap = {}, 
   setEquivalenceMap,
   data = [],
@@ -60,21 +69,58 @@ export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> =
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [showOnlyRupture, setShowOnlyRupture] = useState(false);
+  const [windowHours, setWindowHours] = useState<0 | 48 | 72 | 96>(0);
   // Removido rawData local em favor do rawSource vindo do App.tsx
 
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [sortConfig, setSortConfig] = useState<{ key: keyof PredictabilityData; direction: 'asc' | 'desc' } | null>(null);
 
-  // Dados filtrados (Movido para cima para evitar problemas de hoisting em funções)
-  const filteredData = useMemo(() => {
-    return safeData.filter(item => {
-      const matchesSearch = item.Produto_Nome?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                            item.Produto_ID?.includes(searchTerm);
-      const matchesRupture = showOnlyRupture ? item.Status === 'Ruptura Predita' : true;
-      return matchesSearch && matchesRupture;
+  // 1. Filtro por busca apenas (sem ruptura ainda — será aplicado após recálculo)
+  const searchFiltered = useMemo(() => {
+    return safeData.filter(item =>
+      item.Produto_Nome?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.Produto_ID?.includes(searchTerm)
+    );
+  }, [safeData, searchTerm]);
+
+  // 2. Projeta demanda para a janela escolhida
+  //    Lógica: conta quantos dias únicos aparecem nas datas das solicitações.
+  //    Taxa diária = Total_Solicitado / dias_observados
+  //    Projetado = taxa_diária × (windowHours / 24)
+  //    Fallback: se não há datas ou apenas 1 dia, considera 1 dia de referência
+  //    (solicitudes de hoje × nº de dias da janela)
+  const windowedData = useMemo(() => {
+    if (windowHours === 0) return searchFiltered;
+    const targetDays = windowHours / 24;
+
+    return searchFiltered.map(item => {
+      // Conta dias únicos nas datas das solicitações
+      const uniqueDays = new Set<string>();
+      item.Solicitacoes.forEach(s => {
+        const key = extractDayKey(s.data);
+        if (key) uniqueDays.add(key);
+      });
+
+      // Referência: dias observados (mínimo 1)
+      const refDays = Math.max(1, uniqueDays.size);
+
+      // Demanda diária → projeção para a janela
+      const dailyRate = item.Total_Solicitado / refDays;
+      const totalSolicitado = Math.ceil(dailyRate * targetDays);
+      const saldoProjetado = item.Estoque_Atual - totalSolicitado;
+      let status: PredictabilityData['Status'] = saldoProjetado < 0 ? 'Ruptura Predita' : 'Suficiente';
+      if (status === 'Ruptura Predita' && item.Sugestao_Substituicao) status = 'Falta, mas com Substituto';
+
+      return { ...item, Total_Solicitado: totalSolicitado, Saldo_Projetado: saldoProjetado, Status: status };
     });
-  }, [safeData, searchTerm, showOnlyRupture]);
+  }, [searchFiltered, windowHours]);
+
+  // 3. Filtro por ruptura aplicado após recálculo (para refletir status da janela)
+  const filteredData = useMemo(() => {
+    if (!showOnlyRupture) return windowedData;
+    return windowedData.filter(d => d.Status === 'Ruptura Predita');
+  }, [windowedData, showOnlyRupture]);
 
   const sortedFilteredData = useMemo(() => {
     if (!sortConfig) return filteredData;
@@ -107,9 +153,12 @@ export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> =
       : <ArrowDown className="w-3 h-3 text-indigo-500" />;
   };
 
-  const uniqueProductsCount = safeData.length;
-  const ruptureCount = safeData.filter(d => d.Status === 'Ruptura Predita').length;
-  const substituteCount = safeData.filter(d => d.Status === 'Falta, mas com Substituto').length;
+  // Base ativa para KPIs: usa dados janelados (ou todos) sem o filtro de ruptura
+  const activeData = windowedData;
+
+  const uniqueProductsCount = activeData.length;
+  const ruptureCount = activeData.filter(d => d.Status === 'Ruptura Predita').length;
+  const substituteCount = activeData.filter(d => d.Status === 'Falta, mas com Substituto').length;
   const totalRupturas = ruptureCount + substituteCount;
   const coverageRate = totalRupturas > 0 ? Math.round((substituteCount / totalRupturas) * 100) : 0;
 
@@ -134,10 +183,10 @@ export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> =
   };
 
   const toggleSelectAll = () => {
-    if (selectedItems.size === filteredData.length) {
+    if (selectedItems.size === sortedFilteredData.length) {
       setSelectedItems(new Set());
     } else {
-      setSelectedItems(new Set(filteredData.map(item => item.Produto_ID)));
+      setSelectedItems(new Set(sortedFilteredData.map(item => item.Produto_ID)));
     }
   };
 
@@ -869,23 +918,64 @@ export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> =
               />
             </div>
             
-            <label className="flex items-center gap-2 cursor-pointer">
-              <div className="relative">
-                <input 
-                  type="checkbox" 
-                  className="sr-only"
-                  checked={showOnlyRupture}
-                  onChange={(e) => setShowOnlyRupture(e.target.checked)}
-                />
-                <div className={`block w-10 h-6 rounded-full transition-colors ${showOnlyRupture ? 'bg-red-500' : 'bg-slate-300'}`}></div>
-                <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${showOnlyRupture ? 'translate-x-4' : ''}`}></div>
+            <div className="flex items-center gap-3 flex-wrap justify-end">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <div className="relative">
+                  <input
+                    type="checkbox"
+                    className="sr-only"
+                    checked={showOnlyRupture}
+                    onChange={(e) => setShowOnlyRupture(e.target.checked)}
+                  />
+                  <div className={`block w-10 h-6 rounded-full transition-colors ${showOnlyRupture ? 'bg-red-500' : 'bg-slate-300'}`}></div>
+                  <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${showOnlyRupture ? 'translate-x-4' : ''}`}></div>
+                </div>
+                <span className="text-sm font-medium text-slate-700 flex items-center gap-1">
+                  <Filter className="w-4 h-4" />
+                  Mostrar apenas Ruptura Predita
+                </span>
+              </label>
+
+              <div className="h-5 w-px bg-slate-200" />
+
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={windowHours > 0}
+                    onChange={e => setWindowHours(e.target.checked ? 48 : 0)}
+                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4"
+                  />
+                  <span className="text-sm font-medium text-slate-700">Janela temporal</span>
+                </label>
+                {windowHours > 0 && (
+                  <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+                    {([48, 72, 96] as const).map(h => (
+                      <button
+                        key={h}
+                        onClick={() => setWindowHours(h)}
+                        className={`px-3 py-1 text-xs font-bold transition-colors ${windowHours === h ? 'bg-indigo-600 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
+                      >
+                        {h}h
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
-              <span className="text-sm font-medium text-slate-700 flex items-center gap-1">
-                <Filter className="w-4 h-4" />
-                Mostrar apenas Ruptura Predita
-              </span>
-            </label>
+            </div>
           </div>
+
+          {windowHours > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center gap-3 text-sm">
+              <span className="text-xl">🗓️</span>
+              <div>
+                <span className="font-bold text-amber-800">Projeção {windowHours}h ({windowHours / 24} dias) ativa</span>
+                <span className="text-amber-700 ml-2">
+                  Pedido = demanda diária × {windowHours / 24} dias — Saldo recalculado para esta janela
+                </span>
+              </div>
+            </div>
+          )}
 
           {/* Table */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden pointer-events-auto">
