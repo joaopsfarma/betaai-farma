@@ -969,8 +969,56 @@ export const Remanejamento: React.FC = () => {
             </div>
           )}
 
-          {/* Tabela de Análise */}
+          {/* Cards por Farmácia + Tabela de Análise */}
           {innerTab === 'analise' && (
+            <>
+            {/* Cards de resumo por estoque — clique para filtrar */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {estoques.map(est => {
+                const [id, nome] = est.split('|');
+                const itens = analise.filter(i => i.estoqueId === id);
+                const criticos  = itens.filter(i => i.status === 'CRÍTICO').length;
+                const alertas   = itens.filter(i => i.status === 'ALERTA').length;
+                const excessos  = itens.filter(i => i.status === 'EXCESSO').length;
+                const semCons   = itens.filter(i => i.status === 'SEM CONSUMO').length;
+                const isActive  = filterEstoque === est;
+                return (
+                  <button
+                    key={est}
+                    onClick={() => setFilterEstoque(isActive ? 'TODOS' : est)}
+                    className={`text-left p-4 rounded-2xl border-2 transition-all ${
+                      isActive
+                        ? 'border-violet-400 bg-violet-50 shadow-sm'
+                        : 'border-slate-200 bg-white hover:border-violet-200 hover:bg-violet-50/30'
+                    }`}
+                  >
+                    <p className={`text-xs font-bold truncate mb-2 ${isActive ? 'text-violet-700' : 'text-slate-700'}`}>
+                      {nome || `Estoque ${id}`}
+                    </p>
+                    <p className="text-[10px] text-slate-400 mb-3">{itens.length} produtos</p>
+                    <div className="grid grid-cols-2 gap-1">
+                      <div className="bg-red-50 rounded-lg px-2 py-1 text-center">
+                        <p className="text-sm font-bold text-red-600">{criticos}</p>
+                        <p className="text-[9px] text-red-400 font-medium">CRÍTICO</p>
+                      </div>
+                      <div className="bg-amber-50 rounded-lg px-2 py-1 text-center">
+                        <p className="text-sm font-bold text-amber-600">{alertas}</p>
+                        <p className="text-[9px] text-amber-400 font-medium">ALERTA</p>
+                      </div>
+                      <div className="bg-blue-50 rounded-lg px-2 py-1 text-center">
+                        <p className="text-sm font-bold text-blue-600">{excessos}</p>
+                        <p className="text-[9px] text-blue-400 font-medium">EXCESSO</p>
+                      </div>
+                      <div className="bg-slate-50 rounded-lg px-2 py-1 text-center">
+                        <p className="text-sm font-bold text-slate-500">{semCons}</p>
+                        <p className="text-[9px] text-slate-400 font-medium">S/CONS.</p>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
             <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -1049,9 +1097,18 @@ export const Remanejamento: React.FC = () => {
                 </table>
                 <div className="px-4 py-3 bg-slate-50 border-t border-slate-200 text-xs text-slate-500">
                   {analiseFiltered.length} de {analise.length} produtos
+                  {filterEstoque !== 'TODOS' && (
+                    <button
+                      onClick={() => setFilterEstoque('TODOS')}
+                      className="ml-2 text-violet-600 hover:underline"
+                    >
+                      × limpar filtro de estoque
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
+            </>
           )}
 
           {/* Legenda */}
