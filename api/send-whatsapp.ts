@@ -124,8 +124,11 @@ export default async function handler(req: Request): Promise<Response> {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ number, textMessage: { text: message } }),
-      }).then(r => {
-        if (!r.ok) throw new Error(`HTTP ${r.status} para ${number}`);
+      }).then(async r => {
+        if (!r.ok) {
+          const errorBody = await r.text().catch(() => '');
+          throw new Error(`HTTP ${r.status}${errorBody ? ': ' + errorBody.slice(0, 200) : ''}`);
+        }
         return r.json();
       })
     )

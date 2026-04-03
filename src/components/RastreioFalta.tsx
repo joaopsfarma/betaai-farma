@@ -157,24 +157,29 @@ export function RastreioFalta() {
   const [filterTend, setFilterTend] = useState<'todos' | TrackingRow['tendencia']>('todos');
   const [sortBy, setSortBy] = useState<'projecao' | 'total' | 'saldo' | 'media'>('projecao');
   const [waStatus, setWaStatus] = useState<WhatsAppStatus>('idle');
+  const [waError, setWaError] = useState<string | null>(null);
 
   const autoSendWhatsApp = useCallback(async (rows: TrackingRow[]) => {
     setWaStatus('sending');
+    setWaError(null);
     try {
       const res = await fetch('/api/send-whatsapp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rows }),
       });
+      const data = await res.json().catch(() => null);
       if (res.status === 503) {
         setWaStatus('unconfigured');
       } else if (res.ok) {
         setWaStatus('ok');
       } else {
         setWaStatus('error');
+        setWaError(data?.errors?.[0] ?? `HTTP ${res.status}`);
       }
     } catch {
       setWaStatus('error');
+      setWaError('Sem conexão com o servidor');
     }
   }, []);
 
@@ -422,8 +427,11 @@ export function RastreioFalta() {
       )}
       {waStatus === 'error' && (
         <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-4 py-2 text-xs text-red-700 font-bold">
-          <XCircle className="w-3.5 h-3.5" />
-          Falha ao enviar WhatsApp — verifique a Evolution API ou use o botão manual.
+          <XCircle className="w-3.5 h-3.5 shrink-0" />
+          <div>
+            Falha ao enviar WhatsApp — verifique a Evolution API ou use o botão manual.
+            {waError && <div className="mt-0.5 font-normal opacity-80">{waError}</div>}
+          </div>
         </div>
       )}
       {waStatus === 'unconfigured' && (
