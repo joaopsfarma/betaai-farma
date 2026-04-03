@@ -152,4 +152,4 @@ export default async function handler(req: Request): Promise<Response> {
   );
 }
 
-export const config = { maxDuration: 30 };
+export const config = { runtime: 'edge' };
