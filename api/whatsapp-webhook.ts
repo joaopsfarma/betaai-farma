@@ -620,4 +620,4 @@ export default async function handler(req: Request): Promise<Response> {
   return new Response('OK', { status: 200 });
 }
 
-export const config = { runtime: 'edge' };
+export const config = { runtime: 'nodejs' };
