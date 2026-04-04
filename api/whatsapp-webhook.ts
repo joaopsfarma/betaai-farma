@@ -70,38 +70,62 @@ async function kvGet<T>(key: string): Promise<T | null> {
   }
 }
 
+// ─── Classificação de satélites por dias de cobertura ────────────────────────
+
+function nivelSatelite(projecao: number): { label: string; emoji: string } {
+  if (projecao <= 0)  return { label: 'RUPTURA',       emoji: '⛔' };
+  if (projecao <= 3)  return { label: 'RISCO RUPTURA', emoji: '🚨' };
+  if (projecao <= 10) return { label: 'SAUDÁVEL',      emoji: '✅' };
+  if (projecao <= 20) return { label: 'EXCESSO',       emoji: '🟡' };
+  return                     { label: 'ALTO EXCESSO',  emoji: '🔵' };
+}
+
+// ─── Identifica dietas parenterais (excluídas de todas as respostas) ──────────
+
+function isDietaParenteral(r: TrackingRow): boolean {
+  const n = `${r.comercial} ${r.generico ?? ''} ${r.descricao ?? ''}`
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  return /parent[ae]r|npp\b|np\s*(total|periferica)|smof|kabiven|olimel|nutriflex|clinimix|dieta\s*(enteral|parenteral)/.test(n);
+}
+
 // ─── Formata linha de um item ─────────────────────────────────────────────────
 
 function formatItem(r: TrackingRow, compact = false): string {
+  const niv   = nivelSatelite(r.projecao);
   const proj  = r.projecao <= 0 ? '⛔ Sem estoque' : `${Math.round(r.projecao)}d`;
   const media = r.media > 0 ? r.media.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) : '0';
   const saldo = r.saldo.toLocaleString('pt-BR');
   const tend  = r.tendencia === 'alta' ? '↑ Alta' : r.tendencia === 'queda' ? '↓ Queda' : '→ Estável';
 
   if (compact) {
-    return `• *${r.codigo}* – ${r.comercial}\n  Saldo: ${saldo} ${r.unidade} | Média/dia: ${media} | Projeção: ${proj} | ${tend}\n`;
+    return `• *${r.codigo}* – ${r.comercial}\n  Saldo: ${saldo} ${r.unidade} | Projeção: ${proj} | ${niv.emoji} ${niv.label} | ${tend}\n`;
   }
-  return `• *${r.codigo}* – ${r.comercial}\n  Saldo: ${saldo} ${r.unidade}\n  Média/dia: ${media} ${r.unidade} | Projeção: ${proj}\n  Tendência: ${tend}\n`;
+  return `• *${r.codigo}* – ${r.comercial}\n  Saldo: ${saldo} ${r.unidade}\n  Média/dia: ${media} ${r.unidade} | Projeção: ${proj} | ${niv.emoji} ${niv.label}\n  Tendência: ${tend}\n`;
 }
 
 // ─── Monta texto compacto do estoque para enviar à IA ────────────────────────
 
 function resumoEstoqueParaIA(rows: TrackingRow[], diaLabels: string[] = []): string {
-  const rupturas = rows.filter(r => r.projecao <= 0).length;
-  const criticos = rows.filter(r => r.nivel === 'critico').length;
-  const alertas  = rows.filter(r => r.nivel === 'alerta').length;
-  const atencao  = rows.filter(r => r.nivel === 'atencao').length;
-  const ok       = rows.filter(r => r.nivel === 'ok').length;
+  // Exclui dietas parenterais de todas as análises de IA
+  const rowsFilt = rows.filter(r => !isDietaParenteral(r));
 
-  const cabecalho = `RESUMO: ${rows.length} itens total | Ruptura: ${rupturas} | Crítico: ${criticos} | Alerta: ${alertas} | Atenção: ${atencao} | OK: ${ok}`;
+  const rupturas    = rowsFilt.filter(r => r.projecao <= 0).length;
+  const riscoRuptura = rowsFilt.filter(r => r.projecao > 0 && r.projecao <= 3).length;
+  const saudavel    = rowsFilt.filter(r => r.projecao > 3  && r.projecao <= 10).length;
+  const excesso     = rowsFilt.filter(r => r.projecao > 10 && r.projecao <= 20).length;
+  const altoExcesso = rowsFilt.filter(r => r.projecao > 20).length;
 
-  const naoOk = rows
-    .filter(r => r.nivel !== 'ok')
+  const cabecalho = `RESUMO SATÉLITES: ${rowsFilt.length} itens | ⛔Ruptura:${rupturas} | 🚨RiscoRuptura:${riscoRuptura} | ✅Saudável:${saudavel} | 🟡Excesso:${excesso} | 🔵AltoExcesso:${altoExcesso}`;
+
+  const naoOk = rowsFilt
+    .filter(r => r.projecao <= 10)
     .sort((a, b) => a.projecao - b.projecao);
 
-  // Aplica hist[] e aceleração: em listas grandes, apenas para crítico/alerta
+  // Aplica hist[] e aceleração: em listas grandes, apenas para itens urgentes
   const usarHist = (r: TrackingRow) =>
-    rows.length <= 30 || r.nivel === 'critico' || r.nivel === 'alerta';
+    rowsFilt.length <= 30 || r.projecao <= 10;
 
   const linhas = naoOk.map(r => {
     const proj = r.projecao <= 0 ? 'SEM ESTOQUE' : `${Math.round(r.projecao)}d`;
@@ -123,11 +147,12 @@ function resumoEstoqueParaIA(rows: TrackingRow[], diaLabels: string[] = []): str
       extra = `${acelStr} | hist:[${hist}]`;
     }
 
-    return `[${r.nivel.toUpperCase()}] ${r.codigo} ${r.comercial} | ${r.saldo}${r.unidade} | med:${r.media.toFixed(1)} | proj:${proj} | ${tend}${extra}`;
+    const niv = nivelSatelite(r.projecao);
+    return `[${niv.label}] ${r.codigo} ${r.comercial} | ${r.saldo}${r.unidade} | med:${r.media.toFixed(1)} | proj:${proj} | ${tend}${extra}`;
   });
 
-  if (!linhas.length) return `${cabecalho}\nTodos os itens com estoque OK.`;
-  return `${cabecalho}\n\nITENS COM ATENÇÃO:\n${linhas.join('\n')}`;
+  if (!linhas.length) return `${cabecalho}\nTodos os itens com estoque saudável (≥4 dias).`;
+  return `${cabecalho}\n\nITENS EM RISCO OU RUPTURA:\n${linhas.join('\n')}`;
 }
 
 // ─── Claude (Anthropic) — análise inteligente ────────────────────────────────
@@ -175,19 +200,24 @@ async function askGroq(pergunta: string, rows: TrackingRow[], diaLabels?: string
 
   const sistemaMsg = `Você é o FarmaBot, assistente de farmácia hospitalar do FarmaIA. Hoje é ${date}, ${hora}.
 
-CONTEXTO: Rastreio DIÁRIO de faltas de estoque hospitalar. Cada produto tem "hist:[...]" = histórico de consumo por dia (último valor = hoje). "acel:+XX%" indica que o consumo recente acelerou XX% acima da média histórica.
+CONTEXTO: Rastreio DIÁRIO de faltas de estoque em satélites hospitalares. Cada produto tem "hist:[...]" = histórico de consumo por dia (último valor = hoje). "acel:+XX%" indica consumo recente acelerou XX% acima da média histórica. Dietas parenterais já foram excluídas dos dados.
+
+CLASSIFICAÇÃO SATÉLITE (baseada em projecao = saldo ÷ média diária):
+- ⛔ RUPTURA: projecao ≤0 (sem estoque — ruptura ativa agora)
+- 🚨 RISCO RUPTURA: 1–3 dias restantes (emergência)
+- ✅ SAUDÁVEL: 4–10 dias restantes (faixa ideal)
+- 🟡 EXCESSO: 11–20 dias restantes (sobra, avaliar redistribuição)
+- 🔵 ALTO EXCESSO: 21+ dias restantes (excesso significativo)
 
 CAMPOS DO ESTOQUE:
-- projecao: saldo ÷ média diária = dias restantes (≤0 = ruptura ativa agora)
-- nivel: critico ≤7d | alerta 8-15d | atencao 16-30d | ok >30d
 - tendencia "alta": consumo hoje > 1,25× ontem (aceleração preocupante)
 - hist[]: últimos valores de consumo diário — leia a curva para detectar picos
 
 COMO RESPONDER POR TIPO DE PERGUNTA:
-- Tendência/subindo? Cite os 2-3 últimos valores do hist[], calcule o delta percentual e relacione com a projeção atual. Ex: "O Meropenem saiu de 8 para 12 amp/dia (+50%), restam só 4 dias."
-- Pedido/compra? Calcule (média × 30) − saldo para cada item crítico/alerta. Apresente lista por prioridade com quantidades e unidades.
-- Geral/resumo? Priorize por projeção crescente. Comece pelos zerados, depois críticos, depois alertas. Mencione tendências que agravam o risco.
-- Item específico? Saldo + projeção + tendência + últimos 2 valores do hist[] para contexto.
+- Tendência/subindo? Cite os 2-3 últimos valores do hist[], calcule o delta percentual e relacione com a projeção. Ex: "O Meropenem saiu de 8 para 12 amp/dia (+50%), restam só 4 dias."
+- Pedido/compra? Calcule (média × 30) − saldo para cada item com RUPTURA/RISCO. Apresente lista por prioridade com quantidades e unidades.
+- Geral/resumo? Priorize por projeção crescente. Comece pelos zerados, depois RISCO, depois próximo de saudável. Mencione tendências que agravam o risco.
+- Item específico? Saldo + projeção + classificação satélite + tendência + últimos 2 valores do hist[].
 
 SITUAÇÃO ATUAL: ${situacao}.
 
@@ -208,7 +238,7 @@ IMPORTANTE: Liste TODOS os itens relevantes, sem cortar. Termine SEMPRE com uma 
 
 // ─── Detecta intenção da pergunta ────────────────────────────────────────────
 
-type Intencao = 'ruptura' | 'critico' | 'alerta' | 'tudo' | 'geral' | 'ia' | 'ajuda' | 'remanejamento' | 'farmacia' | 'semana' | 'zerado' | 'tendencia_alta' | 'pedido' | 'remane_ia' | 'remane_excesso' | 'remane_alta';
+type Intencao = 'ruptura' | 'critico' | 'alerta' | 'tudo' | 'geral' | 'ia' | 'ajuda' | 'social' | 'remanejamento' | 'farmacia' | 'semana' | 'zerado' | 'tendencia_alta' | 'pedido' | 'remane_ia' | 'remane_excesso' | 'remane_alta';
 
 function detectarIntencao(texto: string): Intencao {
   if (!texto || texto.length < 2) return 'ajuda';
@@ -220,6 +250,9 @@ function detectarIntencao(texto: string): Intencao {
 
   // Saudações e pedidos de ajuda → menu (não captura perguntas sobre estoque)
   if (/^(oi$|ola$|bom dia|boa tarde|boa noite|^menu$|^ajuda$|^help$|^comandos$|como usar|o que voce faz|o que vc faz|oque voce faz|oque vc faz)/.test(t)) return 'ajuda';
+
+  // Respostas sociais → mensagem amigável curta sem buscar estoque
+  if (/^(obrigado|obrigada|obg|valeu|vlw|de nada|perfeito|certo|entendido|tks|thanks|otimo|otima|excelente|show|boa|beleza|ok$|blz$|tmj$|massa$|legal$|sucesso$|👍|🙏|😊)/.test(t)) return 'social';
 
   // Calcula palavras antes do bloco de remanejamento (necessário para ramificação)
   const palavras = t.split(/\s+/).filter(Boolean);
@@ -856,6 +889,12 @@ export default async function handler(req: Request): Promise<Response> {
     return new Response('OK', { status: 200 });
   }
 
+  if (intencaoAntecipada === 'social') {
+    const nome = pushName ? `, ${pushName}` : '';
+    await sendReply(remoteJid, `De nada${nome}! 😊 Qualquer dúvida sobre o estoque é só chamar.`);
+    return new Response('OK', { status: 200 });
+  }
+
   // ─── Busca último snapshot de estoque ────────────────────────────────────
   const [rows, diaLabels] = await Promise.all([
     kvGet<TrackingRow[]>('last_stock_data'),
@@ -870,6 +909,9 @@ export default async function handler(req: Request): Promise<Response> {
     return new Response('OK', { status: 200 });
   }
 
+  // Exclui dietas parenterais de TODAS as respostas do bot
+  const rowsFiltrados = rows.filter(r => !isDietaParenteral(r));
+
   // ─── Remove menção do texto ───────────────────────────────────────────────
   const textoLimpo = text.replace(/@\S+/g, '').trim();
 
@@ -881,8 +923,8 @@ export default async function handler(req: Request): Promise<Response> {
     const normalizar = (s: string) =>
       s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
-    // Busca direta (substring exata)
-    let filtrado = rows.filter(r =>
+    // Busca direta (substring exata) — apenas nos itens filtrados (sem dietas)
+    let filtrado = rowsFiltrados.filter(r =>
       normalizar(r.codigo).includes(termoBusca) ||
       normalizar(r.comercial).includes(termoBusca) ||
       normalizar(r.generico ?? '').includes(termoBusca),
@@ -892,7 +934,7 @@ export default async function handler(req: Request): Promise<Response> {
     if (!filtrado.length) {
       const tokens = termoBusca.split(/\s+/).filter(t => t.length >= 4);
       if (tokens.length > 0) {
-        filtrado = rows.filter(r =>
+        filtrado = rowsFiltrados.filter(r =>
           tokens.some(tok =>
             normalizar(r.codigo).includes(tok) ||
             normalizar(r.comercial).includes(tok) ||
@@ -910,12 +952,12 @@ export default async function handler(req: Request): Promise<Response> {
 
     // Parece nome de produto mas não foi encontrado → avisa sem chamar IA
     if (pareceProduto(textoLimpo)) {
-      const criticos = rows.filter(r => r.nivel === 'critico' || r.nivel === 'alerta').slice(0, 5);
+      const urgentes = rowsFiltrados.filter(r => r.projecao <= 10).slice(0, 5);
       let msg = `⚠️ Produto _"${textoLimpo}"_ não encontrado no estoque atual.\n`;
       msg += `Verifique o código ou nome exato.\n\n`;
-      if (criticos.length) {
-        msg += `📋 *Itens críticos/alerta no momento:*\n`;
-        criticos.forEach(r => { msg += formatItem(r, true); });
+      if (urgentes.length) {
+        msg += `📋 *Itens em risco/ruptura no momento:*\n`;
+        urgentes.forEach(r => { msg += formatItem(r, true); });
         msg += `\n_Use *tudo* para o relatório completo._`;
       }
       await sendReply(remoteJid, msg);
@@ -931,16 +973,22 @@ export default async function handler(req: Request): Promise<Response> {
     return new Response('OK', { status: 200 });
   }
 
+  if (intencao === 'social') {
+    const nome = pushName ? `, ${pushName}` : '';
+    await sendReply(remoteJid, `De nada${nome}! 😊 Qualquer dúvida sobre o estoque é só chamar.`);
+    return new Response('OK', { status: 200 });
+  }
+
   if (intencao === 'ia') {
-    // Pergunta livre → Groq (Llama 3) analisa
-    const respostaIA = await askGroq(textoLimpo, rows, diaLabels ?? [], pushName);
+    // Pergunta livre → Claude analisa (já recebe rowsFiltrados sem dietas)
+    const respostaIA = await askGroq(textoLimpo, rowsFiltrados, diaLabels ?? [], pushName);
     if (respostaIA) {
       await sendReply(remoteJid, `🤖 ${respostaIA}`);
       return new Response('OK', { status: 200 });
     }
   }
 
-  const reply = buildReply(rows, intencao);
+  const reply = buildReply(rowsFiltrados, intencao);
   await sendReply(remoteJid, reply);
 
   return new Response('OK', { status: 200 });
