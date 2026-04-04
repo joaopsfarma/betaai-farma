@@ -187,7 +187,7 @@ IMPORTANTE: Liste TODOS os itens relevantes, sem cortar. Termine SEMPRE com uma 
 
   const usuarioMsg = `ESTOQUE ATUAL:\n${estoque}\n\nPERGUNTA: ${pergunta || 'Dá um resumo rápido da situação e me diz o que precisa de atenção agora.'}`;
 
-  return askClaude(sistemaMsg, usuarioMsg, 1024);
+  return askClaude(sistemaMsg, usuarioMsg, 900);
 }
 
 // ─── Detecta intenção da pergunta ────────────────────────────────────────────
