@@ -12,7 +12,7 @@ import { TransferRequest } from './components/TransferRequest';
 import { VBACodeDisplay } from './components/VBACodeDisplay';
 import { CsvUploader } from './components/CsvUploader';
 import { ValidityUploader } from './components/ValidityUploader';
-import { LayoutDashboard, FileSpreadsheet, Code, Pill, Database, Filter, AlertCircle, PieChart, Download, ListTodo, Activity, ClipboardList, Menu, X, ChevronRight, Clock, Ban, Package, LineChart, Calculator, BarChart2, ShieldAlert, AlertTriangle, ShoppingCart, XCircle, ShieldCheck, TrendingDown, MonitorPlay, ArrowLeftRight } from 'lucide-react';
+import { LayoutDashboard, FileSpreadsheet, Code, Pill, Database, Filter, AlertCircle, PieChart, Download, ListTodo, Activity, ClipboardList, Menu, X, ChevronRight, Clock, Ban, Package, LineChart, Calculator, BarChart2, ShieldAlert, AlertTriangle, ShoppingCart, XCircle, ShieldCheck, TrendingDown, MonitorPlay, ArrowLeftRight, Utensils } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Dashboard } from './components/Dashboard';
 import { FollowUp } from './components/FollowUp';
@@ -52,6 +52,7 @@ import { PainelTVRessuprimento } from './components/PainelTVRessuprimento';
 import { Supply } from './components/Supply';
 import { Multidose } from './components/Multidose';
 import { BaixasEstoque } from './components/BaixasEstoque';
+import { PainelNutricao } from './components/PainelNutricao';
 import { AnaliseOperacional } from './components/AnaliseOperacional';
 import { MobileHeader } from './components/layout/MobileHeader';
 import { Sidebar, NavItem, NavGroup, TabId } from './components/layout/Sidebar';
@@ -237,9 +238,10 @@ function App() {
       label: 'Estoque',
       icon: <Package className="w-4 h-4" />,
       items: [
-        { id: 'baixas_estoque', label: 'Baixas Estoque', icon: <TrendingDown className="w-5 h-5" />, classes: G },
-        { id: 'criticidade',    label: 'Criticidade',    icon: <ShieldAlert className="w-5 h-5" />,  classes: G },
-        { id: 'equivalencia',   label: 'Equivalência',   icon: <Database className="w-5 h-5" />,     classes: G },
+        { id: 'baixas_estoque',  label: 'Baixas Estoque',  icon: <TrendingDown className="w-5 h-5" />, classes: G },
+        { id: 'criticidade',     label: 'Criticidade',     icon: <ShieldAlert className="w-5 h-5" />,  classes: G },
+        { id: 'equivalencia',    label: 'Equivalência',    icon: <Database className="w-5 h-5" />,     classes: G },
+        { id: 'painel_nutricao', label: 'Painel Nutrição', icon: <Utensils className="w-5 h-5" />,    classes: G },
       ],
     },
     {
@@ -503,6 +505,11 @@ function App() {
         {activeTab === 'analise_operacional' && (
           <div className="max-w-7xl mx-auto">
             <AnaliseOperacional />
+          </div>
+        )}
+        {activeTab === 'painel_nutricao' && (
+          <div className="max-w-7xl mx-auto">
+            <PainelNutricao />
           </div>
         )}
       </motion.div>

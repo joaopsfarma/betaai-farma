@@ -3,7 +3,7 @@ import { usePersistentState } from '../hooks/usePersistentState';
 import {
   Upload, ArrowLeftRight, Package, AlertTriangle, CheckCircle,
   TrendingUp, TrendingDown, Search, Filter, FileText, Copy,
-  X, ChevronUp, ChevronDown, RefreshCw, Info
+  X, ChevronUp, ChevronDown, RefreshCw, Info, Brain
 } from 'lucide-react';
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
@@ -494,6 +494,8 @@ export const Remanejamento: React.FC = () => {
   const [, setRemanejamentoSnapshot] = usePersistentState<string>('remanejamento_whatsapp_snapshot', '');
   const [botSyncStatus, setBotSyncStatus] = useState<'idle' | 'syncing' | 'ok' | 'erro'>('idle');
   const syncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [aiInsight, setAiInsight] = useState('');
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   const handleFileLoad = useCallback((
     e: React.ChangeEvent<HTMLInputElement>,
@@ -592,6 +594,50 @@ export const Remanejamento: React.FC = () => {
     estoques: new Set(analise.map(i => i.estoqueId)).size,
     valorRisco: sugestoes.reduce((acc, s) => acc + (s.qtdSugerida * s.custoMedio), 0),
   }), [analise, sugestoes]);
+
+  const handleAiAnalysis = useCallback(async () => {
+    if (!analise.length) return;
+    setIsAnalyzing(true);
+    setAiInsight('');
+    try {
+      const criticos  = analise.filter(i => i.status === 'CRÍTICO');
+      const alertas   = analise.filter(i => i.status === 'ALERTA');
+      const excessos  = analise.filter(i => i.status === 'EXCESSO');
+      const altasPrio = sugestoes.filter(s => s.prioridade === 'ALTA').slice(0, 10);
+
+      const linhasSugestoes = altasPrio.map(s =>
+        `  • ${s.produto}: de ${s.origemNome} (${s.coberturaOrigem.toFixed(0)}d) → ${s.destinoNome} (${s.coberturaDestino.toFixed(0)}d) | qtd: ${s.qtdSugerida}${s.unidade}`
+      ).join('\n') || '  Nenhuma sugestão de alta prioridade.';
+
+      const prompt = `Você é um farmacêutico hospitalar especialista em remanejamento e redistribuição de medicamentos entre farmácias. Analise os dados abaixo e forneça 5 recomendações práticas e priorizadas.
+
+=== RESUMO ===
+Total de itens analisados: ${analise.length}
+Críticos (<15 dias): ${criticos.length}
+Alerta (15–29 dias): ${alertas.length}
+Excesso (≥90 dias): ${excessos.length}
+Sugestões de remanejamento geradas: ${sugestoes.length}
+Valor em risco: R$ ${stats.valorRisco.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+
+=== SUGESTÕES DE ALTA PRIORIDADE ===
+${linhasSugestoes}
+
+Forneça 5 pontos de ação priorizados para o gestor. Seja direto e prático. Considere FEFO, segurança do paciente e otimização de estoque. Use linguagem técnica brasileira de farmácia hospitalar.`;
+
+      const res = await fetch('/api/ai-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json() as { text: string };
+      setAiInsight(json.text || 'Não foi possível gerar análise no momento.');
+    } catch {
+      setAiInsight('Erro ao gerar análise. Verifique a conexão com a API.');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }, [analise, sugestoes, stats.valorRisco]);
 
   const handleCopiarWhatsApp = () => {
     const texto = gerarTextoWhatsApp(sugestoes);
@@ -809,6 +855,14 @@ export const Remanejamento: React.FC = () => {
                 </span>
               )}
               <button
+                onClick={handleAiAnalysis}
+                disabled={isAnalyzing}
+                className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium bg-gradient-to-r from-indigo-500 to-violet-600 hover:opacity-90 text-white transition-colors disabled:opacity-60"
+              >
+                <Brain className="w-4 h-4" />
+                {isAnalyzing ? 'Analisando...' : 'Analisar com IA'}
+              </button>
+              <button
                 onClick={handleCopiarWhatsApp}
                 className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
               >
@@ -972,6 +1026,26 @@ export const Remanejamento: React.FC = () => {
           {/* Cards por Farmácia + Tabela de Análise */}
           {innerTab === 'analise' && (
             <>
+            {/* AI Card */}
+            {(aiInsight || isAnalyzing) && (
+              <div className="bg-gradient-to-r from-indigo-600 to-violet-700 rounded-2xl p-4 text-white">
+                <div className="flex items-center gap-2 mb-2">
+                  <Brain className="w-4 h-4" />
+                  <span className="font-semibold text-sm">Análise IA — Remanejamento</span>
+                  {isAnalyzing && <RefreshCw className="w-3.5 h-3.5 animate-spin opacity-70 ml-auto" />}
+                </div>
+                {isAnalyzing ? (
+                  <div className="space-y-2">
+                    {[80, 60, 70, 50, 65].map((w, i) => (
+                      <div key={i} className="h-3 bg-white/20 rounded-full animate-pulse" style={{ width: `${w}%` }} />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-white/90 whitespace-pre-wrap leading-relaxed">{aiInsight}</p>
+                )}
+              </div>
+            )}
+
             {/* Painel bot WhatsApp */}
             <div className="bg-gradient-to-r from-emerald-50 to-violet-50 border border-emerald-200 rounded-2xl p-4">
               <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">

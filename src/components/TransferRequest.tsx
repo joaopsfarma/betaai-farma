@@ -3,8 +3,6 @@ import Papa from 'papaparse';
 import { Upload, FileText, CheckCircle, ShoppingCart, Download, Search, AlertCircle, Package, ArrowRight, Layers, TrendingUp, Calculator, FileDown, Target, Clock } from 'lucide-react';
 import { PanelGuide } from './common/PanelGuide';
 import { motion, AnimatePresence } from 'motion/react';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import { EQUIVALENCE_MAP } from '../data/equivalenceMap';
 
 // --- Utilitários de Processamento de CSV ---
@@ -73,6 +71,17 @@ const allocateLots = (lots: any[], qtyToAllocate: number) => {
   return allocated;
 };
 
+interface RawItem {
+  id: string;
+  name: string;
+  unit: string;
+  dailyValues: number[];
+  stock: number;
+  price: number;
+  supplierStock: number;
+  supplierLots: any[];
+}
+
 interface InventoryItem {
   id: string;
   name: string;
@@ -93,7 +102,7 @@ export const TransferRequest: React.FC = () => {
   const [safetyMargin, setSafetyMargin] = useState(20);
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<'all' | 'medicamento' | 'material' | 'dieta'>('all');
-  const [subCategoryFilter, setSubCategoryFilter] = useState<'all' | 'comprimido' | 'frasco' | 'bolsa'>('all');
+  const [subCategoryFilter, setSubCategoryFilter] = useState<'all' | 'comprimido' | 'frasco'>('all');
   const [filesData, setFilesData] = useState<{
     consumo: string | null;
     movi: string | null;
@@ -105,7 +114,8 @@ export const TransferRequest: React.FC = () => {
     caf: null,
     destino: null
   });
-  const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  const [rawItems, setRawItems] = useState<RawItem[]>([]);
+  const [manualOverrides, setManualOverrides] = useState<Record<string, number>>({});
   const [isProcessing, setIsProcessing] = useState(false);
 
   // --- Lógica de Upload ---
@@ -173,231 +183,430 @@ export const TransferRequest: React.FC = () => {
   // --- Lógica Central de Cruzamento de Dados ---
   const processData = useCallback(() => {
     setIsProcessing(true);
-    setTimeout(() => {
-      let productsMap: Record<string, InventoryItem> = {};
+    let rawMap: Record<string, RawItem & { dailyValues: number[] }> = {};
 
-      // 1. Processar CONSUMO DIÁRIO (Define o Solicitante: Média)
-      if (filesData.consumo) {
-        const rows = parseCSV(filesData.consumo);
-        const headerRow = rows[0] || [];
-        
-        let totalIdx = headerRow.findIndex(h => h && h.trim().toLowerCase() === 'total');
-        let saldoIdx = headerRow.findIndex(h => h && h.trim().toLowerCase() === 'saldo');
-        let mediaIdx = headerRow.findIndex(h => h && (h.trim().toLowerCase() === 'média' || h.trim().toLowerCase() === 'media'));
-        
-        if (totalIdx === -1) totalIdx = 9;
-        if (mediaIdx === -1) mediaIdx = 10;
-        if (saldoIdx === -1) saldoIdx = 11;
+    // 1. Processar CONSUMO DIÁRIO (Define o Solicitante: Média)
+    if (filesData.consumo) {
+      const rows = parseCSV(filesData.consumo);
+      const headerRow = rows[0] || [];
 
-        const dailyCols = [];
-        for (let c = 3; c < totalIdx; c++) {
-            dailyCols.push(c);
-        }
+      let totalIdx = headerRow.findIndex(h => h && h.trim().toLowerCase() === 'total');
+      let saldoIdx = headerRow.findIndex(h => h && h.trim().toLowerCase() === 'saldo');
+      let mediaIdx = headerRow.findIndex(h => h && (h.trim().toLowerCase() === 'média' || h.trim().toLowerCase() === 'media'));
 
-        for (let i = 1; i < rows.length; i++) {
-          const row = rows[i];
-          if (row.length <= saldoIdx || !row[0]) continue;
-          
-          const id = row[0].trim();
-          
-          // Calcular média baseada dinamicamente nos últimos dias de consumo selecionados
-          let sum = 0;
-          let count = 0;
-          const colsToUse = dailyCols.slice(-consumptionDays);
-          
-          if (colsToUse.length > 0) {
-            colsToUse.forEach(c => {
-               sum += parseBrNumber(row[c]);
-               count++;
-            });
-          }
-          
-          let media = count > 0 ? sum / count : parseBrNumber(row[mediaIdx]); 
-          const saldoSolicitante = parseBrNumber(row[saldoIdx]); 
+      if (totalIdx === -1) totalIdx = 9;
+      if (mediaIdx === -1) mediaIdx = 10;
+      if (saldoIdx === -1) saldoIdx = 11;
 
-          productsMap[id] = {
-            id,
-            name: row[1]?.replace(/"/g, ''),
-            unit: row[2]?.replace(/"/g, ''),
-            media: media,
-            stock: saldoSolicitante, // Fallback stock
-            price: 0,
-            suggested: 0,
-            orderQty: 0,
-            supplierStock: 0,
-            supplierLots: []
-          };
-        }
+      const dailyCols: number[] = [];
+      for (let c = 3; c < totalIdx; c++) {
+        dailyCols.push(c);
       }
 
-      // 2. Processar Estoque CAF (Fornecedor)
-      if (filesData.caf) {
-        const { lotsMap, totalsMap } = parseStockFile(filesData.caf);
-        for (const id in productsMap) {
-          if (totalsMap[id] !== undefined) {
-            productsMap[id].supplierStock = totalsMap[id];
-          }
-          if (lotsMap[id]) {
-            productsMap[id].supplierLots = lotsMap[id];
-          }
-        }
-      }
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i];
+        if (row.length <= saldoIdx || !row[0]) continue;
 
-      // 3. Processar Estoque Destino (Solicitante)
-      if (filesData.destino) {
-        const { totalsMap } = parseStockFile(filesData.destino);
-        for (const id in productsMap) {
-          if (totalsMap[id] !== undefined) {
-            productsMap[id].stock = totalsMap[id];
-          }
+        const id = row[0].trim();
+        const dailyValues = dailyCols.map(c => parseBrNumber(row[c]));
+        // Fallback: se não há colunas diárias, usa a coluna média
+        if (dailyValues.length === 0) {
+          dailyValues.push(parseBrNumber(row[mediaIdx]));
         }
-      }
+        const saldoSolicitante = parseBrNumber(row[saldoIdx]);
 
-      // 4. Processar MOVI_ESTOQ (Para preços)
-      if (filesData.movi) {
-        const rows = parseCSV(filesData.movi);
-        for (let i = 2; i < rows.length; i++) {
-          const row = rows[i];
-          if (row.length < 10 || !row[0]) continue;
-          
-          const id = row[0].trim();
-          if (productsMap[id]) {
-            productsMap[id].price = parseBrNumber(row[9]); 
-          }
-        }
-      }
-
-      // 5. Calcular Sugestões
-      const finalInventory = Object.values(productsMap).map(p => {
-        const targetStock = p.media * targetDays;
-        
-        // Calcular estoque dos equivalentes no destino
-        const equivalentIds = EQUIVALENCE_MAP[p.id] || [];
-        const equivalentStockAtDestino = equivalentIds.reduce((total, eqId) => {
-          return total + (productsMap[eqId]?.stock || 0);
-        }, 0);
-
-        let suggestion = targetStock - (p.stock + equivalentStockAtDestino);
-        
-        if (suggestion > 0) {
-          // Aplica a margem de segurança de 20% sobre o pedido calculado
-          suggestion = Math.round(suggestion * (1 + (safetyMargin / 100)));
-        } else {
-          suggestion = 0;
-        }
-        
-        return {
-          ...p,
-          suggested: suggestion,
-          orderQty: suggestion,
-          equivalentStock: equivalentStockAtDestino // Adicionando para exibição na UI
+        rawMap[id] = {
+          id,
+          name: row[1]?.replace(/"/g, ''),
+          unit: row[2]?.replace(/"/g, ''),
+          dailyValues,
+          stock: saldoSolicitante,
+          price: 0,
+          supplierStock: 0,
+          supplierLots: []
         };
-      });
+      }
+    }
 
-      // Ordenar por produtos em ordem alfabética
-      finalInventory.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
-      
-      setInventory(finalInventory);
-      setIsProcessing(false);
-    }, 500);
-  }, [filesData, targetDays, consumptionDays, safetyMargin]);
+    // 2. Processar Estoque CAF (Fornecedor)
+    if (filesData.caf) {
+      const { lotsMap, totalsMap } = parseStockFile(filesData.caf);
+      for (const id in rawMap) {
+        if (totalsMap[id] !== undefined) rawMap[id].supplierStock = totalsMap[id];
+        if (lotsMap[id]) rawMap[id].supplierLots = lotsMap[id];
+      }
+    }
+
+    // 3. Processar Estoque Destino (Solicitante)
+    if (filesData.destino) {
+      const { totalsMap } = parseStockFile(filesData.destino);
+      for (const id in rawMap) {
+        if (totalsMap[id] !== undefined) rawMap[id].stock = totalsMap[id];
+      }
+    }
+
+    // 4. Processar MOVI_ESTOQ (Para preços)
+    if (filesData.movi) {
+      const rows = parseCSV(filesData.movi);
+      for (let i = 2; i < rows.length; i++) {
+        const row = rows[i];
+        if (row.length < 10 || !row[0]) continue;
+        const id = row[0].trim();
+        if (rawMap[id]) rawMap[id].price = parseBrNumber(row[9]);
+      }
+    }
+
+    const sorted = Object.values(rawMap).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+    setRawItems(sorted);
+    setManualOverrides({});
+    setIsProcessing(false);
+  }, [filesData]);
+
+  // --- Cálculo reativo das sugestões ---
+  const inventory = useMemo<InventoryItem[]>(() => {
+    if (rawItems.length === 0) return [];
+
+    // Mapa de stocks por id para cálculo de equivalentes
+    const stockMap: Record<string, number> = {};
+    rawItems.forEach(p => { stockMap[p.id] = p.stock; });
+
+    return rawItems.map(p => {
+      const colsToUse = p.dailyValues.slice(-consumptionDays);
+      const sum = colsToUse.reduce((a, v) => a + v, 0);
+      const media = colsToUse.length > 0 ? sum / colsToUse.length : 0;
+
+      const equivalentIds = EQUIVALENCE_MAP[p.id] || [];
+      const equivalentStockAtDestino = equivalentIds.reduce((total, eqId) => {
+        return total + (stockMap[eqId] || 0);
+      }, 0);
+
+      const targetStock = media * targetDays;
+      let suggestion = targetStock - (p.stock + equivalentStockAtDestino);
+      suggestion = suggestion > 0 ? Math.ceil(suggestion * (1 + safetyMargin / 100) / 10) * 10 : 0;
+
+      const orderQty = manualOverrides[p.id] !== undefined ? manualOverrides[p.id] : suggestion;
+
+      return {
+        ...p,
+        media,
+        suggested: suggestion,
+        orderQty,
+        equivalentStock: equivalentStockAtDestino
+      };
+    });
+  }, [rawItems, consumptionDays, targetDays, safetyMargin, manualOverrides]);
 
   // Atualizar a quantidade do pedido manualmente
   const updateOrderQty = (id: string, newQty: string) => {
-    setInventory(prev => prev.map(item => 
-      item.id === id ? { ...item, orderQty: Math.round(Number(newQty)) || 0 } : item
-    ));
+    const raw = Number(newQty) || 0;
+    const rounded = raw > 0 ? Math.ceil(raw / 10) * 10 : 0;
+    setManualOverrides(prev => ({ ...prev, [id]: rounded }));
   };
 
   // Exportar pedido para PDF
   const exportToPDF = () => {
-    const itemsToOrder = inventory.filter(item => item.orderQty > 0);
+    const itemsToOrder = filteredInventory.filter(item => item.orderQty > 0);
     if (itemsToOrder.length === 0) return alert("Nenhum item com quantidade maior que zero para pedir.");
 
-    // Modo Paisagem (Landscape)
-    const doc = new jsPDF({ orientation: 'l', unit: 'mm', format: 'a4' });
     const date = new Date().toLocaleDateString('pt-BR');
-    const pageWidth = doc.internal.pageSize.getWidth();
-    
-    // Header
-    doc.setFontSize(20);
-    doc.setTextColor(30, 41, 59); // Slate-800
-    doc.text('Solicitação de Transferência - CAF', 14, 20);
-    
-    doc.setFontSize(10);
-    doc.setTextColor(100, 116, 139); // Slate-500
-    doc.text(`Data de Geração: ${date}`, 14, 28);
-    doc.text(`Configurações: Meta ${targetDays} dias | Segurança ${safetyMargin}% | Dias Consumo ${consumptionDays}`, 14, 34);
-
-    const tableData = itemsToOrder.map(item => {
-      const allocatedLots = allocateLots(item.supplierLots, item.orderQty);
-      const lotsStr = allocatedLots.map(l => `${l.lote} (${l.qty})`).join(', ');
-      
-      return [
-        item.id,
-        item.name,
-        item.orderQty,
-        item.unit,
-        lotsStr,
-        formatCurrency(item.price),
-        formatCurrency(item.orderQty * item.price)
-      ];
-    });
-
-    autoTable(doc, {
-      startY: 40,
-      head: [['ID', 'Produto', 'Qtd', 'Un', 'Lotes Sugeridos (FEFO)', 'V. Unit', 'V. Total']],
-      body: tableData,
-      theme: 'striped',
-      headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: 'bold' }, // Indigo-600
-      styles: { fontSize: 9, cellPadding: 3 },
-      columnStyles: {
-        0: { cellWidth: 20 },
-        1: { cellWidth: 80 },
-        2: { cellWidth: 20, halign: 'right' },
-        3: { cellWidth: 15, halign: 'center' },
-        4: { cellWidth: 75 },
-        5: { cellWidth: 28, halign: 'right' },
-        6: { cellWidth: 30, halign: 'right' }
-      }
-    });
-
-    const totalValue = itemsToOrder.reduce((acc, item) => acc + (item.orderQty * item.price), 0);
     const totalQty = itemsToOrder.reduce((acc, item) => acc + item.orderQty, 0);
-    const finalY = (doc as any).lastAutoTable.finalY + 15;
 
-    // Resumo de Totais
-    doc.setFontSize(11);
-    doc.setTextColor(30, 41, 59);
-    doc.setFont('helvetica', 'bold');
-    
-    const totalsX = pageWidth - 14;
-    doc.text(`TOTAL DE ITENS: ${itemsToOrder.length}`, totalsX, finalY, { align: 'right' });
-    doc.text(`TOTAL DE UNIDADES: ${totalQty}`, totalsX, finalY + 6, { align: 'right' });
-    
-    doc.setFontSize(13);
-    const totalText = `VALOR TOTAL DO PEDIDO: ${formatCurrency(totalValue)}`;
-    doc.text(totalText, totalsX, finalY + 14, { align: 'right' });
+    // Cada produto gera N linhas (uma por lote), com rowspan nas colunas fixas
+    const rowsHtml = itemsToOrder.map((item, idx) => {
+      const allocatedLots = allocateLots(item.supplierLots, item.orderQty);
+      const rowspan = Math.max(allocatedLots.length, 1);
+      const rowBg = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
+      const borderTop = idx > 0 ? 'border-top: 2px solid #e2e8f0;' : '';
 
-    // Rodapé - Responsável e Data
-    const footerY = finalY + 35;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    
-    // Linha para assinatura
-    doc.line(14, footerY, 100, footerY);
-    doc.text('Responsável pelo pedido', 14, footerY + 5);
-    
-    // Campo de data manual
-    doc.line(120, footerY, 160, footerY);
-    doc.text('Data do Recebimento', 120, footerY + 5);
+      const lotRows = allocatedLots.length === 0
+        ? [`<td class="td-lot-cell" style="color:#b0bec5;font-style:italic;">Sem lotes disponíveis na CAF</td>`]
+        : allocatedLots.map((l, li) => {
+            const isFirst = li === 0;
+            const isLast  = li === allocatedLots.length - 1;
+            const lotBadge = l.isWarning
+              ? `<span class="badge-warn">&#9888; Falta na CAF</span>`
+              : `<span class="badge-lot">${l.lote}</span>`;
+            const valBadge = !l.isWarning && l.validade
+              ? `<span class="badge-val">Val: ${l.validade}</span>`
+              : '';
+            const qtyBadge = `<span class="badge-qty">${l.qty} un</span>`;
+            const borderB = isLast ? '' : 'border-bottom: 1px solid #e8edf4;';
+            return `<td class="td-lot-cell" style="${borderB}">
+              <div class="lot-line">
+                <span class="chk">&#9744;</span>
+                ${lotBadge}
+                ${valBadge}
+                ${qtyBadge}
+                <span class="atd-label">Atendido:</span>
+                <span class="atd-field"></span>
+              </div>
+            </td>`;
+          });
 
-    doc.save(`pedido_caf_paisagem_${date.replace(/\//g, '-')}.pdf`);
+      return lotRows.map((lotCell, li) => {
+        if (li === 0) {
+          return `<tr style="background:${rowBg};${borderTop}">
+            <td class="td-id" rowspan="${rowspan}">${item.id}</td>
+            <td class="td-produto" rowspan="${rowspan}">${item.name}</td>
+            <td class="td-un" rowspan="${rowspan}">${item.unit}</td>
+            <td class="td-qtd" rowspan="${rowspan}">${item.orderQty}</td>
+            ${lotCell}
+            <td class="td-atd-final" rowspan="${rowspan}"></td>
+          </tr>`;
+        }
+        return `<tr style="background:${rowBg};">${lotCell}</tr>`;
+      }).join('');
+    }).join('');
+
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<style>
+  @page { size: A4 landscape; margin: 10mm 12mm 14mm 12mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 10px; color: #1e293b; background: #fff; }
+
+  /* ─── CABEÇALHO ─── */
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    background: #1e3a5f;
+    color: white;
+    padding: 10px 14px 9px;
+    margin-bottom: 10px;
+    border-radius: 4px;
+  }
+  .header-left h1 { font-size: 16px; font-weight: 700; letter-spacing: 0.3px; }
+  .header-left .sub { font-size: 8.5px; opacity: 0.75; margin-top: 3px; }
+  .header-right { text-align: right; font-size: 8.5px; opacity: 0.85; line-height: 1.7; }
+  .header-right strong { font-size: 10px; opacity: 1; }
+
+  /* ─── TABELA ─── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    border: 1px solid #d1d9e6;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  col.c-id   { width: 5%; }
+  col.c-prod { width: 38%; }
+  col.c-un   { width: 8%; }
+  col.c-qtd  { width: 4%; }
+  col.c-lot  { width: 35%; }
+  col.c-atd  { width: 10%; }
+
+  thead tr { background: #2d5282; color: white; }
+  th {
+    padding: 7px 8px;
+    font-size: 8px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    text-align: left;
+    border-right: 1px solid rgba(255,255,255,0.15);
+  }
+  th:last-child { border-right: none; }
+  th.right { text-align: right; }
+
+  td {
+    padding: 6px 8px;
+    vertical-align: middle;
+    font-size: 9px;
+    border-right: 1px solid #e8edf4;
+    overflow: hidden;
+  }
+  td:last-child { border-right: none; }
+
+  .td-id      { font-size: 8px; color: #7c8db0; font-family: monospace; }
+  .td-produto { font-size: 9px; font-weight: 600; color: #1e293b; word-break: break-word; line-height: 1.35; }
+  .td-un      { font-size: 8px; color: #4a5568; word-break: break-word; line-height: 1.3; }
+  .td-qtd     { text-align: center; font-size: 13px; font-weight: 800; color: #2d5282; padding: 6px 4px; }
+  .td-lot-cell { padding: 5px 8px; width: 100%; }
+
+  /* ─── LINHA DE LOTE ─── */
+  .lot-line {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 18px;
+    width: 100%;
+  }
+  .chk {
+    font-size: 13px;
+    color: #90a4c0;
+    flex-shrink: 0;
+    line-height: 1;
+  }
+  .badge-lot {
+    flex-shrink: 0;
+    background: #e8f0fe;
+    border: 1px solid #a8c4f0;
+    border-radius: 3px;
+    padding: 2px 9px;
+    font-size: 10px;
+    font-weight: 700;
+    color: #1a4b8f;
+    letter-spacing: 0.3px;
+    font-family: monospace;
+  }
+  .badge-val {
+    flex-shrink: 0;
+    background: #f3f0ff;
+    border: 1px solid #c4b5fd;
+    border-radius: 3px;
+    padding: 2px 7px;
+    font-size: 9px;
+    font-weight: 600;
+    color: #5b21b6;
+  }
+  .badge-warn {
+    flex-shrink: 0;
+    background: #fff3e0;
+    border: 1px solid #ffb74d;
+    border-radius: 3px;
+    padding: 1px 7px;
+    font-size: 8.5px;
+    font-weight: 700;
+    color: #e65100;
+  }
+  .badge-qty {
+    flex-shrink: 0;
+    background: #e8f5e9;
+    border: 1px solid #a5d6a7;
+    border-radius: 3px;
+    padding: 1px 6px;
+    font-size: 8px;
+    font-weight: 700;
+    color: #2e7d32;
+  }
+  .atd-label {
+    flex-shrink: 0;
+    font-size: 7.5px;
+    color: #90a4c0;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    margin-left: 4px;
+  }
+  .atd-field {
+    flex: 1;
+    border-bottom: 1.5px solid #b0bec5;
+    min-width: 30px;
+    height: 11px;
+    display: inline-block;
+  }
+  .td-atd-final {
+    text-align: center;
+    border-left: 2px solid #d1d9e6;
+    vertical-align: middle;
+  }
+
+  /* ─── RODAPÉ TOTAIS ─── */
+  .footer-totais {
+    display: flex;
+    justify-content: flex-end;
+    gap: 24px;
+    margin-top: 8px;
+    padding: 6px 10px;
+    background: #f0f4f9;
+    border-radius: 4px;
+    border: 1px solid #d1d9e6;
+  }
+  .total-item { font-size: 9px; color: #4a5568; }
+  .total-item strong { font-size: 11px; color: #1e3a5f; margin-left: 4px; }
+
+  /* ─── ASSINATURAS ─── */
+  .assinaturas {
+    display: flex;
+    gap: 18px;
+    margin-top: 22px;
+    page-break-inside: avoid;
+  }
+  .assin { flex: 1; }
+  .assin.small { flex: 0 0 105px; }
+  .assin-line {
+    border-top: 1.5px solid #2d5282;
+    margin-top: 18px;
+    padding-top: 5px;
+  }
+  .assin-label {
+    font-size: 8px;
+    font-weight: 700;
+    color: #2d5282;
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+  }
+
+  @media print {
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <h1>Solicitação de Transferência — CAF</h1>
+    <div class="sub">Separação de medicamentos e materiais com base em consumo médio e cobertura de estoque</div>
+  </div>
+  <div class="header-right">
+    <div>Data: <strong>${date}</strong></div>
+    <div>Meta ${targetDays} dias &nbsp;·&nbsp; Segurança ${safetyMargin}% &nbsp;·&nbsp; Consumo ${consumptionDays} dias</div>
+  </div>
+</div>
+
+<table>
+  <colgroup>
+    <col class="c-id"><col class="c-prod"><col class="c-un"><col class="c-qtd"><col class="c-lot"><col class="c-atd">
+  </colgroup>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Produto</th>
+      <th>Unidade</th>
+      <th style="text-align:center">Qtd</th>
+      <th>Lotes Sugeridos (FEFO) &nbsp;·&nbsp; &#9744; Conferido &nbsp;·&nbsp; Atendido</th>
+      <th style="text-align:center;border-left:2px solid rgba(255,255,255,0.25)">Qtd Atendida Final</th>
+    </tr>
+  </thead>
+  <tbody>${rowsHtml}</tbody>
+</table>
+
+<div class="footer-totais">
+  <div class="total-item">Itens diferentes: <strong>${itemsToOrder.length}</strong></div>
+  <div class="total-item">Total de unidades: <strong>${totalQty}</strong></div>
+</div>
+
+<div class="assinaturas">
+  <div class="assin">
+    <div class="assin-line"><div class="assin-label">Separado por</div></div>
+  </div>
+  <div class="assin">
+    <div class="assin-line"><div class="assin-label">Conferido por</div></div>
+  </div>
+  <div class="assin small">
+    <div class="assin-line"><div class="assin-label">Data</div></div>
+  </div>
+</div>
+
+</body>
+</html>`;
+
+    const win = window.open('', '_blank', 'width=1200,height=850');
+    if (win) {
+      win.document.write(html);
+      win.document.close();
+      win.focus();
+      setTimeout(() => { win.print(); }, 700);
+    }
   };
 
   // Exportar pedido para CSV
   const exportOrderCSV = () => {
-    const itemsToOrder = inventory.filter(item => item.orderQty > 0);
+    const itemsToOrder = filteredInventory.filter(item => item.orderQty > 0);
     if (itemsToOrder.length === 0) return alert("Nenhum item com quantidade maior que zero para pedir.");
 
     let csvContent = "data:text/csv;charset=utf-8,";
@@ -447,9 +656,9 @@ export const TransferRequest: React.FC = () => {
       const isDieta = name.includes("DIETA") || name.includes("NUTRIFICA") || name.includes("ENTERAL") || name.includes("PARENTERAL") || name.includes("SUPLEMENTO") || name.includes("MODULO ALIMENTAR");
       
       const isComprimido = name.includes("COMP") || name.includes(" CP") || name.includes("CPR") || name.includes("TAB") || unit.includes("COMP") || unit.includes("CP") || unit.includes("CPR");
-      const isFrasco = name.includes("FRASCO") || name.includes(" FR") || name.includes(" FA") || name.includes("AMP") || unit.includes("FR") || unit.includes("FA") || unit.includes("AMP");
-      const isBolsa = name.includes("BOLSA") || name.includes(" BS") || unit.includes("BOLSA") || unit.includes("BS");
-      
+      const isFrasco = name.includes("FRASCO") || name.includes(" FR") || name.includes(" FA") || name.includes("AMP") || unit.includes("FR") || unit.includes("FA") || unit.includes("AMP")
+        || name.includes("BOLSA") || name.includes(" BS") || unit.includes("BOLSA") || unit.includes("BS");
+
       const matKeywords = [
         "SERINGA", "AGULHA", "SONDA", "COMPRESSA", "FRALDA", "EXTENSOR", 
         "CURATIVO", "COLETORA", "PROTETOR", "CLAMP", "GUIA", "DISPOSITIVO", 
@@ -460,9 +669,9 @@ export const TransferRequest: React.FC = () => {
       const isExplicitMat = matKeywords.some(k => name.includes(k) || unit.includes(k));
 
       const medKeywords = ["MG", "MCG", "G/", "ML", "UI", "MEQ", "CAPS", "DRAGEA"];
-      const isMed = !isDieta && !isExplicitMat && (isComprimido || isFrasco || isBolsa || medKeywords.some(k => name.includes(k) || unit.includes(k)));
-      
-      const isMat = !isDieta && (isExplicitMat || (!isMed && !isComprimido && !isFrasco && !isBolsa));
+      const isMed = !isDieta && !isExplicitMat && (isComprimido || isFrasco || medKeywords.some(k => name.includes(k) || unit.includes(k)));
+
+      const isMat = !isDieta && (isExplicitMat || (!isMed && !isComprimido && !isFrasco));
 
       if (categoryFilter === 'dieta') {
         if (!isDieta) return false;
@@ -470,7 +679,6 @@ export const TransferRequest: React.FC = () => {
         if (!isMed) return false;
         if (subCategoryFilter === 'comprimido' && !isComprimido) return false;
         if (subCategoryFilter === 'frasco' && !isFrasco) return false;
-        if (subCategoryFilter === 'bolsa' && !isBolsa) return false;
       } else if (categoryFilter === 'material') {
         if (!isMat) return false;
       }
@@ -565,7 +773,7 @@ export const TransferRequest: React.FC = () => {
             <label className="text-xs font-semibold text-slate-500 uppercase">Fornecedor</label>
             <div className="flex items-center gap-2 mt-1">
               <Layers className="w-4 h-4 text-indigo-600" />
-              <span className="text-sm font-bold text-slate-700">CAF (Central)</span>
+              <span className="text-sm font-bold text-slate-700">CAF</span>
             </div>
           </div>
           
@@ -607,7 +815,7 @@ export const TransferRequest: React.FC = () => {
       </div>
 
       {/* Upload Section */}
-      {inventory.length === 0 && (
+      {rawItems.length === 0 && (
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
           <h2 className="text-lg font-semibold mb-6 flex items-center gap-2 text-slate-800">
             <FileText className="w-5 h-5 text-indigo-600" />
@@ -667,7 +875,7 @@ export const TransferRequest: React.FC = () => {
       )}
 
       {/* Main Data View */}
-      {inventory.length > 0 && (
+      {rawItems.length > 0 && (
         <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
           
           {/* Tabela de Produtos */}
@@ -719,17 +927,11 @@ export const TransferRequest: React.FC = () => {
                     >
                       Comprimidos
                     </button>
-                    <button 
+                    <button
                       onClick={() => setSubCategoryFilter('frasco')}
                       className={`px-2 py-1 text-[10px] font-bold uppercase rounded-md transition-all ${subCategoryFilter === 'frasco' ? 'bg-emerald-600 text-white' : 'text-emerald-600 hover:bg-emerald-50'}`}
                     >
-                      Frascos/Amp
-                    </button>
-                    <button 
-                      onClick={() => setSubCategoryFilter('bolsa')}
-                      className={`px-2 py-1 text-[10px] font-bold uppercase rounded-md transition-all ${subCategoryFilter === 'bolsa' ? 'bg-emerald-600 text-white' : 'text-emerald-600 hover:bg-emerald-50'}`}
-                    >
-                      Bolsas
+                      Frascos/Amp/Bolsas
                     </button>
                   </div>
                 )}
@@ -747,63 +949,61 @@ export const TransferRequest: React.FC = () => {
               </div>
             </div>
 
-            <div className="overflow-auto flex-1">
-              <table className="w-full text-left border-collapse min-w-[1000px]">
+            <div className="overflow-y-auto overflow-x-hidden flex-1">
+              <table className="w-full text-left border-collapse table-fixed">
                 <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm border-b border-slate-200">
                   <tr>
-                    <th className="py-3 px-4 text-xs font-semibold text-slate-600 uppercase tracking-wider w-[25%]">Produto</th>
-                    <th className="py-3 px-4 text-xs font-semibold text-slate-600 uppercase tracking-wider text-right bg-slate-100/50" title="Saldo atual do local que pediu">Est. Destino</th>
-                    <th className="py-3 px-4 text-xs font-semibold text-indigo-700 uppercase tracking-wider text-right bg-indigo-50/50" title="Saldo atual na CAF">Est. CAF</th>
-                    <th className="py-3 px-4 text-xs font-semibold text-slate-600 uppercase tracking-wider text-right" title={`Média calculada sobre os últimos ${consumptionDays} dias`}>Média/Dia</th>
-                    <th className="py-3 px-4 text-xs font-semibold text-slate-600 uppercase tracking-wider text-center border-l border-r border-slate-200" title={`Inclui ${safetyMargin}% de segurança`}>Pedir Qtde</th>
-                    <th className="py-3 px-4 text-xs font-semibold text-emerald-700 uppercase tracking-wider w-[30%] bg-emerald-50/50">Sugestão de Lotes (FEFO)</th>
+                    <th className="py-2 px-2 text-xs font-semibold text-slate-600 uppercase tracking-wider w-[28%]">Produto</th>
+                    <th className="py-2 px-2 text-xs font-semibold text-slate-600 uppercase tracking-wider text-right bg-slate-100/50 w-[10%]" title="Saldo atual do local que pediu">Est. Dest.</th>
+                    <th className="py-2 px-2 text-xs font-semibold text-indigo-700 uppercase tracking-wider text-right bg-indigo-50/50 w-[9%]" title="Saldo atual na CAF">Est. CAF</th>
+                    <th className="py-2 px-2 text-xs font-semibold text-slate-600 uppercase tracking-wider text-right w-[9%]" title={`Média calculada sobre os últimos ${consumptionDays} dias`}>Méd/Dia</th>
+                    <th className="py-2 px-2 text-xs font-semibold text-slate-600 uppercase tracking-wider text-center border-l border-r border-slate-200 w-[13%]" title={`Inclui ${safetyMargin}% de segurança`}>Pedir Qtde</th>
+                    <th className="py-2 px-2 text-xs font-semibold text-emerald-700 uppercase tracking-wider w-[31%] bg-emerald-50/50">Lotes (FEFO)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {filteredInventory.map((item) => (
                     <tr key={item.id} className="hover:bg-indigo-50/30 transition-colors group">
-                      <td className="py-3 px-4">
-                        <div className="font-medium text-slate-800 text-sm leading-tight mb-1">{item.name}</div>
-                        <div className="text-[11px] text-slate-500 font-mono">ID: {item.id} | {item.unit}</div>
+                      <td className="py-2 px-2">
+                        <div className="font-medium text-slate-800 text-sm leading-tight mb-0.5 truncate" title={item.name}>{item.name}</div>
+                        <div className="text-[10px] text-slate-400 font-mono">#{item.id} · {item.unit}</div>
                       </td>
-                      
-                      <td className="py-3 px-4 text-right bg-slate-50/30">
+
+                      <td className="py-2 px-2 text-right bg-slate-50/30">
                         <div className="flex flex-col items-end">
-                          <span className={`font-bold ${item.stock <= item.media * 3 ? 'text-red-500' : 'text-slate-700'}`}>
+                          <span className={`font-bold text-sm ${item.stock <= item.media * 3 ? 'text-red-500' : 'text-slate-700'}`}>
                             {item.stock}
                           </span>
                           {item.equivalentStock && item.equivalentStock > 0 ? (
-                            <span className="text-[9px] text-teal-600 font-bold bg-teal-50 px-1 rounded">
-                              +{item.equivalentStock} Similares
-                            </span>
+                            <span className="text-[9px] text-teal-600 font-bold bg-teal-50 px-1 rounded">+{item.equivalentStock}</span>
                           ) : (
-                            <span className="text-[10px] text-slate-400">Sug. {item.suggested}</span>
+                            <span className="text-[9px] text-slate-400">Sug. {item.suggested}</span>
                           )}
                         </div>
                       </td>
 
-                      <td className="py-3 px-4 text-right bg-indigo-50/30">
-                        <span className={`font-bold ${item.supplierStock < item.orderQty ? 'text-orange-500' : 'text-indigo-700'}`}>
+                      <td className="py-2 px-2 text-right bg-indigo-50/30">
+                        <span className={`font-bold text-sm ${item.supplierStock < item.orderQty ? 'text-orange-500' : 'text-indigo-700'}`}>
                           {item.supplierStock}
                         </span>
                       </td>
 
-                      <td className="py-3 px-4 text-right text-slate-600 text-sm">
+                      <td className="py-2 px-2 text-right text-slate-600 text-sm">
                         {item.media.toFixed(2)}
                       </td>
 
-                      <td className="py-3 px-4 text-center border-l border-r border-slate-100 bg-white">
-                        <input 
+                      <td className="py-2 px-2 text-center border-l border-r border-slate-100 bg-white">
+                        <input
                           type="number"
                           value={item.orderQty}
                           onChange={(e) => updateOrderQty(item.id, e.target.value)}
-                          className={`w-20 text-center border rounded-lg py-1.5 font-bold outline-none transition-all
+                          className={`w-full text-center border rounded-lg py-1 font-bold outline-none transition-all text-sm
                             ${item.orderQty > 0 ? 'border-indigo-300 text-indigo-700 bg-indigo-50/50 focus:ring-2 focus:ring-indigo-200' : 'border-slate-200 text-slate-400 focus:border-slate-400'}`}
                           min="0"
                         />
                       </td>
 
-                      <td className="py-3 px-4 bg-emerald-50/20">
+                      <td className="py-2 px-2 bg-emerald-50/20">
                         {item.orderQty > 0 ? (
                           <div className="flex flex-col gap-1">
                             {allocateLots(item.supplierLots, item.orderQty).map((lot, idx) => (
@@ -852,7 +1052,7 @@ export const TransferRequest: React.FC = () => {
               </div>
               <div className="flex justify-between items-center py-3 border-b border-slate-100">
                 <span className="text-slate-500">Fornecedor</span>
-                <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded">CAF (Central)</span>
+                <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded">CAF</span>
               </div>
               <div className="pt-2">
                 <span className="block text-slate-500 text-sm mb-1">Custo Estimado</span>
@@ -880,7 +1080,7 @@ export const TransferRequest: React.FC = () => {
               </button>
 
               <button 
-                onClick={() => setInventory([])}
+                onClick={() => { setRawItems([]); setManualOverrides({}); }}
                 className="w-full mt-3 py-3 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl font-medium transition-all"
               >
                 Refazer / Mudar Base

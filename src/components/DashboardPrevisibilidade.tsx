@@ -1,9 +1,6 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { useDropzone } from 'react-dropzone';
 import Papa from 'papaparse';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
-import { drawPDFHeader, drawPDFFooters, drawKPICards, PDF_COLORS } from '../utils/pdfExport';
 import { AlertTriangle, CheckCircle, UploadCloud, Search, Filter, Package, AlertOctagon, FileText, XCircle, ChevronDown, ChevronUp, Download, RefreshCw, Database, Activity, Target, ShieldAlert, Zap, ArrowUpDown, ArrowUp, ArrowDown, TrendingDown } from 'lucide-react';
 import { PanelGuide } from './common/PanelGuide';
 import { motion, AnimatePresence } from 'motion/react';
@@ -518,117 +515,216 @@ export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> =
   // As declarações duplicadas foram removidas daqui para cima.
 
   const exportToPDF = () => {
-    const color = PDF_COLORS.indigo;
     const dataToExport = selectedItems.size > 0
       ? sortedFilteredData.filter(item => selectedItems.has(item.Produto_ID))
       : sortedFilteredData;
 
-    const doc = new jsPDF('landscape' as any);
+    const date = new Date().toLocaleDateString('pt-BR');
+    const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
     const filterLabel = selectedItems.size > 0
       ? `Seleção manual: ${selectedItems.size} item(s)`
       : showOnlyRupture ? 'Filtro: somente Ruptura Predita' : 'Todos os produtos';
 
-    let currentY = drawPDFHeader(doc, 'Relatório de Previsibilidade de Estoque', filterLabel, color);
+    const kpis = [
+      { label: 'Total de Produtos', value: String(uniqueProductsCount), color: '#4f46e5' },
+      { label: 'Ruptura Predita',   value: String(ruptureCount),        color: '#dc2626' },
+      { label: 'Com Substituto',    value: String(substituteCount),     color: '#d97706' },
+      { label: 'Cobertura',         value: `${coverageRate}%`,          color: coverageRate >= 70 ? '#16a34a' : coverageRate >= 40 ? '#d97706' : '#dc2626' },
+      { label: 'Saúde do Atend.',   value: `${healthScore}%`,           color: healthScore >= 90 ? '#16a34a' : healthScore >= 70 ? '#d97706' : '#dc2626' },
+    ];
 
-    currentY = drawKPICards(doc, [
-      { label: 'Total de Produtos', value: uniqueProductsCount.toString(), color: PDF_COLORS.indigo },
-      { label: 'Ruptura Predita', value: ruptureCount.toString(), color: PDF_COLORS.red },
-      { label: 'Com Substituto', value: substituteCount.toString(), color: PDF_COLORS.amber },
-      { label: 'Cobertura', value: `${coverageRate}%`, color: coverageRate >= 70 ? PDF_COLORS.emerald : coverageRate >= 40 ? PDF_COLORS.amber : PDF_COLORS.red },
-      { label: 'Saúde do Atend.', value: `${healthScore}%`, color: healthScore >= 90 ? PDF_COLORS.emerald : healthScore >= 70 ? PDF_COLORS.amber : PDF_COLORS.red },
-    ], currentY);
+    const kpisHtml = kpis.map(k => `
+      <div class="kpi-card">
+        <div class="kpi-value" style="color:${k.color}">${k.value}</div>
+        <div class="kpi-label">${k.label}</div>
+      </div>`).join('');
 
-    // col indexes: 0=ID, 1=Produto, 2=Estoque, 3=Pedido, 4=Projeção, 5=Status,
-    //              6=Sol. Pendentes, 7=Substituto/Saldo, 8=Lote Rec.
-    const tableColumn = ['ID', 'Produto', 'Estoque', 'Pedido', 'Projeção', 'Status', 'Sol. Pendentes', 'Substituto / Saldo', 'Lote Rec.'];
-    const tableRows = dataToExport.map(item => {
-      const loteRec = item.Lotes?.length > 0
-        ? `${item.Lotes[0].lote} (${item.Lotes[0].validade})`
-        : '-';
-      const solicitacoesPendentes = item.Solicitacoes?.length > 0
-        ? item.Solicitacoes.map(s => `${s.id} — ${s.qt}un  ${s.data ? `(${s.data})` : ''}`).join('\n')
-        : '-';
-      return [
-        item.Produto_ID,
-        item.Produto_Nome,
-        item.Estoque_Atual.toLocaleString('pt-BR'),
-        item.Total_Solicitado.toLocaleString('pt-BR'),
-        item.Saldo_Projetado.toLocaleString('pt-BR'),
-        item.Status,
-        solicitacoesPendentes,
-        item.Sugestao_Substituicao
-          ? `${item.Sugestao_Substituicao.nome}\nSaldo: ${item.Sugestao_Substituicao.saldo}`
-          : '-',
-        loteRec,
-      ];
-    });
+    const statusStyle = (s: string) => {
+      if (s === 'Ruptura Predita')         return { color: '#be123c', bg: '#fff1f2', border: '#fda4af' };
+      if (s === 'Falta, mas com Substituto') return { color: '#b45309', bg: '#fffbeb', border: '#fcd34d' };
+      return { color: '#15803d', bg: '#f0fdf4', border: '#86efac' };
+    };
 
-    autoTable(doc, {
-      head: [tableColumn],
-      body: tableRows,
-      startY: currentY + 2,
-      theme: 'grid',
-      margin: { left: 10, right: 10, bottom: 20 },
-      styles: { fontSize: 7, cellPadding: 2.5, overflow: 'linebreak', valign: 'middle' },
-      headStyles: { fillColor: color, textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center' },
-      alternateRowStyles: { fillColor: [248, 250, 252] },
-      columnStyles: {
-        0: { cellWidth: 16, halign: 'center' },
-        1: { cellWidth: 55, fontStyle: 'bold' },
-        2: { cellWidth: 16, halign: 'right' },
-        3: { cellWidth: 16, halign: 'right' },
-        4: { cellWidth: 18, halign: 'right', fontStyle: 'bold' },
-        5: { cellWidth: 36, fontStyle: 'bold', halign: 'center' },
-        6: { cellWidth: 40 },
-        7: { cellWidth: 'auto' },
-        8: { cellWidth: 30 },
-      },
-      didParseCell(data) {
-        if (data.section === 'body') {
-          // Row-level background by status
-          const rowStatus = (data.row.raw as string[])[5];
-          if (rowStatus === 'Ruptura Predita') {
-            data.cell.styles.fillColor = [255, 241, 242];
-          } else if (rowStatus === 'Falta, mas com Substituto') {
-            data.cell.styles.fillColor = [255, 251, 235];
-          }
-          // Status column
-          if (data.column.index === 5) {
-            if (data.cell.raw === 'Ruptura Predita') {
-              data.cell.styles.textColor = [190, 18, 60];
-              data.cell.styles.fontStyle = 'bold';
-            } else if (data.cell.raw === 'Falta, mas com Substituto') {
-              data.cell.styles.textColor = [180, 83, 9];
-              data.cell.styles.fontStyle = 'bold';
-            } else {
-              data.cell.styles.textColor = [4, 120, 87];
-              data.cell.styles.fontStyle = 'bold';
-            }
-          }
-          // Projeção negativa
-          if (data.column.index === 4) {
-            const val = Number(String(data.cell.raw).replace(/\./g, '').replace(',', '.'));
-            if (val < 0) {
-              data.cell.styles.textColor = [220, 38, 38];
-              data.cell.styles.fontStyle = 'bold';
-            }
-          }
-          // Solicitações pendentes
-          if (data.column.index === 6 && data.cell.raw !== '-') {
-            data.cell.styles.textColor = [79, 70, 229];
-            data.cell.styles.fontStyle = 'bold';
-          }
-          // Substituto
-          if (data.column.index === 7 && data.cell.raw !== '-') {
-            data.cell.styles.textColor = [180, 83, 9];
-          }
-        }
-      },
-    });
+    const rowsHtml = dataToExport.map((item, i) => {
+      const ss = statusStyle(item.Status);
+      const bg = i % 2 === 1 ? '#f8fafc' : '#ffffff';
+      const rowBg = item.Status === 'Ruptura Predita' ? '#fff1f2' : item.Status === 'Falta, mas com Substituto' ? '#fffbeb' : bg;
 
-    drawPDFFooters(doc, color);
-    doc.save('previsibilidade_estoque.pdf');
+      const projColor = item.Saldo_Projetado < 0 ? '#dc2626' : '#1e293b';
+      const projWeight = item.Saldo_Projetado < 0 ? '700' : '600';
+
+      const solHtml = item.Solicitacoes?.length > 0
+        ? item.Solicitacoes.map(s =>
+            `<div class="sol-item">${s.id} — <strong>${s.qt}un</strong>${s.data ? ` <span class="sol-date">(${s.data})</span>` : ''}</div>`
+          ).join('')
+        : '<span class="empty">—</span>';
+
+      const subHtml = item.Sugestao_Substituicao
+        ? `<div class="sub-nome">${item.Sugestao_Substituicao.nome}</div><div class="sub-saldo">Saldo: ${item.Sugestao_Substituicao.saldo.toLocaleString('pt-BR')}</div>`
+        : '<span class="empty">—</span>';
+
+      const lotesHtml = item.Lotes?.length > 0
+        ? item.Lotes.slice(0, 3).map(l =>
+            `<div class="lote-item"><span class="lote-num">${l.lote}</span> <span class="lote-val">${l.validade}</span></div>`
+          ).join('')
+        : '<span class="empty">—</span>';
+
+      return `
+        <tr style="background:${rowBg}">
+          <td class="td-id">${item.Produto_ID}</td>
+          <td class="td-prod">${item.Produto_Nome}</td>
+          <td class="td-num">${item.Estoque_Atual.toLocaleString('pt-BR')}</td>
+          <td class="td-num">${item.Total_Solicitado.toLocaleString('pt-BR')}</td>
+          <td class="td-num" style="color:${projColor};font-weight:${projWeight}">${item.Saldo_Projetado.toLocaleString('pt-BR')}</td>
+          <td class="td-status">
+            <span class="status-badge" style="color:${ss.color};background:${ss.bg};border:1px solid ${ss.border}">${item.Status}</span>
+          </td>
+          <td class="td-sol">${solHtml}</td>
+          <td class="td-sub">${subHtml}</td>
+          <td class="td-lote">${lotesHtml}</td>
+        </tr>`;
+    }).join('');
+
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<style>
+  @page { size: A4 landscape; margin: 10mm 12mm 14mm 12mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 9px; color: #1e293b; background: #fff; }
+
+  /* ── HEADER ── */
+  .header {
+    display: flex; justify-content: space-between; align-items: center;
+    background: linear-gradient(135deg, #3730a3 0%, #4f46e5 100%);
+    color: white; padding: 10px 14px; border-radius: 5px; margin-bottom: 10px;
+  }
+  .header h1 { font-size: 18px; font-weight: 700; letter-spacing: 0.3px; }
+  .header .sub { font-size: 8.5px; opacity: 0.8; margin-top: 3px; }
+  .header-right { text-align: right; font-size: 8.5px; opacity: 0.9; line-height: 1.8; }
+  .header-right strong { font-size: 11px; }
+
+  /* ── KPIs ── */
+  .kpis { display: flex; gap: 8px; margin-bottom: 10px; }
+  .kpi-card {
+    flex: 1; background: white; border: 1px solid #e2e8f0;
+    border-radius: 5px; padding: 8px 10px; text-align: center;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  .kpi-value { font-size: 22px; font-weight: 800; line-height: 1; }
+  .kpi-label { font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 3px; }
+
+  /* ── TABLE ── */
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; border: 1px solid #d1d9e6; overflow: hidden; }
+  thead tr { background: #312e81; color: white; }
+  th {
+    padding: 6px 5px; font-size: 8px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.3px;
+    text-align: center; border-right: 1px solid rgba(255,255,255,0.12);
+  }
+  th.th-left { text-align: left; }
+  th:last-child { border-right: none; }
+  td {
+    padding: 5px 5px; border-bottom: 1px solid #e8edf4;
+    border-right: 1px solid #f1f5f9; font-size: 8px;
+    vertical-align: top; overflow: hidden;
+  }
+  td:last-child { border-right: none; }
+  tbody tr:last-child td { border-bottom: none; }
+
+  /* ── COLUMN WIDTHS ── */
+  col.c-id   { width: 5%; }
+  col.c-prod { width: 24%; }
+  col.c-est  { width: 6%; }
+  col.c-ped  { width: 6%; }
+  col.c-proj { width: 7%; }
+  col.c-sta  { width: 14%; }
+  col.c-sol  { width: 21%; }
+  col.c-sub  { width: 10%; }
+  col.c-lot  { width: 7%; }
+
+  .td-id   { text-align: center; font-family: monospace; font-size: 7.5px; color: #64748b; vertical-align: middle; }
+  .td-prod { font-weight: 600; color: #1e293b; word-break: break-word; line-height: 1.35; vertical-align: middle; }
+  .td-num  { text-align: center; font-weight: 600; vertical-align: middle; }
+  .td-status { text-align: center; vertical-align: middle; }
+  .td-sol  { line-height: 1.5; }
+  .td-sub  { line-height: 1.5; }
+  .td-lote { line-height: 1.5; }
+
+  .status-badge {
+    display: inline-block; border-radius: 4px;
+    padding: 2px 5px; font-size: 7.5px; font-weight: 700;
+    white-space: normal; line-height: 1.2;
+  }
+
+  .sol-item  { color: #4f46e5; font-size: 7.5px; }
+  .sol-date  { color: #94a3b8; }
+  .sub-nome  { font-weight: 600; color: #b45309; font-size: 7.5px; }
+  .sub-saldo { color: #78350f; font-size: 7.5px; }
+  .lote-item { font-size: 7.5px; }
+  .lote-num  { font-family: monospace; color: #1e293b; }
+  .lote-val  { color: #64748b; }
+  .empty     { color: #cbd5e1; }
+
+  /* ── FOOTER ── */
+  .footer { margin-top: 8px; display: flex; justify-content: space-between; font-size: 8px; color: #94a3b8; }
+
+  @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>Relatório de Previsibilidade de Estoque</h1>
+    <div class="sub">${filterLabel} · ${dataToExport.length} produtos · Emitido em: ${date}, ${time}</div>
+  </div>
+  <div class="header-right">
+    <div>Emitido em: <strong>${date}, ${time}</strong></div>
+    <div>FarmaIA &nbsp;|&nbsp; Logística Farmacêutica</div>
+  </div>
+</div>
+
+<div class="kpis">${kpisHtml}</div>
+
+<table>
+  <colgroup>
+    <col class="c-id"><col class="c-prod"><col class="c-est"><col class="c-ped">
+    <col class="c-proj"><col class="c-sta"><col class="c-sol"><col class="c-sub"><col class="c-lot">
+  </colgroup>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th class="th-left">Produto</th>
+      <th>Estoque</th>
+      <th>Pedido</th>
+      <th>Projeção</th>
+      <th>Status</th>
+      <th class="th-left">Sol. Pendentes</th>
+      <th class="th-left">Substituto / Saldo</th>
+      <th class="th-left">Lote Rec.</th>
+    </tr>
+  </thead>
+  <tbody>${rowsHtml}</tbody>
+</table>
+
+<div class="footer">
+  <span>${dataToExport.length} produto(s)${selectedItems.size > 0 ? ' selecionados' : ' exibidos'} de ${safeData.length} no total</span>
+  <span>Gerado em ${date} às ${time} · FarmaIA</span>
+</div>
+
+</body>
+</html>`;
+
+    const win = window.open('', '_blank', 'width=1200,height=850');
+    if (win) {
+      win.document.write(html);
+      win.document.close();
+      win.focus();
+      setTimeout(() => { win.print(); }, 700);
+    }
   };
 
   const downloadTemplates = () => {

@@ -2,9 +2,8 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import {
   Upload, AlertTriangle, Package, TrendingUp, TrendingDown,
-  CheckCircle, XCircle, Search, RefreshCw, Minus, Download, MessageCircle
+  CheckCircle, XCircle, Search, RefreshCw, Minus, Download, MessageCircle, Brain
 } from 'lucide-react';
-import { exportToPDF, PDF_COLORS } from '../utils/pdfExport';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend
@@ -158,6 +157,52 @@ export function RastreioFalta() {
   const [sortBy, setSortBy] = useState<'projecao' | 'total' | 'saldo' | 'media'>('projecao');
   const [waStatus, setWaStatus] = useState<WhatsAppStatus>('idle');
   const [waError, setWaError] = useState<string | null>(null);
+  const [colFilters, setColFilters] = useState({ mediaMin: '', saldoMax: '', projecaoMax: '' });
+  const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
+  const [aiInsight, setAiInsight] = useState('');
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  const handleAiAnalysis = useCallback(async () => {
+    if (!data?.rows.length) return;
+    setIsAnalyzing(true);
+    setAiInsight('');
+    try {
+      const criticos = data.rows.filter(r => r.nivel === 'critico').sort((a, b) => a.projecao - b.projecao);
+      const alertas  = data.rows.filter(r => r.nivel === 'alerta').sort((a, b) => a.projecao - b.projecao);
+      const atencao  = data.rows.filter(r => r.nivel === 'atencao').length;
+
+      const linhas = [...criticos, ...alertas].slice(0, 20).map(r => {
+        const proj = r.projecao <= 0 ? 'SEM ESTOQUE' : `${r.projecao.toFixed(0)}d`;
+        return `[${r.nivel.toUpperCase()}] ${r.comercial} (${r.codigo}) | saldo:${r.saldo}${r.unidade} | média:${r.media.toFixed(1)}/dia | projeção:${proj} | tendência:${r.tendencia}`;
+      }).join('\n');
+
+      const prompt = `Você é um farmacêutico hospitalar especialista em gestão de estoques. Analise o rastreio de falta abaixo e forneça 5 ações prioritárias e práticas.
+
+=== RESUMO ===
+Total monitorado: ${data.rows.length} produtos
+Críticos (≤7 dias): ${criticos.length}
+Alerta (8–15 dias): ${alertas.length}
+Atenção (16–30 dias): ${atencao}
+
+=== ITENS CRÍTICOS E ALERTA ===
+${linhas || 'Nenhum item em situação crítica ou alerta.'}
+
+Forneça 5 pontos de ação priorizados por urgência. Seja direto e prático. Use linguagem técnica brasileira de farmácia hospitalar.`;
+
+      const res = await fetch('/api/ai-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json() as { text: string };
+      setAiInsight(json.text || 'Não foi possível gerar análise no momento.');
+    } catch {
+      setAiInsight('Erro ao gerar análise. Verifique a conexão com a API.');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }, [data]);
 
   const autoSendWhatsApp = useCallback(async (rows: TrackingRow[]) => {
     setWaStatus('sending');
@@ -263,6 +308,11 @@ export function RastreioFalta() {
       );
     }
 
+    // Column filters
+    if (colFilters.mediaMin !== '') rows = rows.filter(r => r.media >= Number(colFilters.mediaMin));
+    if (colFilters.saldoMax !== '') rows = rows.filter(r => r.saldo <= Number(colFilters.saldoMax));
+    if (colFilters.projecaoMax !== '') rows = rows.filter(r => r.projecao <= Number(colFilters.projecaoMax));
+
     rows.sort((a, b) => {
       if (sortBy === 'projecao') {
         // Zeros (not-consuming) go to the end
@@ -278,42 +328,204 @@ export function RastreioFalta() {
     });
 
     return rows;
-  }, [data, search, filterNivel, filterTend, sortBy]);
+  }, [data, search, filterNivel, filterTend, sortBy, colFilters]);
 
   // ── PDF Export ───────────────────────────────────────────────────────────
   const exportPDF = useCallback(() => {
     if (!filtered.length || !stats || !data) return;
+    const rowsToExport = selectedRows.size > 0
+      ? filtered.filter(r => selectedRows.has(r.codigo))
+      : filtered;
+    if (!rowsToExport.length) return;
     const date = new Date().toLocaleDateString('pt-BR');
+    const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
     const { diaLabels } = data;
-    exportToPDF({
-      title: 'Rastreio de Falta',
-      subtitle: `${filtered.length} produtos · Dias: ${diaLabels.join(', ')} · ${date}`,
-      filename: `rastreio_falta_${date.replace(/\//g, '-')}.pdf`,
-      isLandscape: true,
-      accentColor: PDF_COLORS.red,
-      kpis: [
-        { label: 'Total Produtos',  value: String(data.rows.length),    color: PDF_COLORS.slate   },
-        { label: 'Crítico',         value: String(stats.critico),        color: PDF_COLORS.red     },
-        { label: 'Alerta',          value: String(stats.alerta),         color: PDF_COLORS.amber   },
-        { label: 'Atenção',         value: String(stats.atencao),        color: PDF_COLORS.blue    },
-        { label: 'OK',              value: String(stats.ok),             color: PDF_COLORS.emerald },
-        { label: 'Tend. Alta',      value: String(stats.tendAlta),       color: PDF_COLORS.purple  },
-      ],
-      headers: ['#', 'Código', 'Produto', 'Unidade', ...diaLabels, 'Média/dia', 'Saldo', 'Projeção (d)', 'Tend.', 'Status'],
-      data: filtered.map((r, i) => [
-        String(i + 1),
-        r.codigo,
-        r.comercial.length > 38 ? r.comercial.substring(0, 38) + '…' : r.comercial,
-        r.unidade,
-        ...r.dias.map(String),
-        r.media.toFixed(1),
-        r.saldo.toLocaleString('pt-BR'),
-        r.projecao <= 0 ? '—' : `${r.projecao.toFixed(0)}d`,
-        r.tendencia === 'alta' ? '↑ Alta' : r.tendencia === 'queda' ? '↓ Queda' : '→ Estável',
-        NIVEL_CONFIG[r.nivel].label,
-      ]),
-    });
-  }, [filtered, stats, data]);
+
+    const nivelStyle: Record<string, { color: string; bg: string; border: string }> = {
+      critico: { color: '#dc2626', bg: '#fff1f2', border: '#fca5a5' },
+      alerta:  { color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
+      atencao: { color: '#2563eb', bg: '#eff6ff', border: '#93c5fd' },
+      ok:      { color: '#16a34a', bg: '#f0fdf4', border: '#86efac' },
+    };
+
+    const tendIcon = (t: string) =>
+      t === 'alta'  ? '<span style="color:#dc2626;font-weight:700">↑ Alta</span>' :
+      t === 'queda' ? '<span style="color:#16a34a;font-weight:700">↓ Queda</span>' :
+                     '<span style="color:#64748b">→ Estável</span>';
+
+    const kpis = [
+      { label: 'Total',    value: String(data.rows.length), color: '#334155' },
+      { label: 'Crítico',  value: String(stats.critico),    color: '#dc2626' },
+      { label: 'Alerta',   value: String(stats.alerta),     color: '#d97706' },
+      { label: 'Atenção',  value: String(stats.atencao),    color: '#2563eb' },
+      { label: 'OK',       value: String(stats.ok),         color: '#16a34a' },
+      { label: 'Tend.↑',  value: String(stats.tendAlta),   color: '#7c3aed' },
+    ];
+
+    const kpisHtml = kpis.map(k => `
+      <div class="kpi-card">
+        <div class="kpi-value" style="color:${k.color}">${k.value}</div>
+        <div class="kpi-label">${k.label}</div>
+      </div>`).join('');
+
+    const dayHeaders = diaLabels.map(d => `<th class="th-day">${d}</th>`).join('');
+
+    const rowsHtml = rowsToExport.map((r, i) => {
+      const ns = nivelStyle[r.nivel] || nivelStyle.ok;
+      const bg = i % 2 === 1 ? '#f8fafc' : '#ffffff';
+      const dayCells = r.dias.map(v => {
+        const color = v < 0 ? '#dc2626' : v === 0 ? '#94a3b8' : '#1e293b';
+        return `<td class="td-day" style="color:${color}">${v}</td>`;
+      }).join('');
+      const proj = r.projecao <= 0 ? '<span style="color:#dc2626;font-weight:700">—</span>' : `${r.projecao.toFixed(0)}d`;
+      return `
+        <tr style="background:${bg}">
+          <td class="td-num">${i + 1}</td>
+          <td class="td-cod">${r.codigo}</td>
+          <td class="td-prod">${r.comercial}<span class="td-un-inline"> · ${r.unidade}</span></td>
+          ${dayCells}
+          <td class="td-media">${r.media.toFixed(1)}</td>
+          <td class="td-saldo" style="font-weight:700;color:${r.saldo <= r.media * 3 ? '#dc2626' : '#1e293b'}">${r.saldo.toLocaleString('pt-BR')}</td>
+          <td class="td-proj">${proj}</td>
+          <td class="td-tend">${tendIcon(r.tendencia)}</td>
+          <td class="td-status">
+            <span class="status-badge" style="color:${ns.color};background:${ns.bg};border:1px solid ${ns.border}">
+              ${NIVEL_CONFIG[r.nivel].label}
+            </span>
+          </td>
+        </tr>`;
+    }).join('');
+
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<style>
+  @page { size: A4 landscape; margin: 10mm 12mm 14mm 12mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 9px; color: #1e293b; background: #fff; }
+
+  /* ── HEADER ── */
+  .header {
+    display: flex; justify-content: space-between; align-items: center;
+    background: linear-gradient(135deg, #991b1b 0%, #dc2626 100%);
+    color: white; padding: 10px 14px; border-radius: 5px; margin-bottom: 10px;
+  }
+  .header h1 { font-size: 18px; font-weight: 700; letter-spacing: 0.3px; }
+  .header .sub { font-size: 8.5px; opacity: 0.8; margin-top: 3px; }
+  .header-right { text-align: right; font-size: 8.5px; opacity: 0.9; line-height: 1.8; }
+  .header-right strong { font-size: 11px; }
+
+  /* ── KPIs ── */
+  .kpis { display: flex; gap: 8px; margin-bottom: 10px; }
+  .kpi-card {
+    flex: 1; background: white; border: 1px solid #e2e8f0;
+    border-radius: 5px; padding: 8px 10px; text-align: center;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  .kpi-value { font-size: 22px; font-weight: 800; line-height: 1; }
+  .kpi-label { font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 3px; }
+
+  /* ── TABLE ── */
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; border: 1px solid #d1d9e6; border-radius: 5px; overflow: hidden; }
+  thead tr { background: #7f1d1d; color: white; }
+  th {
+    padding: 6px 5px; font-size: 8px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.3px;
+    text-align: center; border-right: 1px solid rgba(255,255,255,0.12);
+    overflow: hidden;
+  }
+  th:last-child { border-right: none; }
+  td {
+    padding: 5px 5px; border-bottom: 1px solid #e8edf4;
+    border-right: 1px solid #f1f5f9; font-size: 8.5px;
+    vertical-align: middle; overflow: hidden;
+  }
+  td:last-child { border-right: none; }
+  tbody tr:last-child td { border-bottom: none; }
+
+  /* ── COLUMN WIDTHS ── */
+  col.c-num  { width: 3%; }
+  col.c-cod  { width: 6%; }
+  col.c-prod { width: 36%; }
+  col.c-day  { width: 4%; }
+  col.c-med  { width: 6%; }
+  col.c-sal  { width: 6%; }
+  col.c-proj { width: 5%; }
+  col.c-tend { width: 8%; }
+  col.c-sta  { width: 8%; }
+
+  .td-num  { text-align: center; color: #94a3b8; font-size: 8px; }
+  .td-cod  { font-family: monospace; font-size: 8px; color: #64748b; }
+  .td-prod { font-weight: 600; color: #1e293b; word-break: break-word; line-height: 1.3; }
+  .td-un-inline { font-weight: 400; font-size: 8px; color: #64748b; }
+  .td-day  { text-align: center; font-weight: 600; }
+  .td-media { text-align: center; font-weight: 600; color: #1e293b; }
+  .td-saldo { text-align: center; }
+  .td-proj  { text-align: center; font-weight: 700; }
+  .td-tend  { text-align: center; font-size: 8px; }
+  .td-status{ text-align: center; }
+  .th-day   { font-size: 7.5px; }
+
+  .status-badge {
+    display: inline-block; border-radius: 4px;
+    padding: 2px 6px; font-size: 7.5px; font-weight: 700;
+    white-space: nowrap;
+  }
+
+  /* ── FOOTER ── */
+  .footer { margin-top: 8px; display: flex; justify-content: space-between; font-size: 8px; color: #94a3b8; }
+
+  @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>Rastreio de Falta</h1>
+    <div class="sub">${rowsToExport.length} produtos · Dias: ${diaLabels.join(', ')} · ${date}${selectedRows.size > 0 ? ' · Selecionados' : ''}</div>
+  </div>
+  <div class="header-right">
+    <div>Emitido em: <strong>${date}, ${time}</strong></div>
+    <div>FarmaIA &nbsp;|&nbsp; Logística Farmacêutica</div>
+  </div>
+</div>
+
+<div class="kpis">${kpisHtml}</div>
+
+<table>
+  <colgroup>
+    <col class="c-num"><col class="c-cod"><col class="c-prod">
+    ${diaLabels.map(() => '<col class="c-day">').join('')}
+    <col class="c-med"><col class="c-sal"><col class="c-proj"><col class="c-tend"><col class="c-sta">
+  </colgroup>
+  <thead>
+    <tr>
+      <th>#</th><th>Código</th><th style="text-align:left">Produto / Unidade</th>
+      ${dayHeaders}
+      <th>Méd/dia</th><th>Saldo</th><th>Proj.(d)</th><th>Tend.</th><th>Status</th>
+    </tr>
+  </thead>
+  <tbody>${rowsHtml}</tbody>
+</table>
+
+<div class="footer">
+  <span>Total: ${rowsToExport.length} produtos${selectedRows.size > 0 ? ' selecionados' : ' exibidos'} de ${data.rows.length} no total</span>
+  <span>Gerado em ${date} às ${time} · FarmaIA</span>
+</div>
+
+</body>
+</html>`;
+
+    const win = window.open('', '_blank', 'width=1200,height=850');
+    if (win) {
+      win.document.write(html);
+      win.document.close();
+      win.focus();
+      setTimeout(() => { win.print(); }, 700);
+    }
+  }, [filtered, stats, data, selectedRows]);
 
   // ── WhatsApp ─────────────────────────────────────────────────────────────
   const sendWhatsApp = useCallback(() => {
@@ -448,6 +660,11 @@ export function RastreioFalta() {
           <p className="text-xs text-slate-400 mt-0.5">{rows.length} produtos monitorados · Dias analisados: {diaLabels.join(', ')}</p>
         </div>
         <div className="flex items-center gap-2">
+          <button onClick={handleAiAnalysis} disabled={isAnalyzing}
+            className="flex items-center gap-1.5 text-xs text-white bg-gradient-to-r from-indigo-500 to-violet-600 hover:opacity-90 transition rounded-lg px-3 py-1.5 font-bold shadow-sm disabled:opacity-60">
+            <Brain className="w-3.5 h-3.5" />
+            {isAnalyzing ? 'Analisando...' : 'Analisar com IA'}
+          </button>
           <button onClick={sendWhatsApp}
             className="flex items-center gap-1.5 text-xs text-white bg-green-600 hover:bg-green-700 transition-colors rounded-lg px-3 py-1.5 font-bold shadow-sm">
             <MessageCircle className="w-3.5 h-3.5" />
@@ -456,7 +673,7 @@ export function RastreioFalta() {
           <button onClick={exportPDF}
             className="flex items-center gap-1.5 text-xs text-white bg-rose-600 hover:bg-rose-700 transition-colors rounded-lg px-3 py-1.5 font-bold shadow-sm">
             <Download className="w-3.5 h-3.5" />
-            Exportar PDF
+            {selectedRows.size > 0 ? `Exportar ${selectedRows.size} Selecionados` : 'Exportar PDF'}
           </button>
           <button onClick={() => { setData(null); setSearch(''); setFilterNivel('todos'); setWaStatus('idle'); }}
             className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-rose-500 transition-colors border border-slate-200 hover:border-rose-300 rounded-lg px-3 py-1.5">
@@ -465,6 +682,26 @@ export function RastreioFalta() {
           </button>
         </div>
       </div>
+
+      {/* ── AI Card ──────────────────────────────────────────────────────────── */}
+      {(aiInsight || isAnalyzing) && (
+        <div className="bg-gradient-to-r from-indigo-600 to-violet-700 rounded-2xl p-4 text-white">
+          <div className="flex items-center gap-2 mb-2">
+            <Brain className="w-4 h-4" />
+            <span className="font-semibold text-sm">Análise IA — Rastreio de Falta</span>
+            {isAnalyzing && <RefreshCw className="w-3.5 h-3.5 animate-spin opacity-70 ml-auto" />}
+          </div>
+          {isAnalyzing ? (
+            <div className="space-y-2">
+              {[80, 60, 70, 50, 65].map((w, i) => (
+                <div key={i} className="h-3 bg-white/20 rounded-full animate-pulse" style={{ width: `${w}%` }} />
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-white/90 whitespace-pre-wrap leading-relaxed">{aiInsight}</p>
+          )}
+        </div>
+      )}
 
       {/* ── KPIs ─────────────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
@@ -651,25 +888,86 @@ export function RastreioFalta() {
         {/* Table */}
         <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
           <table className="w-full text-left border-collapse">
-            <thead className="sticky top-0 z-10 bg-slate-50 shadow-sm">
+            <thead className="sticky top-0 z-20 bg-slate-50 shadow-sm">
+              {/* ── Col headers ── */}
               <tr className="border-b border-slate-200">
-                <th className="px-4 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest text-center">#</th>
-                <th className="px-4 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Produto</th>
+                <th className="px-3 py-3 w-9">
+                  <input type="checkbox"
+                    className="w-4 h-4 rounded accent-rose-600 cursor-pointer"
+                    checked={filtered.length > 0 && filtered.every(r => selectedRows.has(r.codigo))}
+                    onChange={e => {
+                      if (e.target.checked) setSelectedRows(new Set(filtered.map(r => r.codigo)));
+                      else setSelectedRows(new Set());
+                    }}
+                  />
+                </th>
+                <th className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest text-center">#</th>
+                <th className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Produto</th>
                 {diaLabels.map(lbl => (
-                  <th key={lbl} className="px-3 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right">{lbl}</th>
+                  <th key={lbl} className="px-3 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right">{lbl}</th>
                 ))}
-                <th className="px-4 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest text-right">Média/dia</th>
-                <th className="px-4 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest text-right">Saldo</th>
-                <th className="px-4 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest min-w-[140px]">Projeção (dias)</th>
-                <th className="px-4 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest text-center">Tendência</th>
-                <th className="px-4 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest text-center">Status</th>
+                <th className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest text-right">Média/dia</th>
+                <th className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest text-right">Saldo</th>
+                <th className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest min-w-[140px]">Projeção (dias)</th>
+                <th className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest text-center">Tendência</th>
+                <th className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest text-center">Status</th>
+              </tr>
+              {/* ── Column filters ── */}
+              <tr className="border-b border-slate-100 bg-white">
+                <td colSpan={3} className="px-3 py-1.5">
+                  <span className="text-[10px] text-slate-400 font-semibold">Filtros</span>
+                </td>
+                {diaLabels.map(lbl => <td key={lbl} />)}
+                <td className="px-2 py-1.5">
+                  <input type="number" placeholder="≥ min"
+                    value={colFilters.mediaMin}
+                    onChange={e => setColFilters(p => ({ ...p, mediaMin: e.target.value }))}
+                    className="w-full text-[11px] border border-slate-200 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-rose-400 text-right bg-slate-50"
+                  />
+                </td>
+                <td className="px-2 py-1.5">
+                  <input type="number" placeholder="≤ max"
+                    value={colFilters.saldoMax}
+                    onChange={e => setColFilters(p => ({ ...p, saldoMax: e.target.value }))}
+                    className="w-full text-[11px] border border-slate-200 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-rose-400 text-right bg-slate-50"
+                  />
+                </td>
+                <td className="px-2 py-1.5">
+                  <input type="number" placeholder="≤ dias"
+                    value={colFilters.projecaoMax}
+                    onChange={e => setColFilters(p => ({ ...p, projecaoMax: e.target.value }))}
+                    className="w-full text-[11px] border border-slate-200 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-rose-400 text-right bg-slate-50"
+                  />
+                </td>
+                <td colSpan={2} className="px-2 py-1.5">
+                  {(colFilters.mediaMin || colFilters.saldoMax || colFilters.projecaoMax) && (
+                    <button onClick={() => setColFilters({ mediaMin: '', saldoMax: '', projecaoMax: '' })}
+                      className="text-[10px] text-rose-500 font-bold hover:text-rose-700 whitespace-nowrap">
+                      ✕ Limpar
+                    </button>
+                  )}
+                </td>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
               {filtered.slice(0, 300).map((row, i) => {
                 const cfg = NIVEL_CONFIG[row.nivel];
+                const isSelected = selectedRows.has(row.codigo);
                 return (
-                  <tr key={i} className="hover:bg-slate-50/50 transition-colors group">
+                  <tr key={i} className={`transition-colors group ${isSelected ? 'bg-rose-50/50' : 'hover:bg-slate-50/50'}`}>
+                    <td className="px-3 py-3 text-center">
+                      <input type="checkbox"
+                        className="w-4 h-4 rounded accent-rose-600 cursor-pointer"
+                        checked={isSelected}
+                        onChange={e => {
+                          setSelectedRows(prev => {
+                            const next = new Set(prev);
+                            e.target.checked ? next.add(row.codigo) : next.delete(row.codigo);
+                            return next;
+                          });
+                        }}
+                      />
+                    </td>
                     <td className="px-4 py-4 text-[11px] text-slate-400 font-bold text-center border-l-4" style={{ borderColor: cfg.color }}>{i + 1}</td>
                     
                     <td className="px-4 py-4">

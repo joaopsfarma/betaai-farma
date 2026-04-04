@@ -40,7 +40,8 @@ export type TabId =
   | 'remanejamento'
   | 'indicadores_logisticos_v2'
   | 'daily_tracking'
-  | 'painel_tv_ressuprimento';
+  | 'painel_tv_ressuprimento'
+  | 'painel_nutricao';
 
 export interface NavItem {
   id: TabId;

@@ -379,103 +379,221 @@ export const exportRessuprimentoPDF = (
   data: RessuprimentoItem[],
   filters: { status: string; search: string },
 ) => {
-  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const date = new Date().toLocaleDateString('pt-BR');
+  const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
-  // Header
-  doc.setFillColor(124, 58, 237);
-  doc.rect(0, 0, 297, 20, 'F');
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(13);
-  doc.setFont('helvetica', 'bold');
-  doc.text('RELATÓRIO DE RESSUPRIMENTO — INTELIGÊNCIA DE ESTOQUE', 14, 13);
-
-  doc.setFontSize(8);
-  doc.setFont('helvetica', 'normal');
-  doc.text(`FarmaIA  |  Gerado em ${new Date().toLocaleString('pt-BR')}  |  Filtro: ${filters.status}  |  Busca: ${filters.search || '—'}`, 14, 18);
-
-  // Summary row
   const criticos = data.filter(d => d.status === 'CRÍTICO').length;
-  const alertas = data.filter(d => d.status === 'ALERTA').length;
-  const ok = data.filter(d => d.status === 'OK').length;
-  const necessidadeTotal = data.reduce((s, d) => s + d.necessidadeCompra, 0);
+  const alertas  = data.filter(d => d.status === 'ALERTA').length;
+  const ok       = data.filter(d => d.status === 'OK').length;
+  const necessidadeTotal = data.reduce((s, d) => s + (d.necessidadeCompra || 0), 0);
 
-  doc.setTextColor(30, 30, 30);
-  doc.setFontSize(9);
-  doc.setFont('helvetica', 'bold');
-  doc.text(
-    `Total: ${data.length}  |  Críticos: ${criticos}  |  Alertas: ${alertas}  |  OK: ${ok}  |  Necessidade Total: ${Math.round(necessidadeTotal)} un`,
-    14,
-    27,
-  );
+  const kpis = [
+    { label: 'Total de Itens',    value: String(data.length),                   color: '#4f46e5' },
+    { label: 'Críticos',          value: String(criticos),                       color: '#dc2626' },
+    { label: 'Alertas',           value: String(alertas),                        color: '#d97706' },
+    { label: 'OK',                value: String(ok),                             color: '#16a34a' },
+    { label: 'Necessidade Total', value: `${Math.round(necessidadeTotal).toLocaleString('pt-BR')} un`, color: '#7c3aed' },
+  ];
 
-  autoTable(doc, {
-    startY: 31,
-    head: [['ID', 'Produto / Unid.', 'Risco', 'Consumo/dia', 'Saldo', 'Cobertura (d)', 'Status', 'Previsão de Ruptura', 'Tendência', 'OCs Pendentes']],
-    body: data.map(d => {
-      let ocText = 'Sem OC (pendente criação)';
-      if (d.ocInfo && Array.isArray(d.ocInfo) && d.ocInfo.length > 0) {
-        ocText = d.ocInfo.map((oc: any) => 
-          `OC ${oc.oc}: ${oc.quantidadeComprada} un\n${oc.fornecedor}\nPrev: ${oc.dataPrevista} ${oc.atraso > 0 ? `(${oc.atraso}d atraso)` : ''}`
-        ).join('\n---\n');
-      }
+  const kpisHtml = kpis.map(k => `
+    <div class="kpi-card">
+      <div class="kpi-value" style="color:${k.color}">${k.value}</div>
+      <div class="kpi-label">${k.label}</div>
+    </div>`).join('');
 
-      return [
-        d.id,
-        `${d.produto}\n(${d.unidade})`,
-        d.riscoAss?.label || 'N/A',
-        d.mediaConsumo.toFixed(2),
-        d.saldoAtual.toFixed(0),
-        d.coberturaDias.toFixed(2),
-        d.status,
-        d.previsaoRuptura,
-        d.tendenciaConsumo || 'BAIXA',
-        ocText,
-      ];
-    }),
-    headStyles: { fillColor: [124, 58, 237], textColor: 255, fontStyle: 'bold', fontSize: 8 },
-    bodyStyles: { fontSize: 7, cellPadding: 2 },
-    alternateRowStyles: { fillColor: [248, 249, 250] },
-    columnStyles: {
-      0: { cellWidth: 15 },
-      1: { cellWidth: 63 },
-      2: { cellWidth: 16, halign: 'center', fontStyle: 'bold' },
-      3: { cellWidth: 20, halign: 'right' },
-      4: { cellWidth: 18, halign: 'right' },
-      5: { cellWidth: 22, halign: 'right' },
-      6: { cellWidth: 18, halign: 'center' },
-      7: { cellWidth: 22, halign: 'center' },
-      8: { cellWidth: 22, halign: 'center' },
-      9: { cellWidth: 32 },
-    },
-    didParseCell(hookData) {
-      if (hookData.section === 'body') {
-        if (hookData.column.index === 2) {
-          const val = hookData.cell.raw as string;
-          // Cor do risco
-          if (val === 'Crítico') { hookData.cell.styles.textColor = [220, 38, 38]; }
-          else if (val === 'Alto') { hookData.cell.styles.textColor = [234, 88, 12]; }
-          else if (val === 'Médio') { hookData.cell.styles.textColor = [217, 119, 6]; }
-          else { hookData.cell.styles.textColor = [100, 116, 139]; }
-        }
-        if (hookData.column.index === 6) {
-          const val = hookData.cell.raw as string;
-          if (val === 'CRÍTICO') { hookData.cell.styles.textColor = [220, 38, 38]; hookData.cell.styles.fontStyle = 'bold'; }
-          else if (val === 'ALERTA') { hookData.cell.styles.textColor = [217, 119, 6]; hookData.cell.styles.fontStyle = 'bold'; }
-          else { hookData.cell.styles.textColor = [5, 150, 105]; }
-        }
-      }
-    },
-  });
+  const riscoColor = (label: string) => {
+    if (label === 'Crítico') return '#dc2626';
+    if (label === 'Alto')    return '#ea580c';
+    if (label === 'Médio')   return '#d97706';
+    return '#64748b';
+  };
 
-  const pageCount = (doc as any).internal.getNumberOfPages();
-  for (let i = 1; i <= pageCount; i++) {
-    doc.setPage(i);
-    doc.setFontSize(7);
-    doc.setTextColor(150);
-    doc.text(`Página ${i} de ${pageCount}`, 283, 205, { align: 'right' });
+  const statusStyle = (s: string) => {
+    if (s === 'CRÍTICO') return { color: '#be123c', bg: '#fff1f2', border: '#fda4af' };
+    if (s === 'ALERTA')  return { color: '#b45309', bg: '#fffbeb', border: '#fcd34d' };
+    return                      { color: '#15803d', bg: '#f0fdf4', border: '#86efac' };
+  };
+
+  const tendIcon = (t: string) => {
+    if (t === 'ALTA')  return '<span style="color:#dc2626;font-weight:700">↑ ALTA</span>';
+    if (t === 'MÉDIA') return '<span style="color:#d97706;font-weight:700">→ MÉDIA</span>';
+    return                    '<span style="color:#64748b">↓ BAIXA</span>';
+  };
+
+  const rowsHtml = data.map((d, i) => {
+    const ss = statusStyle(d.status);
+    const bg = i % 2 === 1 ? '#f8fafc' : '#ffffff';
+    const rowBg = d.status === 'CRÍTICO' ? '#fff1f2' : d.status === 'ALERTA' ? '#fffbeb' : bg;
+    const risco = d.riscoAss?.label || 'N/A';
+
+    let ocHtml = '<span class="empty">Sem OC (pendente criação)</span>';
+    if (d.ocInfo && d.ocInfo.length > 0) {
+      ocHtml = d.ocInfo.map(oc =>
+        `<div class="oc-item"><strong>OC ${oc.oc}</strong>: ${oc.quantidadeComprada.toLocaleString('pt-BR')} un` +
+        `<br><span class="oc-forn">${oc.fornecedor}</span>` +
+        `<br><span class="oc-prev">Prev: ${oc.dataPrevista}${oc.atraso > 0 ? ` <span class="oc-atraso">(${oc.atraso}d atraso)</span>` : ''}</span></div>`
+      ).join('');
+    }
+
+    const cobColor = d.coberturaDias <= 3 ? '#dc2626' : d.coberturaDias <= 7 ? '#d97706' : '#1e293b';
+
+    return `
+      <tr style="background:${rowBg}">
+        <td class="td-id">${d.id}</td>
+        <td class="td-prod">${d.produto}<span class="td-un"> · ${d.unidade}</span></td>
+        <td class="td-risco" style="color:${riscoColor(risco)}">${risco}</td>
+        <td class="td-num">${d.mediaConsumo.toFixed(2)}</td>
+        <td class="td-num">${d.saldoAtual.toFixed(0)}</td>
+        <td class="td-num" style="color:${cobColor};font-weight:700">${d.coberturaDias.toFixed(2)}</td>
+        <td class="td-status">
+          <span class="status-badge" style="color:${ss.color};background:${ss.bg};border:1px solid ${ss.border}">${d.status}</span>
+        </td>
+        <td class="td-center">${d.previsaoRuptura || '—'}</td>
+        <td class="td-center">${tendIcon(d.tendenciaConsumo || 'BAIXA')}</td>
+        <td class="td-oc">${ocHtml}</td>
+      </tr>`;
+  }).join('');
+
+  const filterDesc = [
+    filters.status && filters.status !== 'TODOS' ? `Status: ${filters.status}` : 'Todos os status',
+    filters.search ? `Busca: "${filters.search}"` : null,
+  ].filter(Boolean).join(' · ');
+
+  const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<style>
+  @page { size: A4 landscape; margin: 10mm 12mm 14mm 12mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 9px; color: #1e293b; background: #fff; }
+
+  .header {
+    display: flex; justify-content: space-between; align-items: center;
+    background: linear-gradient(135deg, #4c1d95 0%, #7c3aed 100%);
+    color: white; padding: 10px 14px; border-radius: 5px; margin-bottom: 10px;
+  }
+  .header h1 { font-size: 16px; font-weight: 700; letter-spacing: 0.3px; }
+  .header .sub { font-size: 8px; opacity: 0.8; margin-top: 3px; }
+  .header-right { text-align: right; font-size: 8.5px; opacity: 0.9; line-height: 1.8; }
+  .header-right strong { font-size: 11px; }
+
+  .kpis { display: flex; gap: 8px; margin-bottom: 10px; }
+  .kpi-card {
+    flex: 1; background: white; border: 1px solid #e2e8f0;
+    border-radius: 5px; padding: 8px 10px; text-align: center;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  .kpi-value { font-size: 22px; font-weight: 800; line-height: 1; }
+  .kpi-label { font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 3px; }
+
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; border: 1px solid #d1d9e6; overflow: hidden; }
+  thead tr { background: #4c1d95; color: white; }
+  th {
+    padding: 6px 5px; font-size: 8px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.3px;
+    text-align: center; border-right: 1px solid rgba(255,255,255,0.12);
+  }
+  th.th-left { text-align: left; }
+  th:last-child { border-right: none; }
+  td {
+    padding: 5px 5px; border-bottom: 1px solid #e8edf4;
+    border-right: 1px solid #f1f5f9; font-size: 8px;
+    vertical-align: top; overflow: hidden;
+  }
+  td:last-child { border-right: none; }
+  tbody tr:last-child td { border-bottom: none; }
+
+  col.c-id   { width: 5%; }
+  col.c-prod { width: 26%; }
+  col.c-risk { width: 6%; }
+  col.c-cons { width: 7%; }
+  col.c-sal  { width: 6%; }
+  col.c-cob  { width: 7%; }
+  col.c-sta  { width: 8%; }
+  col.c-prev { width: 10%; }
+  col.c-tend { width: 8%; }
+  col.c-oc   { width: 17%; }
+
+  .td-id     { text-align: center; font-family: monospace; font-size: 7.5px; color: #64748b; vertical-align: middle; }
+  .td-prod   { font-weight: 600; color: #1e293b; word-break: break-word; line-height: 1.35; vertical-align: middle; }
+  .td-un     { font-weight: 400; font-size: 7.5px; color: #64748b; }
+  .td-risco  { text-align: center; font-weight: 700; font-size: 8px; vertical-align: middle; }
+  .td-num    { text-align: center; font-weight: 600; vertical-align: middle; }
+  .td-status { text-align: center; vertical-align: middle; }
+  .td-center { text-align: center; vertical-align: middle; font-size: 8px; }
+  .td-oc     { font-size: 7.5px; line-height: 1.5; vertical-align: top; }
+
+  .status-badge {
+    display: inline-block; border-radius: 4px;
+    padding: 2px 5px; font-size: 7.5px; font-weight: 700;
   }
 
-  doc.save('relatorio-ressuprimento.pdf');
+  .oc-item   { margin-bottom: 4px; padding-bottom: 3px; border-bottom: 1px solid #f1f5f9; }
+  .oc-item:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+  .oc-forn   { color: #64748b; }
+  .oc-prev   { color: #475569; }
+  .oc-atraso { color: #dc2626; font-weight: 700; }
+  .empty     { color: #94a3b8; font-style: italic; }
+
+  .footer { margin-top: 8px; display: flex; justify-content: space-between; font-size: 8px; color: #94a3b8; }
+
+  @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>RELATÓRIO DE RESSUPRIMENTO — INTELIGÊNCIA DE ESTOQUE</h1>
+    <div class="sub">FarmaIA &nbsp;|&nbsp; Gerado em ${date}, ${time} &nbsp;|&nbsp; Filtro: ${filterDesc}</div>
+  </div>
+  <div class="header-right">
+    <div>Emitido em: <strong>${date}, ${time}</strong></div>
+    <div>FarmaIA &nbsp;|&nbsp; Logística Farmacêutica</div>
+  </div>
+</div>
+
+<div class="kpis">${kpisHtml}</div>
+
+<table>
+  <colgroup>
+    <col class="c-id"><col class="c-prod"><col class="c-risk"><col class="c-cons">
+    <col class="c-sal"><col class="c-cob"><col class="c-sta"><col class="c-prev">
+    <col class="c-tend"><col class="c-oc">
+  </colgroup>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th class="th-left">Produto / Unid.</th>
+      <th>Risco</th>
+      <th>Consumo/dia</th>
+      <th>Saldo</th>
+      <th>Cobertura (d)</th>
+      <th>Status</th>
+      <th>Previsão de Ruptura</th>
+      <th>Tendência</th>
+      <th class="th-left">OCs Pendentes</th>
+    </tr>
+  </thead>
+  <tbody>${rowsHtml}</tbody>
+</table>
+
+<div class="footer">
+  <span>Total: ${data.length} itens${filters.search ? ` · Busca: "${filters.search}"` : ''}</span>
+  <span>Gerado em ${date} às ${time} · FarmaIA</span>
+</div>
+
+</body>
+</html>`;
+
+  const win = window.open('', '_blank', 'width=1200,height=850');
+  if (win) {
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    setTimeout(() => { win.print(); }, 700);
+  }
 };
 
 // ─── RESSUPRIMENTO — DASHBOARD PDF ──────────────────────────────────────────
@@ -1355,4 +1473,123 @@ export const exportOCTabPDF = ({ items, filterLabel }: {
 
   drawPDFFooters(doc, color);
   doc.save(`ordens-compra-${filterName.toLowerCase().replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}.pdf`);
+};
+
+// ─── Nutrição Export ──────────────────────────────────────────────────────────
+
+interface NutricaoPDFLote {
+  lote: string;
+  validade: string;
+  diasParaVencer: number;
+  quantidade: number;
+}
+
+interface NutricaoPDFRow {
+  produtoId: string;
+  nome: string;
+  unidade: string;
+  estoqueAtual: number;
+  menorDias: number;
+  menorValidade: string;
+  status: 'URGENTE' | 'ATENCAO' | 'OK';
+  lotes: NutricaoPDFLote[];
+}
+
+interface NutricaoKPIs {
+  total: number;
+  urgente: number;
+  atencao: number;
+  estoqueTotal: number;
+}
+
+export const exportNutricaoPDF = (
+  produtos: NutricaoPDFRow[],
+  kpis: NutricaoKPIs
+): void => {
+  const doc = new jsPDF({ orientation: 'landscape' });
+  const color = PDF_COLORS.teal;
+
+  let currentY = drawPDFHeader(
+    doc,
+    'Painel da Nutrição',
+    'Controle de Validade e Estoque — Dietas Enterais',
+    color
+  );
+
+  currentY = drawKPICards(doc, [
+    { label: 'Total de Produtos', value: kpis.total.toString(), color: PDF_COLORS.teal },
+    { label: 'Vencendo ≤30 dias', value: kpis.urgente.toString(), color: PDF_COLORS.red },
+    { label: 'Vencendo ≤60 dias', value: kpis.atencao.toString(), color: PDF_COLORS.amber },
+    { label: 'Estoque Total', value: kpis.estoqueTotal.toLocaleString('pt-BR'), color: PDF_COLORS.slate },
+  ], currentY);
+
+  // Sanitize non-ASCII chars that helvetica can't render
+  const ascii = (s: string) =>
+    s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7E]/g, ' ').replace(/\s+/g, ' ').trim();
+
+  const tableData = produtos.map(p => [
+    ascii(p.nome),
+    p.produtoId,
+    p.unidade,
+    p.estoqueAtual.toLocaleString('pt-BR'),
+    p.menorValidade || '—',
+    p.menorDias <= 0 ? 'Vencido' : `${p.menorDias}d`,
+    p.status === 'ATENCAO' ? 'ATENÇÃO' : p.status,
+    p.lotes.map(l => `${l.lote} (${l.validade} · ${l.quantidade.toLocaleString('pt-BR')}un)`).join('\n'),
+  ]);
+
+  const STATUS_COLORS_NUT: Record<string, [number, number, number]> = {
+    URGENTE: [220, 38, 38],
+    ATENÇÃO: [202, 138, 4],
+    OK: [22, 163, 74],
+  };
+
+  autoTable(doc, {
+    startY: currentY + 2,
+    head: [['Produto', 'Cód.', 'Un.', 'Estoque', 'Validade', 'Dias', 'Status', 'Lotes']],
+    body: tableData,
+    theme: 'grid',
+    margin: { left: 12, right: 12, bottom: 20 },
+    styles: {
+      fontSize: 7,
+      cellPadding: 2.5,
+      valign: 'middle',
+      overflow: 'linebreak',
+    },
+    headStyles: {
+      fillColor: color,
+      textColor: [255, 255, 255],
+      fontStyle: 'bold',
+      halign: 'center',
+    },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+    columnStyles: {
+      0: { cellWidth: 75, fontStyle: 'bold', textColor: [30, 41, 59] },
+      1: { cellWidth: 14, halign: 'center' },
+      2: { cellWidth: 16, halign: 'center' },
+      3: { cellWidth: 16, halign: 'right' },
+      4: { cellWidth: 20, halign: 'center' },
+      5: { cellWidth: 12, halign: 'center', fontStyle: 'bold' },
+      6: { cellWidth: 16, halign: 'center', fontStyle: 'bold' },
+      7: { cellWidth: 'auto' },
+    },
+    didParseCell(data) {
+      if (data.section === 'body' && data.column.index === 6) {
+        const c = STATUS_COLORS_NUT[data.cell.raw as string];
+        if (c) data.cell.styles.textColor = c;
+      }
+      if (data.section === 'body' && data.column.index === 5) {
+        const raw = data.cell.raw as string;
+        if (raw === 'Vencido' || raw.replace('d', '') !== raw) {
+          const dias = parseInt(raw, 10);
+          if (raw === 'Vencido' || dias <= 30) data.cell.styles.textColor = [220, 38, 38];
+          else if (dias <= 60) data.cell.styles.textColor = [202, 138, 4];
+          else data.cell.styles.textColor = [22, 163, 74];
+        }
+      }
+    },
+  });
+
+  drawPDFFooters(doc, color);
+  doc.save('painel-nutricao.pdf');
 };

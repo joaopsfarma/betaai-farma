@@ -7,9 +7,8 @@ import {
   Upload, TrendingDown, Package, AlertTriangle, CheckCircle,
   BarChart2, ChevronLeft, ChevronRight, Target, Activity,
   Database, Search, RefreshCw, FileText, X, TrendingUp,
-  ShieldCheck, AlertCircle, Layers, Brain, Image as ImageIcon, FileDown,
+  ShieldCheck, AlertCircle, Layers, Image as ImageIcon, FileDown,
 } from 'lucide-react';
-import { GoogleGenAI } from "@google/genai";
 import { exportIndicadoresLogisticosPDF } from '../utils/pdfExport';
 
 // ─── PARSING HELPERS ──────────────────────────────────────────────────────────
@@ -67,79 +66,6 @@ function fmtNum(n: number, dec = 0): string {
 }
 
 // ─── AI PROMPT BUILDER ────────────────────────────────────────────────────────
-
-function buildGeminiPrompt(
-  kpis: { taxaAc: number; okAc: number; divergentes: number; totalBaixas: number; pctValidade: number; vlValidade: number; venc90: number; vencidos: number; vlVencendo: number; totalEstoqueVal: number; classeAVal: number; classeACount: number },
-  filesLoaded: { baixas: boolean; acuracidade: boolean; abcConsumo: boolean; abcEstoque: boolean; validade: boolean },
-  baixasData: { produto: string; motivo: string; total: number }[],
-  abcEstoqueData: { nome: string; classe: string; custoTotal: number }[],
-  validadeData: { nome: string; diasVenc: number; vlTotal: number }[]
-): string {
-  const classeAPercent = kpis.totalEstoqueVal > 0
-    ? ((kpis.classeAVal / kpis.totalEstoqueVal) * 100).toFixed(1)
-    : '—';
-
-  const top5Baixas = [...baixasData]
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 5)
-    .map(b => `  • ${b.produto} (R$ ${b.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}) — ${b.motivo}`)
-    .join('\n') || '  Nenhuma baixa registrada.';
-
-  const itensVencidos = validadeData
-    .filter(i => i.diasVenc < 0)
-    .slice(0, 5)
-    .map(v => `  • ${v.nome} — vencido há ${Math.abs(v.diasVenc)}d (R$ ${v.vlTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`)
-    .join('\n') || '  Nenhum item vencido.';
-
-  const classeAItens = [...abcEstoqueData]
-    .filter(i => i.classe === 'A')
-    .sort((a, b) => b.custoTotal - a.custoTotal)
-    .slice(0, 5)
-    .map(i => `  • ${i.nome} — R$ ${i.custoTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`)
-    .join('\n') || '  Dados não carregados.';
-
-  return `Você é um especialista sênior em gestão de logística farmacêutica hospitalar, com profundo conhecimento em acurácia de inventário, curva ABC, controle de validade, perdas operacionais e conformidade ANVISA.
-
-Analise os indicadores abaixo e forneça uma análise crítica estruturada com exatamente 5 pontos de ação, priorizados por impacto operacional e financeiro.
-
-═══════════════════════════════════════════
-INDICADORES LOGÍSTICOS — FARMÁCIA HOSPITALAR
-═══════════════════════════════════════════
-
-1. ACURÁCIA DE INVENTÁRIO${filesLoaded.acuracidade ? '' : ' (dados não carregados)'}
-   - Taxa de Acuracidade: ${filesLoaded.acuracidade ? `${kpis.taxaAc.toFixed(1)}%` : 'N/D'} ${kpis.taxaAc < 80 ? '⚠️ ABAIXO DO MÍNIMO ACEITÁVEL (meta: ≥ 98% — ANVISA/boas práticas)' : '✓ Dentro do padrão'}
-   - Itens OK: ${filesLoaded.acuracidade ? kpis.okAc : 'N/D'} | Divergentes: ${filesLoaded.acuracidade ? kpis.divergentes : 'N/D'}
-
-2. BAIXAS DE ESTOQUE${filesLoaded.baixas ? '' : ' (dados não carregados)'}
-   - Valor Total de Baixas: ${filesLoaded.baixas ? `R$ ${kpis.totalBaixas.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : 'N/D'}
-   - Baixas por Validade: ${filesLoaded.baixas ? `${kpis.pctValidade.toFixed(1)}% (R$ ${kpis.vlValidade.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})` : 'N/D'} ${kpis.pctValidade > 30 ? '⚠️ ACIMA DO LIMITE CRÍTICO (meta: < 5%)' : ''}
-   - Top 5 Produtos com Maiores Baixas:
-${top5Baixas}
-
-3. CONTROLE DE VALIDADE${filesLoaded.validade ? '' : ' (dados não carregados)'}
-   - Itens Vencendo em 90 dias: ${filesLoaded.validade ? kpis.venc90 : 'N/D'}
-   - Itens Vencidos: ${filesLoaded.validade ? kpis.vencidos : 'N/D'} ${kpis.vencidos > 0 ? '⚠️ AÇÃO IMEDIATA — RDC 204/2017 exige retirada imediata de vencidos' : ''}
-   - Valor em Risco (90d): ${filesLoaded.validade ? `R$ ${kpis.vlVencendo.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : 'N/D'}
-   - Itens já vencidos (amostra):
-${itensVencidos}
-
-4. CURVA ABC — ESTOQUE${filesLoaded.abcEstoque ? '' : ' (dados não carregados)'}
-   - Valor Total de Estoque: ${filesLoaded.abcEstoque ? `R$ ${kpis.totalEstoqueVal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : 'N/D'}
-   - Valor Classe A: ${filesLoaded.abcEstoque ? `R$ ${kpis.classeAVal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} (${classeAPercent}% do total)` : 'N/D'}
-   - Quantidade de Itens Classe A: ${filesLoaded.abcEstoque ? kpis.classeACount : 'N/D'}
-   - Maiores Itens Classe A (por valor):
-${classeAItens}
-
-═══════════════════════════════════════════
-
-FORMATO DE RESPOSTA OBRIGATÓRIO:
-Forneça exatamente 5 pontos de análise. Cada ponto deve ter:
-- Título curto em negrito (ex: **Risco de Perda Financeira por Validade**)
-- Diagnóstico objetivo em 1-2 frases com base nos dados apresentados
-- Ação recomendada específica, imediata e aplicável em farmácia hospitalar brasileira
-
-Use linguagem técnica, direta e executiva. Priorize achados com maior impacto financeiro ou regulatório. Evite generalidades. Considere as boas práticas da ANVISA, FEFO, curva ABC e gestão de riscos de desabastecimento.`;
-}
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 
@@ -380,10 +306,7 @@ export const IndicadoresLogisticos: React.FC = () => {
   const [pageV, setPageV] = useState(1);
   const [validFilter, setValidFilter] = useState<'ALL' | 'VENCIDO' | '30' | '90' | 'OK'>('ALL');
 
-  // ─── EXPORT + AI STATE ─────────────────────────────────────────────────────
-  const [aiInsight, setAiInsight] = useState<string>('');
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [aiExpanded, setAiExpanded] = useState(false);
+  // ─── EXPORT STATE ─────────────────────────────────────────────────────────
   const [isExportingPng, setIsExportingPng] = useState(false);
   const dashboardRef = useRef<HTMLDivElement>(null);
 
@@ -471,23 +394,6 @@ export const IndicadoresLogisticos: React.FC = () => {
 
   const handleExportPdf = () => {
     exportIndicadoresLogisticosPDF({ kpis, filesLoaded, baixasData, abcEstoqueData, validadeData });
-  };
-
-  const handleAiAnalysis = async () => {
-    setIsAnalyzing(true);
-    setAiInsight('');
-    setAiExpanded(false);
-    try {
-      const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
-      const prompt = buildGeminiPrompt(kpis, filesLoaded, baixasData, abcEstoqueData, validadeData);
-      const response = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt });
-      setAiInsight(response.text || 'Não foi possível gerar análise no momento.');
-    } catch (err) {
-      console.error('AI analysis error:', err);
-      setAiInsight('Erro ao conectar com a inteligência artificial. Verifique sua conexão e a chave de API.');
-    } finally {
-      setIsAnalyzing(false);
-    }
   };
 
   // ─── KPIs ──────────────────────────────────────────────────────────────────
@@ -754,13 +660,6 @@ export const IndicadoresLogisticos: React.FC = () => {
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <button onClick={handleAiAnalysis} disabled={isAnalyzing}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, border: 'none', borderRadius: 10, padding: '8px 16px', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', cursor: isAnalyzing ? 'wait' : 'pointer', fontSize: 13, color: '#fff', fontWeight: 700, opacity: isAnalyzing ? 0.75 : 1 }}>
-            {isAnalyzing
-              ? <RefreshCw size={14} style={{ animation: 'il-spin 1s linear infinite' }} />
-              : <Brain size={14} />}
-            {isAnalyzing ? 'Analisando…' : 'Análise IA'}
-          </button>
           <button onClick={handleExportPng} disabled={isExportingPng} title="Exportar como imagem PNG"
             style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid #e2e8f0', borderRadius: 10, padding: '8px 14px', background: '#fff', cursor: isExportingPng ? 'wait' : 'pointer', fontSize: 13, color: '#475569', fontWeight: 600, opacity: isExportingPng ? 0.6 : 1 }}>
             {isExportingPng ? <RefreshCw size={14} style={{ animation: 'il-spin 1s linear infinite' }} /> : <ImageIcon size={14} />} PNG
@@ -789,50 +688,6 @@ export const IndicadoresLogisticos: React.FC = () => {
           </div>
         ))}
       </div>
-
-      {/* AI Analysis Card */}
-      {(aiInsight || isAnalyzing) && (
-        <div style={{ background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)', borderRadius: 16, padding: '20px 24px', marginBottom: 24, boxShadow: '0 4px 24px rgba(99,102,241,0.18)', position: 'relative', overflow: 'hidden' }}>
-          <div style={{ position: 'absolute', top: -10, right: -10, opacity: 0.07, pointerEvents: 'none' }}>
-            <Brain size={120} color="#fff" />
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Brain size={18} color="#fff" />
-              </div>
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>Análise Crítica — IA Gemini</div>
-                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)' }}>Logística Farmacêutica Hospitalar</div>
-              </div>
-            </div>
-            {aiInsight && !isAnalyzing && (
-              <button onClick={() => setAiExpanded(e => !e)}
-                style={{ background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 8, padding: '4px 14px', color: '#fff', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
-                {aiExpanded ? 'Recolher ↑' : 'Expandir ↓'}
-              </button>
-            )}
-          </div>
-          <div style={{ color: 'rgba(255,255,255,0.92)', fontSize: 13, lineHeight: 1.75, maxHeight: aiExpanded ? 'none' : 140, overflow: 'hidden', position: 'relative' }}>
-            {isAnalyzing ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {[92, 76, 60, 84, 50].map((w, i) => (
-                  <div key={i} style={{ height: 12, borderRadius: 6, background: 'rgba(255,255,255,0.18)', width: `${w}%`, animation: `il-pulse 1.5s ease-in-out ${i * 0.15}s infinite` }} />
-                ))}
-              </div>
-            ) : (
-              <>
-                {aiInsight.split('\n').map((line, i) => (
-                  <p key={i} style={{ margin: '0 0 4px 0' }}>{line || '\u00A0'}</p>
-                ))}
-                {!aiExpanded && aiInsight.length > 300 && (
-                  <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 48, background: 'linear-gradient(to bottom, transparent, rgba(79,70,229,0.96))' }} />
-                )}
-              </>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 4, borderBottom: '2px solid #f1f5f9', marginBottom: 24 }}>

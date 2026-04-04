@@ -2,6 +2,8 @@
 // Responde quando o bot é mencionado no grupo com a situação atual de faltas
 // POST /api/whatsapp-webhook
 
+import Anthropic from '@anthropic-ai/sdk';
+
 // ─── Tipos da análise de farmácias (Remanejamento) ───────────────────────────
 
 interface AnaliseItem {
@@ -89,59 +91,57 @@ function resumoEstoqueParaIA(rows: TrackingRow[]): string {
   return `${cabecalho}\n\nITENS COM ATENÇÃO:\n${linhas.join('\n')}`;
 }
 
-// ─── Groq (Llama 3) — análise inteligente ────────────────────────────────────
+// ─── Claude (Anthropic) — análise inteligente ────────────────────────────────
 
-async function askGroq(pergunta: string, rows: TrackingRow[]): Promise<string> {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) return '⚠️ GROQ_API_KEY não configurada no ambiente.';
-
-  const date    = new Date().toLocaleDateString('pt-BR');
-  const estoque = resumoEstoqueParaIA(rows);
-
-  const sistemaMsg = `Você é um assistente especialista em gestão de estoque farmacêutico hospitalar. Hoje é ${date}.
-Responda sempre em português brasileiro, de forma direta e prática.
-Formate para WhatsApp: use *negrito* para destaques, • para listas, _itálico_ para observações.
-Máximo 300 palavras. Priorize urgências.
-
-Você tem acesso ao estoque atual com os seguintes campos:
-- nivel: critico (≤7d), alerta (8-15d), atencao (16-30d), ok (>30d)
-- projecao: dias estimados de estoque (≤0 = ruptura/sem estoque)
-- media: consumo médio diário
-- tendencia: alta/queda/estavel
-
-Quando perguntarem sobre um produto específico, foque nele.
-Quando perguntarem sobre prioridades ou urgências, ordene por menor projeção primeiro.
-Quando perguntarem o que pedir/comprar, liste os itens mais críticos com sugestão de quantidade.`;
-
-  const usuarioMsg = `DADOS DE ESTOQUE ATUAL:\n${estoque}\n\nPERGUNTA: ${pergunta || 'Faça um resumo da situação atual e indique as prioridades.'}`;
+async function askClaude(system: string, user: string, maxTokens: number): Promise<string> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return '⚠️ ANTHROPIC_API_KEY não configurada no ambiente.';
 
   try {
-    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
-        messages: [
-          { role: 'system',  content: sistemaMsg  },
-          { role: 'user',    content: usuarioMsg  },
-        ],
-        max_tokens: 800,
-        temperature: 0.3,
-      }),
+    const client = new Anthropic({ apiKey });
+    const message = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: maxTokens,
+      system,
+      messages: [{ role: 'user', content: user }],
     });
-    if (!res.ok) {
-      const err = await res.text();
-      return `⚠️ Erro ao consultar IA (${res.status}): ${err.slice(0, 120)}`;
-    }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const json = await res.json() as any;
-    return (json.choices?.[0]?.message?.content as string) ?? '';
+    return message.content[0]?.type === 'text' ? message.content[0].text : '';
   } catch (e) {
     return `⚠️ Erro ao consultar IA: ${String(e).slice(0, 120)}`;
   }
+}
+
+async function askGroq(pergunta: string, rows: TrackingRow[]): Promise<string> {
+  const date    = new Date().toLocaleDateString('pt-BR');
+  const hora    = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const estoque = resumoEstoqueParaIA(rows);
+
+  const rupturas = rows.filter(r => r.projecao <= 0).length;
+  const criticos = rows.filter(r => r.nivel === 'critico').length;
+  const situacao = rupturas > 0 ? '🚨 há rupturas agora' : criticos > 0 ? '⚠️ há itens críticos' : '✅ estoque estável';
+
+  const sistemaMsg = `Você é o FarmaBot, assistente de farmácia hospitalar do sistema FarmaIA. Hoje é ${date}, ${hora}. Situação geral: ${situacao}.
+
+Seu jeito de ser:
+- Fale como um colega farmacêutico experiente, não como um robô. Seja humano e direto.
+- Adapte o tom à urgência: se há ruptura, seja objetivo e urgente. Se está tudo ok, seja mais tranquilo.
+- Quando a pergunta for vaga ("tá crítico?", "e aí?"), interprete pelo contexto do estoque e responda com o que for mais relevante.
+- Ao responder sobre um item específico, sempre mencione saldo, projeção e tendência.
+- Se a pergunta envolver "o que pedir", calcule uma sugestão de quantidade: (consumo médio × 30) − saldo atual.
+- No final de respostas longas, sugira uma próxima ação ou ofereça um follow-up natural. Ex: "Quer que eu liste os fornecedores críticos?" ou "Posso gerar um resumo para levar à reunião."
+- Nunca diga "com base nos dados fornecidos" ou frases robóticas assim. Fale naturalmente.
+
+Formatação WhatsApp: *negrito* para nomes e destaques, • para listas, _itálico_ para observações secundárias. Máximo 400 palavras.
+
+Campos do estoque:
+- nivel: critico (≤7d) | alerta (8–15d) | atencao (16–30d) | ok (>30d)
+- projecao: dias restantes de estoque (≤0 = ruptura)
+- media: consumo médio diário
+- tendencia: alta ↑ | queda ↓ | estavel →`;
+
+  const usuarioMsg = `ESTOQUE ATUAL:\n${estoque}\n\nPERGUNTA: ${pergunta || 'Dá um resumo rápido da situação e me diz o que precisa de atenção agora.'}`;
+
+  return askClaude(sistemaMsg, usuarioMsg, 900);
 }
 
 // ─── Detecta intenção da pergunta ────────────────────────────────────────────
@@ -259,9 +259,6 @@ function resumoAnaliseParaIA(analise: AnaliseItem[], farmaciaKey: string | null,
 }
 
 async function askGroqFarmacias(pergunta: string, analise: AnaliseItem[]): Promise<string> {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) return '⚠️ GROQ_API_KEY não configurada.';
-
   const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const t = norm(pergunta);
 
@@ -284,36 +281,20 @@ async function askGroqFarmacias(pergunta: string, analise: AnaliseItem[]): Promi
   const dados = resumoAnaliseParaIA(analise, farmaciaKey, produtoQuery);
   const date  = new Date().toLocaleDateString('pt-BR');
 
-  const sistemaMsg = `Você é um assistente de farmácia hospitalar. Hoje é ${date}.
-Responda em português, direto ao ponto, formatado para WhatsApp (*negrito*, • listas, _itálico_).
-Máximo 250 palavras.
+  const sistemaMsg = `Você é o FarmaBot, assistente de farmácia hospitalar do FarmaIA. Hoje é ${date}.
 
-Campos disponíveis: status (CRÍTICO/ALERTA/NORMAL/EXCESSO/SEM CONSUMO), saldo, consumo diário, cobertura em dias, farmácia.
-- CRÍTICO: cobertura < 15 dias
-- ALERTA: 15–29 dias
-- NORMAL: 30–89 dias
-- EXCESSO: ≥ 90 dias`;
+Responda como um colega farmacêutico que conhece bem cada setor do hospital. Se a pergunta for sobre uma farmácia específica, foque nela e seja contextual. Se for sobre um produto, explique a situação em cada estoque onde ele aparece.
 
-  const usuarioMsg = `DADOS DE ESTOQUE POR FARMÁCIA:\n${dados}\n\nPERGUNTA: ${pergunta}`;
+Ao identificar itens críticos, mencione a urgência naturalmente. Se tudo estiver ok, diga isso de forma tranquila. Ofereça um follow-up ao final quando fizer sentido.
 
-  try {
-    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
-        messages: [{ role: 'system', content: sistemaMsg }, { role: 'user', content: usuarioMsg }],
-        max_tokens: 600,
-        temperature: 0.2,
-      }),
-    });
-    if (!res.ok) return `⚠️ Erro IA (${res.status})`;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const json = await res.json() as any;
-    return (json.choices?.[0]?.message?.content as string) ?? '';
-  } catch (e) {
-    return `⚠️ Erro: ${String(e).slice(0, 80)}`;
-  }
+Nunca use frases robóticas como "com base nos dados fornecidos". Fale naturalmente.
+Formatação WhatsApp: *negrito*, • listas, _itálico_. Máximo 350 palavras.
+
+Status: CRÍTICO (<15d) | ALERTA (15–29d) | NORMAL (30–89d) | EXCESSO (≥90d) | SEM CONSUMO`;
+
+  const usuarioMsg = `ESTOQUE POR FARMÁCIA:\n${dados}\n\nPERGUNTA: ${pergunta}`;
+
+  return askClaude(sistemaMsg, usuarioMsg, 700);
 }
 
 // ─── Remanejamento ───────────────────────────────────────────────────────────
@@ -328,32 +309,28 @@ function buildRemanejamentoReply(snapshot: string): string {
 // ─── Menu de ajuda ───────────────────────────────────────────────────────────
 
 function buildHelp(): string {
-  return `🤖 *Farmácia Bot — Comandos disponíveis*
+  return `👋 Olá! Sou o *FarmaBot*, seu assistente de farmácia hospitalar.
 
-📦 *Consulta de Produto*
-  Mencione o bot + nome ou código
-  Ex: @bot amoxicilina | @bot 1234
+Pode me perguntar qualquer coisa sobre o estoque — falo português normal, não precisa de comando especial. Mas se quiser respostas rápidas, aqui estão alguns atalhos:
 
-📋 *Relatórios Rápidos*
-  • *rupturas* — itens acabando hoje (0–1 dia)
-  • *crítico* — itens com ≤7 dias de estoque
-  • *alerta* — itens com 8–15 dias
+📋 *Relatórios instantâneos*
+  • *rupturas* — itens zerados ou acabando hoje
+  • *crítico* — cobertura ≤7 dias
+  • *alerta* — cobertura 8–15 dias
   • *tudo* — relatório completo
-  • *remanejamento* — sugestões de redistribuição entre estoques
 
-🏥 *Consultas por Farmácia*
-  • *saldo CTI* — situação da Farmácia CTI
-  • *resumo central* — resumo da Farmácia Central
-  • *críticos PS* — itens críticos no Pronto Socorro
-  • *meropenem nas farmácias* — saldo por estoque
-  • *excesso CC* — excessos no Centro Cirúrgico
+🏥 *Por farmácia ou produto*
+  • _@bot saldo CTI_ — situação da CTI
+  • _@bot meropenem nas farmácias_ — saldo por estoque
+  • _@bot críticos PS_ — críticos no Pronto Socorro
 
-🧠 *Pergunta Livre (IA)*
-  Mencione o bot com qualquer pergunta
-  Ex: @bot quais itens vão faltar essa semana?
-  Ex: @bot o que precisa ser pedido urgente?
+🧠 *Perguntas livres*
+  • _@bot o que precisa ser pedido urgente?_
+  • _@bot vai faltar alguma coisa essa semana?_
+  • _@bot quanto de amoxicilina ainda tem?_
+  • _@bot remanejamento_ — sugestões de redistribuição
 
-💡 _Dica: use os relatórios rápidos para respostas instantâneas._`;
+_Dica: se o estoque foi atualizado hoje no FarmaIA, minhas respostas refletem a situação atual._`;
 }
 
 // ─── Formata resposta de estoque (respostas rápidas por palavra-chave) ────────
@@ -620,4 +597,4 @@ export default async function handler(req: Request): Promise<Response> {
   return new Response('OK', { status: 200 });
 }
 
-export const config = { runtime: 'edge' };
+export const config = { runtime: 'nodejs' };

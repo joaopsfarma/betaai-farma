@@ -17,12 +17,9 @@ import {
   ArrowDownRight,
   ShieldAlert,
   Layers,
-  Sparkles,
-  BrainCircuit,
   Info,
   ChevronRight,
   Zap,
-  RefreshCw,
   Calendar,
   Gauge,
   ShieldCheck,
@@ -34,7 +31,6 @@ import {
 import Papa from 'papaparse';
 import { PanelGuide } from './common/PanelGuide';
 import { Target, BarChart3 } from 'lucide-react';
-import { GoogleGenAI } from "@google/genai";
 
 interface DashboardProps {
   data: ProcessedProduct[];
@@ -54,9 +50,6 @@ const COLORS = {
 const CHART_COLORS = [COLORS.primary, COLORS.success, COLORS.warning, COLORS.danger, COLORS.info, COLORS.purple];
 
 export const Dashboard: React.FC<DashboardProps> = ({ data }) => {
-  const [aiInsight, setAiInsight] = useState<string>('');
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-
   const [paretoCount, setParetoCount] = useState<number>(10);
 
   // Novos Estados para CSVs importados localmente
@@ -326,50 +319,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ data }) => {
     });
   }, [processedData]);
 
-  // AI Analysis Effect
-  useEffect(() => {
-    const analyzeData = async () => {
-      if (processedData.length === 0) return;
-      setIsAnalyzing(true);
-      try {
-        const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
-        const criticalList = processedData.filter(p => p.status === 'URGENTE!').map(p => p.name).join(', ');
-        
-        const prompt = `Você é um especialista sênior em gestão de farmácia hospitalar e logística. 
-        Analise os dados abaixo e forneça 3 insights estratégicos e acionáveis (formato bullet points).
-        
-        Dados Gerais:
-        - Total de Itens: ${stats.total}
-        - Itens em Ruptura (Críticos): ${stats.critical}
-        - Giro de Estoque Médio (Diário): ${stats.turnover.toFixed(2)}
-        
-        Lista de Itens Críticos (Amostra): ${criticalList.substring(0, 300)}...
-
-        Foque em:
-        1. **Risco de Desabastecimento**: Ações imediatas para os itens críticos.
-        2. **Eficiência de Estoque**: Como melhorar o giro (se estiver baixo < 0.5 ou muito alto > 1.5).
-        3. **Otimização**: Sugestão para evitar perdas ou excessos.
-
-        Use tom profissional, direto e executivo. Evite obviedades.`;
-
-        const response = await ai.models.generateContent({
-          model: "gemini-3-flash-preview",
-          contents: prompt,
-        });
-        
-        setAiInsight(response.text || 'Não foi possível gerar insights no momento.');
-      } catch (error) {
-        console.error('AI Analysis error:', error);
-        setAiInsight('Erro ao conectar com a inteligência artificial.');
-      } finally {
-        setIsAnalyzing(false);
-      }
-    };
-
-    const timer = setTimeout(analyzeData, 1000);
-    return () => clearTimeout(timer);
-  }, [processedData, stats.total, stats.critical, stats.turnover]);
-
   const containerVariants = {
     hidden: { opacity: 0 },
     visible: {
@@ -485,40 +434,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ data }) => {
           </label>
         </div>
       </div>
-
-      {/* AI Insights Banner */}
-      <motion.div 
-        variants={itemVariants}
-        className="relative overflow-hidden bg-gradient-to-r from-indigo-600 to-purple-700 rounded-3xl p-6 text-white shadow-xl shadow-indigo-200"
-      >
-        <div className="absolute top-0 right-0 p-8 opacity-10">
-          <BrainCircuit className="w-32 h-32" />
-        </div>
-        <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center gap-6">
-          <div className="bg-white/20 p-4 rounded-2xl backdrop-blur-md">
-            <Sparkles className="w-8 h-8 text-yellow-300" />
-          </div>
-          <div className="flex-1">
-            <h3 className="text-lg font-bold flex items-center gap-2 mb-2">
-              Dicas de Manejo (IA Gemini)
-              {isAnalyzing && <RefreshCw className="w-4 h-4 animate-spin opacity-60" />}
-            </h3>
-            <div className="text-indigo-50 text-sm leading-relaxed max-w-3xl">
-              {isAnalyzing ? (
-                <div className="flex items-center gap-2">
-                  <div className="h-4 w-48 bg-white/20 rounded animate-pulse" />
-                </div>
-              ) : (
-                <div className="prose prose-invert prose-sm max-w-none">
-                  {aiInsight.split('\n').map((line, i) => (
-                    <p key={i} className="m-0">{line}</p>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </motion.div>
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

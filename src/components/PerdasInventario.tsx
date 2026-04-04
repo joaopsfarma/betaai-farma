@@ -7,9 +7,8 @@ import {
   Upload, TrendingDown, Package, AlertTriangle, CheckCircle,
   BarChart2, ChevronLeft, ChevronRight, Database, Search,
   RefreshCw, FileText, Activity, Layers, Clock, ShieldCheck,
-  Brain, X, AlertCircle,
+  X, AlertCircle,
 } from 'lucide-react';
-import { GoogleGenAI } from '@google/genai';
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 interface PerdaMesItem { mes: string; perda: number; pctPerda: string; }
@@ -444,10 +443,6 @@ export const PerdasInventario: React.FC = () => {
   const [difFilter, setDifFilter] = useState<'ALL' | 'POS' | 'NEG'>('ALL');
   const [pageDif, setPageDif] = useState(1);
 
-  // AI
-  const [aiInsight, setAiInsight] = useState('');
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [aiExpanded, setAiExpanded] = useState(false);
   const dashboardRef = useRef<HTMLDivElement>(null);
 
   const hasData = Object.values(filesLoaded).some(Boolean);
@@ -665,50 +660,6 @@ export const PerdasInventario: React.FC = () => {
     return () => { document.head.removeChild(style); };
   }, []);
 
-  const handleAiAnalysis = async () => {
-    setIsAnalyzing(true); setAiExpanded(true);
-    try {
-      const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY || '' });
-      const prompt = `Você é um farmacêutico hospitalar sênior analisando indicadores operacionais de estoque.
-
-=== PERDAS ===
-Total de perdas: ${fmtBRL(kpis.totalPerdas)}
-Estoque geral: ${fmtBRL(kpis.vlEstoqueGeral)}
-% Perda x Estoque: ${fmtNum(kpis.pctPerdaEstoque, 2)}%
-Principal causa: ${kpis.topLossReason}
-Por tipo — Estabilidade: ${fmtBRL(kpis.perdaEstabilidade)} | Quebra/Avaria: ${fmtBRL(kpis.perdaQuebraAvaria)} | Validade: ${fmtBRL(kpis.perdaValidade)} | Outros: ${fmtBRL(kpis.perdaOutros)}
-Mês de maior perda: ${kpis.maiorMes} (${fmtBRL(kpis.maiorPerdaMes)})
-
-=== TOP 10 PRODUTOS COM MAIOR PERDA ===
-${top10PerdaData.slice(0, 5).map((t, i) => `${i + 1}. ${t.produto}: ${fmtBRL(t.perda)}`).join('\n')}
-
-=== INVENTÁRIO ===
-Diferença total (valor absoluto): ${fmtBRL(kpis.difInvTotal)}
-Diferença positiva: ${fmtBRL(kpis.difInvPositiva)}
-Diferença negativa: ${fmtBRL(kpis.difInvNegativa)}
-Local com maior impacto: ${kpis.locMaiorDif}
-
-=== MOVIMENTAÇÃO ===
-Total de saídas: ${fmtNum(kpis.totalSaidas)}
-Taxa de devolução: ${fmtNum(kpis.taxaDevolucao, 1)}%
-Valor total de saídas: ${fmtBRL(kpis.vlTotalSaidas)}
-Horário de pico: ${kpis.peakHorario}
-
-=== ACURACIDADE DE ATENDIMENTO ===
-Média geral: ${fmtNum(kpis.avgAlcancado, 1)}%
-Tipos abaixo de 70%: ${kpis.tiposAbaixo70}
-${acuByTipo.slice(0, 3).map(t => `${t.tipo}: ${fmtNum(t.media * 100, 1)}%`).join(' | ')}
-
-Com base nesses dados, forneça 5 pontos de ação priorizados para o gestor de farmácia hospitalar. Seja direto e prático. Use linguagem técnica brasileira.`;
-
-      const res = await ai.models.generateContent({ model: 'gemini-2.0-flash', contents: prompt });
-      setAiInsight(res.text || 'Sem resposta.');
-    } catch (err) {
-      setAiInsight('Erro ao gerar análise. Verifique a chave de API.');
-    }
-    setIsAnalyzing(false);
-  };
-
   // ─── UPLOAD SCREEN ─────────────────────────────────────────────────────────
   if (!hasData || showUpload) {
     return (
@@ -837,42 +788,12 @@ Com base nesses dados, forneça 5 pontos de ação priorizados para o gestor de 
           </div>
         </div>
         <div className="flex gap-2">
-          <button onClick={handleAiAnalysis} disabled={isAnalyzing}
-            className="flex items-center gap-2 bg-gradient-to-r from-indigo-500 to-violet-600 text-white px-3 py-2 rounded-xl text-sm font-medium hover:opacity-90 transition disabled:opacity-60">
-            <Brain className="w-4 h-4" />
-            {isAnalyzing ? 'Analisando...' : 'Análise IA'}
-          </button>
           <button onClick={() => setShowUpload(true)}
             className="flex items-center gap-2 bg-emerald-50 text-emerald-700 px-3 py-2 rounded-xl text-sm font-medium hover:bg-emerald-100 transition">
             <Upload className="w-4 h-4" /> Arquivos
           </button>
         </div>
       </div>
-
-      {/* AI Card */}
-      {(aiInsight || isAnalyzing) && (
-        <div className="bg-gradient-to-r from-indigo-600 to-violet-700 rounded-2xl p-4 text-white">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <Brain className="w-5 h-5" />
-              <span className="font-semibold text-sm">Análise Farmacêutica — IA</span>
-            </div>
-            <button onClick={() => setAiExpanded(!aiExpanded)} className="text-white/70 hover:text-white text-xs">
-              {aiExpanded ? 'Recolher' : 'Expandir'}
-            </button>
-          </div>
-          {isAnalyzing && (
-            <div className="space-y-2">
-              {[80, 60, 70].map((w, i) => (
-                <div key={i} className="h-3 bg-white/20 rounded-full" style={{ width: `${w}%`, animation: 'pi-pulse 1.5s ease-in-out infinite' }} />
-              ))}
-            </div>
-          )}
-          {!isAnalyzing && aiExpanded && (
-            <p className="text-sm text-white/90 whitespace-pre-wrap leading-relaxed">{aiInsight}</p>
-          )}
-        </div>
-      )}
 
       {/* Sub-tabs */}
       <div className="flex gap-1 bg-white rounded-xl p-1 shadow-sm border border-gray-100 overflow-x-auto">
