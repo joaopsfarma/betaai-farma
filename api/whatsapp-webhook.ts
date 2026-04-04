@@ -183,11 +183,11 @@ SEU JEITO DE SER:
 ${nomeUsuario ? `- A pessoa se chama *${nomeUsuario}*. Use o nome naturalmente no início ou durante a resposta quando fizer sentido. Ex: "Olá ${nomeUsuario}," ou "${nomeUsuario}, olha só:"` : ''}
 
 FORMATAÇÃO WHATSAPP: *negrito* para nomes/destaques, • para listas, _itálico_ para observações.
-IMPORTANTE: Máximo 5 itens na lista. Se houver mais, agrupe o restante em uma linha resumida. Termine SEMPRE com uma frase completa — nunca corte no meio.`;
+IMPORTANTE: Liste TODOS os itens relevantes, sem cortar. Termine SEMPRE com uma frase de impacto curta e direta — ex: "São X itens em risco real hoje. Hora de agir." Nunca corte no meio da resposta.`;
 
   const usuarioMsg = `ESTOQUE ATUAL:\n${estoque}\n\nPERGUNTA: ${pergunta || 'Dá um resumo rápido da situação e me diz o que precisa de atenção agora.'}`;
 
-  return askClaude(sistemaMsg, usuarioMsg, 650);
+  return askClaude(sistemaMsg, usuarioMsg, 1024);
 }
 
 // ─── Detecta intenção da pergunta ────────────────────────────────────────────
