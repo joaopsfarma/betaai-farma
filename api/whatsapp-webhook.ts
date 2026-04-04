@@ -236,9 +236,38 @@ IMPORTANTE: Liste TODOS os itens relevantes, sem cortar. Termine SEMPRE com uma 
   return askClaude(sistemaMsg, usuarioMsg, 900);
 }
 
+// ─── Apresentação da Silky — farmacêutica do Noturno ────────────────────────
+
+async function askApresentacaoSilky(nomeUsuario?: string): Promise<string> {
+  const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+  const sistemaMsg = `Você é o FarmaBot, assistente de farmácia hospitalar do FarmaIA.
+
+Você foi perguntado sobre a Silky — a farmacêutica responsável pelo turno Noturno do hospital.
+
+Faça uma apresentação criativa, calorosa e bem-humorada da Silky. Use o seguinte contexto:
+- Nome: Silky
+- Cargo: Farmacêutica do Turno Noturno
+- Ela trabalha quando o hospital dorme, mas os medicamentos nunca param
+- É a guardiã silenciosa da farmácia nas madrugadas
+- Conhece cada prateleira no escuro, cada código de barras de cor
+- Tem um sexto sentido para estoque crítico às 3 da manhã
+- É respeitada pela equipe toda — plantão, residentes, enfermeiros
+
+Tom: divertido, cheio de personalidade, como quem apresenta uma celebridade do hospital.
+Use *negrito* para o nome e destaques. Use emojis com moderação. Formato WhatsApp.
+Termine com uma frase de impacto sobre o papel dela no noturno.
+${nomeUsuario ? `A pessoa que perguntou se chama *${nomeUsuario}*. Mencione o nome no início de forma natural.` : ''}
+Máximo 200 palavras. Seja criativo — não escreva um currículo, escreva uma apresentação com alma.`;
+
+  const usuarioMsg = `Quero conhecer a Silky! Me apresenta ela. São ${hora} agora.`;
+
+  return askClaude(sistemaMsg, usuarioMsg, 400);
+}
+
 // ─── Detecta intenção da pergunta ────────────────────────────────────────────
 
-type Intencao = 'ruptura' | 'critico' | 'alerta' | 'tudo' | 'geral' | 'ia' | 'ajuda' | 'social' | 'remanejamento' | 'farmacia' | 'semana' | 'zerado' | 'tendencia_alta' | 'pedido' | 'remane_ia' | 'remane_excesso' | 'remane_alta';
+type Intencao = 'ruptura' | 'critico' | 'alerta' | 'tudo' | 'geral' | 'ia' | 'ajuda' | 'social' | 'silky' | 'remanejamento' | 'farmacia' | 'semana' | 'zerado' | 'tendencia_alta' | 'pedido' | 'remane_ia' | 'remane_excesso' | 'remane_alta';
 
 function detectarIntencao(texto: string): Intencao {
   if (!texto || texto.length < 2) return 'ajuda';
@@ -253,6 +282,9 @@ function detectarIntencao(texto: string): Intencao {
 
   // Respostas sociais → mensagem amigável curta sem buscar estoque
   if (/^(obrigado|obrigada|obg|valeu|vlw|de nada|perfeito|certo|entendido|tks|thanks|otimo|otima|excelente|show|boa|beleza|ok$|blz$|tmj$|massa$|legal$|sucesso$|👍|🙏|😊)/.test(t)) return 'social';
+
+  // Easter egg — apresentação da Silky, farmacêutica do Noturno
+  if (/silky|conhece.*silky|quem.*silky|silky.*farmac|farmac.*silky/.test(t)) return 'silky';
 
   // Calcula palavras antes do bloco de remanejamento (necessário para ramificação)
   const palavras = t.split(/\s+/).filter(Boolean);
@@ -892,6 +924,12 @@ export default async function handler(req: Request): Promise<Response> {
   if (intencaoAntecipada === 'social') {
     const nome = pushName ? `, ${pushName}` : '';
     await sendReply(remoteJid, `De nada${nome}! 😊 Qualquer dúvida sobre o estoque é só chamar.`);
+    return new Response('OK', { status: 200 });
+  }
+
+  if (intencaoAntecipada === 'silky') {
+    const apresentacao = await askApresentacaoSilky(pushName);
+    await sendReply(remoteJid, `🌙 ${apresentacao}`);
     return new Response('OK', { status: 200 });
   }
 
