@@ -148,7 +148,7 @@ async function askClaude(system: string, user: string, maxTokens: number): Promi
   }
 }
 
-async function askGroq(pergunta: string, rows: TrackingRow[], diaLabels?: string[]): Promise<string> {
+async function askGroq(pergunta: string, rows: TrackingRow[], diaLabels?: string[], nomeUsuario?: string): Promise<string> {
   const date    = new Date().toLocaleDateString('pt-BR');
   const hora    = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
   const estoque = resumoEstoqueParaIA(rows, diaLabels);
@@ -176,9 +176,11 @@ COMO RESPONDER POR TIPO DE PERGUNTA:
 SITUAÇÃO ATUAL: ${situacao}.
 
 SEU JEITO DE SER:
-- Farmacêutico experiente, direto, humano. Adapte o tom: ruptura → objetivo e urgente; estoque ok → tranquilo.
+- Farmacêutico experiente, direto, humano. Fale como colega, não como sistema.
+- Adapte o tom: ruptura → objetivo e urgente; estoque ok → tranquilo e descontraído.
 - Nunca diga "com base nos dados fornecidos". Fale naturalmente.
 - No final de respostas complexas, sugira um próximo passo. Ex: "Quer que eu monte a lista de pedido urgente?"
+${nomeUsuario ? `- A pessoa se chama *${nomeUsuario}*. Use o nome naturalmente no início ou durante a resposta quando fizer sentido. Ex: "Olá ${nomeUsuario}," ou "${nomeUsuario}, olha só:"` : ''}
 
 FORMATAÇÃO WHATSAPP: *negrito* para nomes/destaques, • para listas, _itálico_ para observações. Máximo 400 palavras.`;
 
@@ -208,21 +210,19 @@ function detectarIntencao(texto: string): Intencao {
   // Farmácia específica — checa ANTES do limite de palavras
   if (detectarFarmacia(t) !== null || /farmacia|farmacias/.test(t)) return 'farmacia';
 
-  // Novas intenções diretas (checadas antes do corte por palavras)
-  if (/zerado|sem.?estoque|ruptura.?total|nao.?tem.?mais/.test(t)) return 'zerado';
-  if (/semana|7.?dias?|vai.?acabar|acab[ae]ndo|proximos.?dias|projecao.?curt/.test(t)) return 'semana';
-  if (/subindo|aumentando|crescendo|tendencia.?alt|consumo.?(sub|aument)/.test(t)) return 'tendencia_alta';
-  if (/quanto.?ped[ii]r|quanto.?compr|o.?que.?compr|sugest.?de.?compra|lista.?de.?compra|montar.?pedido|fazer.?pedido/.test(t)) return 'pedido';
-
-  // Frases longas SEM intenção específica → IA genérica
+  // Frases longas (perguntas naturais) → Claude responde de forma conversacional
   const palavras = t.split(/\s+/).filter(Boolean);
   if (palavras.length > 3) return 'ia';
 
-  // Comandos curtos genéricos
-  if (/ruptur|acabou/.test(t))                    return 'ruptura';
-  if (/^criti|^urgent|^emergenc/.test(t))         return 'critico';
-  if (/^alert|^atenc/.test(t))                    return 'alerta';
-  if (/^tudo$|^todos$|^resumo$|^status$/.test(t)) return 'tudo';
+  // Comandos curtos (≤3 palavras) — resposta direta sem IA
+  if (/^zerado$|^sem.?estoque$|^ruptura.?total$/.test(t)) return 'zerado';
+  if (/^semana$|^7.?dias?$|^proxima.?semana$/.test(t))    return 'semana';
+  if (/^subindo$|^aumentando$|^tendencia.?alta?$/.test(t)) return 'tendencia_alta';
+  if (/^pedido$|^compra$|^pedir$|^comprar$/.test(t))       return 'pedido';
+  if (/ruptur|acabou/.test(t))                             return 'ruptura';
+  if (/^criti|^urgent|^emergenc/.test(t))                  return 'critico';
+  if (/^alert|^atenc/.test(t))                             return 'alerta';
+  if (/^tudo$|^todos$|^resumo$|^status$/.test(t))          return 'tudo';
 
   // Keywords de estoque sem farmácia específica
   if (/saldo|cobertura/.test(t)) return 'farmacia';
@@ -600,6 +600,8 @@ export default async function handler(req: Request): Promise<Response> {
   const msg            = data?.message ?? {};
   const text: string   = msg.conversation ?? msg.extendedTextMessage?.text ?? '';
   const mentionedJids: string[] = msg.extendedTextMessage?.contextInfo?.mentionedJid ?? [];
+  // Nome do remetente (vindo da Evolution API como pushName)
+  const pushName: string = (data?.pushName ?? data?.senderName ?? '').split(' ')[0];
 
   const isGroup = remoteJid.endsWith('@g.us');
 
@@ -732,7 +734,7 @@ export default async function handler(req: Request): Promise<Response> {
 
   if (intencao === 'ia') {
     // Pergunta livre → Groq (Llama 3) analisa
-    const respostaIA = await askGroq(textoLimpo, rows, diaLabels ?? []);
+    const respostaIA = await askGroq(textoLimpo, rows, diaLabels ?? [], pushName);
     if (respostaIA) {
       await sendReply(remoteJid, `🤖 ${respostaIA}`);
       return new Response('OK', { status: 200 });
