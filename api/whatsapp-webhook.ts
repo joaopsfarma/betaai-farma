@@ -2,8 +2,6 @@
 // Responde quando o bot é mencionado no grupo com a situação atual de faltas
 // POST /api/whatsapp-webhook
 
-import Anthropic from '@anthropic-ai/sdk';
-
 // ─── Tipos da análise de farmácias (Remanejamento) ───────────────────────────
 
 interface AnaliseItem {
@@ -98,14 +96,27 @@ async function askClaude(system: string, user: string, maxTokens: number): Promi
   if (!apiKey) return '⚠️ ANTHROPIC_API_KEY não configurada no ambiente.';
 
   try {
-    const client = new Anthropic({ apiKey });
-    const message = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: maxTokens,
-      system,
-      messages: [{ role: 'user', content: user }],
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: maxTokens,
+        system,
+        messages: [{ role: 'user', content: user }],
+      }),
     });
-    return message.content[0]?.type === 'text' ? message.content[0].text : '';
+    if (!res.ok) {
+      const err = await res.text();
+      return `⚠️ Erro na API Claude (${res.status}): ${err.slice(0, 120)}`;
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const json = await res.json() as any;
+    return (json.content?.[0]?.text as string) ?? '';
   } catch (e) {
     return `⚠️ Erro ao consultar IA: ${String(e).slice(0, 120)}`;
   }

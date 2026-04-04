@@ -2,8 +2,6 @@
 // Recebe { prompt: string } e devolve { text: string }
 // POST /api/ai-proxy
 
-import Anthropic from '@anthropic-ai/sdk';
-
 export const config = { runtime: 'nodejs' };
 
 export default async function handler(req: Request): Promise<Response> {
@@ -36,14 +34,28 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   try {
-    const client = new Anthropic({ apiKey });
-    const message = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1024,
-      messages: [{ role: 'user', content: body.prompt }],
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1024,
+        messages: [{ role: 'user', content: body.prompt }],
+      }),
     });
 
-    const text = message.content[0]?.type === 'text' ? message.content[0].text : '';
+    if (!res.ok) {
+      const err = await res.text();
+      return new Response(JSON.stringify({ error: `Erro na API Claude (${res.status}): ${err.slice(0, 200)}` }), { status: 502, headers });
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const json = await res.json() as any;
+    const text = (json.content?.[0]?.text as string) ?? '';
     return new Response(JSON.stringify({ text }), { status: 200, headers });
   } catch (err) {
     const msg = err instanceof Error ? err.message.slice(0, 200) : String(err);
