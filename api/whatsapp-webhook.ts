@@ -201,8 +201,8 @@ function detectarIntencao(texto: string): Intencao {
     .toLowerCase()
     .trim();
 
-  // Saudações e pedidos de ajuda → menu
-  if (/^(oi|ola|bom dia|boa tarde|boa noite|oque|o que|menu|ajuda|help|comandos|como usar|o que voce faz|o que vc faz)/.test(t)) return 'ajuda';
+  // Saudações e pedidos de ajuda → menu (não captura perguntas sobre estoque)
+  if (/^(oi$|ola$|bom dia|boa tarde|boa noite|^menu$|^ajuda$|^help$|^comandos$|como usar|o que voce faz|o que vc faz|oque voce faz|oque vc faz)/.test(t)) return 'ajuda';
 
   // Remanejamento — checa antes do limite de palavras
   if (/remanejar|remanejamento|transferir|redistribui|sobra|excesso entre estoques/.test(t)) return 'remanejamento';
