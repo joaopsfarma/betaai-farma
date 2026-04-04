@@ -533,7 +533,7 @@ export const Remanejamento: React.FC = () => {
     fetch('/api/save-remanejamento', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ snapshot: texto, analise }),
+      body: JSON.stringify({ snapshot: texto, analise, sugestoes }),
     })
       .then(r => {
         setBotSyncStatus(r.ok ? 'ok' : 'erro');
@@ -650,7 +650,7 @@ Forneça 5 pontos de ação priorizados para o gestor. Seja direto e prático. C
     fetch('/api/save-remanejamento', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ snapshot: texto }),
+      body: JSON.stringify({ snapshot: texto, sugestoes }),
     }).catch(() => { /* ignora silenciosamente se KV não estiver configurado */ });
   };
 

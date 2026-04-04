@@ -19,6 +19,22 @@ interface AnaliseItem {
   custoMedio: number;
 }
 
+interface SugestaoRemanejamento {
+  produto: string;
+  unidade: string;
+  origemId: string;
+  origemNome: string;
+  saldoOrigem: number;
+  coberturaOrigem: number;
+  destinoId: string;
+  destinoNome: string;
+  saldoDestino: number;
+  coberturaDestino: number;
+  qtdSugerida: number;
+  prioridade: 'ALTA' | 'MÉDIA' | 'BAIXA';
+  custoMedio: number;
+}
+
 interface TrackingRow {
   codigo: string;
   descricao: string;
@@ -192,7 +208,7 @@ IMPORTANTE: Liste TODOS os itens relevantes, sem cortar. Termine SEMPRE com uma 
 
 // ─── Detecta intenção da pergunta ────────────────────────────────────────────
 
-type Intencao = 'ruptura' | 'critico' | 'alerta' | 'tudo' | 'geral' | 'ia' | 'ajuda' | 'remanejamento' | 'farmacia' | 'semana' | 'zerado' | 'tendencia_alta' | 'pedido';
+type Intencao = 'ruptura' | 'critico' | 'alerta' | 'tudo' | 'geral' | 'ia' | 'ajuda' | 'remanejamento' | 'farmacia' | 'semana' | 'zerado' | 'tendencia_alta' | 'pedido' | 'remane_ia' | 'remane_excesso' | 'remane_alta';
 
 function detectarIntencao(texto: string): Intencao {
   if (!texto || texto.length < 2) return 'ajuda';
@@ -205,14 +221,21 @@ function detectarIntencao(texto: string): Intencao {
   // Saudações e pedidos de ajuda → menu (não captura perguntas sobre estoque)
   if (/^(oi$|ola$|bom dia|boa tarde|boa noite|^menu$|^ajuda$|^help$|^comandos$|como usar|o que voce faz|o que vc faz|oque voce faz|oque vc faz)/.test(t)) return 'ajuda';
 
-  // Remanejamento — checa antes do limite de palavras
-  if (/remanejar|remanejamento|transferir|redistribui|sobra|excesso entre estoques/.test(t)) return 'remanejamento';
+  // Calcula palavras antes do bloco de remanejamento (necessário para ramificação)
+  const palavras = t.split(/\s+/).filter(Boolean);
+
+  // Remanejamento — ramifica por comprimento e palavras-chave
+  if (/remanejar|remanejamento|transferir|redistribui|sobra|excesso entre estoques/.test(t)) {
+    if (/alta.*prioridade|prioridade.*alta|urgente|sugestoes.*alta/.test(t)) return 'remane_alta';
+    if (/\bexcesso\b/.test(t) && palavras.length <= 4)                       return 'remane_excesso';
+    if (palavras.length <= 3) return 'remanejamento'; // comando curto → snapshot rápido
+    return 'remane_ia';                               // pergunta natural → Claude
+  }
 
   // Farmácia específica — checa ANTES do limite de palavras
   if (detectarFarmacia(t) !== null || /farmacia|farmacias/.test(t)) return 'farmacia';
 
   // Frases longas (perguntas naturais) → Claude responde de forma conversacional
-  const palavras = t.split(/\s+/).filter(Boolean);
   if (palavras.length > 3) return 'ia';
 
   // Comandos curtos (≤3 palavras) — resposta direta sem IA
@@ -220,6 +243,8 @@ function detectarIntencao(texto: string): Intencao {
   if (/^semana$|^7.?dias?$|^proxima.?semana$/.test(t))    return 'semana';
   if (/^subindo$|^aumentando$|^tendencia.?alta?$/.test(t)) return 'tendencia_alta';
   if (/^pedido$|^compra$|^pedir$|^comprar$/.test(t))       return 'pedido';
+  if (/^excesso$/.test(t))                                  return 'remane_excesso';
+  if (/^alta$/.test(t))                                     return 'remane_alta';
   if (/ruptur|acabou/.test(t))                             return 'ruptura';
   if (/^criti|^urgent|^emergenc/.test(t))                  return 'critico';
   if (/^alert|^atenc/.test(t))                             return 'alerta';
@@ -307,7 +332,7 @@ function resumoAnaliseParaIA(analise: AnaliseItem[], farmaciaKey: string | null,
   return `${cabecalho}\n\n${linhas.join('\n')}`;
 }
 
-async function askGroqFarmacias(pergunta: string, analise: AnaliseItem[]): Promise<string> {
+async function askGroqFarmacias(pergunta: string, analise: AnaliseItem[], nomeUsuario?: string): Promise<string> {
   const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const t = norm(pergunta);
 
@@ -332,11 +357,13 @@ async function askGroqFarmacias(pergunta: string, analise: AnaliseItem[]): Promi
 
   const sistemaMsg = `Você é o FarmaBot, assistente de farmácia hospitalar do FarmaIA. Hoje é ${date}.
 
-Responda como um colega farmacêutico que conhece bem cada setor do hospital. Se a pergunta for sobre uma farmácia específica, foque nela e seja contextual. Se for sobre um produto, explique a situação em cada estoque onde ele aparece.
+Responda como um colega farmacêutico que conhece bem cada setor do hospital. Se a pergunta for sobre uma farmácia específica, foque nela. Se for sobre um produto, explique a situação em cada estoque onde ele aparece.
 
-Ao identificar itens críticos, mencione a urgência naturalmente. Se tudo estiver ok, diga isso de forma tranquila. Ofereça um follow-up ao final quando fizer sentido.
+Contexto de remanejamento: EXCESSO significa que o estoque pode ceder para outros; CRÍTICO/ALERTA significa que o estoque precisa receber transferências. Se a pergunta envolver redistribuição, mencione essa relação naturalmente.
 
-Nunca use frases robóticas como "com base nos dados fornecidos". Fale naturalmente.
+Ao identificar itens críticos, mencione a urgência. Se tudo estiver ok, diga de forma tranquila. Ofereça follow-up ao final quando fizer sentido.
+Nunca use "com base nos dados fornecidos". Fale naturalmente.
+${nomeUsuario ? `A pessoa se chama *${nomeUsuario}*. Use o nome naturalmente no início ou durante a resposta.` : ''}
 Formatação WhatsApp: *negrito*, • listas, _itálico_. Máximo 350 palavras.
 
 Status: CRÍTICO (<15d) | ALERTA (15–29d) | NORMAL (30–89d) | EXCESSO (≥90d) | SEM CONSUMO`;
@@ -353,6 +380,142 @@ function buildRemanejamentoReply(snapshot: string): string {
     return `🔄 *REMANEJAMENTO*\n\nNenhum dado de remanejamento disponível.\nAcesse a aba *Remanejamento* no FarmaIA, importe os CSVs e clique em *Copiar WhatsApp* para enviar a análise aqui.`;
   }
   return snapshot;
+}
+
+function buildExcessoReply(analise: AnaliseItem[]): string {
+  const date    = new Date().toLocaleDateString('pt-BR');
+  const excessos = analise
+    .filter(i => i.status === 'EXCESSO')
+    .sort((a, b) => b.coberturaDias - a.coberturaDias);
+
+  if (!excessos.length) {
+    return `📦 *ITENS EM EXCESSO — ${date}*\nNenhum item com saldo excessivo no momento.\n_Use *remanejamento* para ver o resumo completo._`;
+  }
+
+  let msg = `📦 *ITENS EM EXCESSO — ${date}*\n_Estoques com saldo acima do necessário — podem ceder:_\n\n`;
+  excessos.slice(0, 12).forEach(i => {
+    const cob     = i.coberturaDias >= 9999 ? '999+d' : `${i.coberturaDias.toFixed(0)}d`;
+    const reserva = i.consumoDiario > 0 ? Math.floor(i.saldoAtual - i.consumoDiario * 30) : i.saldoAtual;
+    msg += `• *${i.produto}* (${i.estoqueName})\n`;
+    msg += `  Saldo: ${i.saldoAtual.toLocaleString('pt-BR')} ${i.unidade} | Cobertura: ${cob}`;
+    if (reserva > 0) msg += ` | Pode ceder: ~${reserva.toLocaleString('pt-BR')} ${i.unidade}`;
+    msg += '\n';
+  });
+  if (excessos.length > 12) msg += `\n_... e mais ${excessos.length - 12} itens com excesso._`;
+  msg += `\n_Use *remanejamento* para ver sugestões de transferência ou *alta* para urgências._`;
+  return msg;
+}
+
+function buildAltaPrioridadeReply(sugestoes: SugestaoRemanejamento[]): string {
+  const date  = new Date().toLocaleDateString('pt-BR');
+  const altas = sugestoes.filter(s => s.prioridade === 'ALTA');
+
+  if (!altas.length) {
+    const temSugestoes = sugestoes.length > 0;
+    return `🚨 *ALTA PRIORIDADE — ${date}*\nNenhuma sugestão de alta prioridade no momento.${temSugestoes ? `\n_Há ${sugestoes.length} sugestões de média/baixa prioridade — use *remanejamento*._` : '\n_Use *remanejamento* para ver o resumo completo._'}`;
+  }
+
+  let msg = `🚨 *ALTA PRIORIDADE — ${date}*\n_Transferências urgentes — receptor com cobertura <15 dias:_\n\n`;
+  altas.slice(0, 10).forEach(s => {
+    const cobDest   = s.coberturaDestino.toFixed(0);
+    const cobOrig   = s.coberturaOrigem >= 9999 ? '999+' : s.coberturaOrigem.toFixed(0);
+    const valor     = s.custoMedio > 0
+      ? ` | _R$ ${(s.custoMedio * s.qtdSugerida).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}_`
+      : '';
+    msg += `• *${s.produto}*\n`;
+    msg += `  ${s.origemNome} → ${s.destinoNome}\n`;
+    msg += `  Transferir: ${s.qtdSugerida} ${s.unidade} | Receptor: ${cobDest}d | Doador: ${cobOrig}d${valor}\n`;
+  });
+  if (altas.length > 10) msg += `\n_... e mais ${altas.length - 10} sugestões de alta prioridade._`;
+  msg += `\n_Use *remanejamento* para o resumo completo ou *excesso* para ver todos os doadores._`;
+  return msg;
+}
+
+// ─── Resumo especializado para IA de remanejamento ───────────────────────────
+
+function resumoAnaliseRemanejamento(analise: AnaliseItem[], sugestoes: SugestaoRemanejamento[]): string {
+  const criticos   = analise.filter(i => i.status === 'CRÍTICO');
+  const alertas    = analise.filter(i => i.status === 'ALERTA');
+  const excessos   = analise.filter(i => i.status === 'EXCESSO');
+  const semConsumo = analise.filter(i => i.status === 'SEM CONSUMO');
+  const normais    = analise.filter(i => i.status === 'NORMAL');
+  const estoques   = new Set(analise.map(i => i.estoqueId)).size;
+
+  const cabecalho = [
+    `ANÁLISE REMANEJAMENTO | ${analise.length} produto×estoque | ${estoques} estoques`,
+    `CRÍTICO: ${criticos.length} | ALERTA: ${alertas.length} | NORMAL: ${normais.length} | EXCESSO: ${excessos.length} | SEM CONSUMO: ${semConsumo.length}`,
+    `Sugestões: ${sugestoes.length} (ALTA: ${sugestoes.filter(s => s.prioridade === 'ALTA').length} | MÉDIA: ${sugestoes.filter(s => s.prioridade === 'MÉDIA').length} | BAIXA: ${sugestoes.filter(s => s.prioridade === 'BAIXA').length})`,
+  ].join('\n');
+
+  const fmt = (i: AnaliseItem) => {
+    const cob  = i.coberturaDias >= 9999 ? '999+d' : `${i.coberturaDias.toFixed(0)}d`;
+    const cons = i.consumoDiario > 0 ? `cons:${i.consumoDiario.toFixed(1)}/d` : 'sem consumo';
+    return `[${i.status}] ${i.produto} (${i.estoqueName}) | saldo:${i.saldoAtual}${i.unidade} | ${cons} | cob:${cob}`;
+  };
+
+  const receptores = [...criticos, ...alertas].sort((a, b) => a.coberturaDias - b.coberturaDias).map(fmt).join('\n');
+  const doadores   = excessos.sort((a, b) => b.coberturaDias - a.coberturaDias).slice(0, 20).map(fmt).join('\n');
+
+  const top10 = sugestoes.slice(0, 10).map(s => {
+    const valor = s.custoMedio > 0 ? ` | custo:R$${(s.custoMedio * s.qtdSugerida).toFixed(0)}` : '';
+    const cobOrig = s.coberturaOrigem >= 9999 ? '999+' : s.coberturaOrigem.toFixed(0);
+    return `[${s.prioridade}] ${s.produto} | ${s.origemNome} → ${s.destinoNome} | qtd:${s.qtdSugerida}${s.unidade} | receptor:${s.coberturaDestino.toFixed(0)}d | doador:${cobOrig}d${valor}`;
+  }).join('\n');
+
+  return [
+    cabecalho,
+    receptores.length ? `\nRECEPTORES (precisam receber):\n${receptores}` : '',
+    doadores.length   ? `\nDOADORES (podem ceder):\n${doadores}` : '',
+    top10.length      ? `\nSUGESTÕES DE TRANSFERÊNCIA (top 10):\n${top10}` : '',
+  ].filter(Boolean).join('\n');
+}
+
+// ─── Claude especializado em remanejamento ───────────────────────────────────
+
+async function askRemanejamento(
+  pergunta: string,
+  analise: AnaliseItem[],
+  sugestoes: SugestaoRemanejamento[],
+  nomeUsuario?: string,
+): Promise<string> {
+  const date  = new Date().toLocaleDateString('pt-BR');
+  const dados = resumoAnaliseRemanejamento(analise, sugestoes);
+
+  const sistemaMsg = `Você é o FarmaBot, especialista em remanejamento de estoque hospitalar do FarmaIA. Hoje é ${date}.
+
+CONTEXTO: Análise quadrimestral (120 dias). consumoDiario = consumoTotal ÷ 120. coberturaDias = saldo ÷ consumoDiario.
+
+CLASSIFICAÇÃO:
+- CRÍTICO <15d → receptor urgente (precisa receber)
+- ALERTA 15-29d → receptor secundário (precisa receber)
+- NORMAL 30-89d → estável (pode ser doador se cobertura >60d)
+- EXCESSO ≥90d → doador prioritário (pode ceder com segurança)
+- SEM CONSUMO → doador total (pode ceder tudo)
+
+LÓGICA DOADOR→RECEPTOR: Doador mantém reserva de 30d, cede o excedente. Se sem consumo, pode ceder tudo. qtdSugerida já está calculada com essa lógica.
+
+COMO RESPONDER:
+- "o que posso transferir?" → sugestões ALTA com rota completa (De X para Y), qtdSugerida e cobertura atual do receptor
+- "quem tem excesso?" / "quem pode ceder?" → liste EXCESSO por estoque, maior cobertura primeiro, calcule quanto pode ceder
+- "quem está crítico?" / "quem precisa receber?" → liste CRÍTICO por menor cobertura, associe com sugestão disponível
+- "quanto custa?" → some custoMedio × qtdSugerida das sugestões ALTA, mostre total e por item
+- Item específico → status em cada estoque + sugestão de transferência se existir
+- Farmácia específica → CRÍTICOs/ALERTAs desse estoque + EXCESSOs que podem enviar para ele
+
+SEU JEITO DE SER:
+- Farmacêutico experiente, direto, humano. Fale como colega, não como sistema.
+- Adapte urgência: receptor crítico → objetivo e urgente; situação controlada → tranquilo.
+- Nunca diga "com base nos dados fornecidos". Fale naturalmente.
+- Ao listar transferências, sempre mencione a rota completa: "De [Origem] para [Destino]".
+- Ofereça follow-up quando fizer sentido. Ex: "Quer que eu calcule o custo total das transferências ALTA?"
+${nomeUsuario ? `- A pessoa se chama *${nomeUsuario}*. Use o nome naturalmente no início ou durante a resposta.` : ''}
+
+FORMATAÇÃO WHATSAPP: *negrito* para nomes/destaques, • para listas, _itálico_ para observações.
+IMPORTANTE: Liste TODOS os itens relevantes. Termine com frase de impacto. Nunca corte no meio.`;
+
+  const usuarioMsg = `DADOS DE REMANEJAMENTO:\n${dados}\n\nPERGUNTA: ${pergunta || 'Qual é a situação atual? O que é mais urgente transferir?'}`;
+
+  return askClaude(sistemaMsg, usuarioMsg, 900);
 }
 
 // ─── Menu de ajuda ───────────────────────────────────────────────────────────
@@ -381,7 +544,13 @@ Pode me perguntar qualquer coisa — falo português normal. Para respostas ráp
   • _@bot saldo CTI_ — situação da CTI
   • _@bot meropenem nas farmácias_ — saldo por estoque
   • _@bot críticos PS_ — críticos no Pronto Socorro
-  • _@bot remanejamento_ — sugestões de redistribuição
+  • _@bot remanejamento_ — resumo das transferências sugeridas
+
+🔄 *Remanejamento de estoque*
+  • *excesso* — estoques com saldo sobrando que podem ceder
+  • *alta* — transferências urgentes (receptor com <15 dias)
+  • _@bot o que posso transferir?_ — análise completa via IA
+  • _@bot quais críticos na CTI?_ — filtra por farmácia + status
 
 🧠 *Perguntas livres*
   • _@bot o que precisa de atenção agora?_
@@ -648,8 +817,37 @@ export default async function handler(req: Request): Promise<Response> {
       );
       return new Response('OK', { status: 200 });
     }
-    const resposta = await askGroqFarmacias(textoAntecipado, analise);
+    const resposta = await askGroqFarmacias(textoAntecipado, analise, pushName);
     await sendReply(remoteJid, `🏥 ${resposta}`);
+    return new Response('OK', { status: 200 });
+  }
+
+  if (intencaoAntecipada === 'remane_ia') {
+    const [analise, sugestoes] = await Promise.all([
+      kvGet<AnaliseItem[]>('remanejamento_analise'),
+      kvGet<SugestaoRemanejamento[]>('remanejamento_sugestoes'),
+    ]);
+    if (!analise || analise.length === 0) {
+      await sendReply(
+        remoteJid,
+        '🔄 *Remanejamento*\n\nNenhum dado disponível ainda.\nImporte os CSVs na aba *Remanejamento* do FarmaIA e clique em *Copiar WhatsApp* para habilitar consultas detalhadas.',
+      );
+      return new Response('OK', { status: 200 });
+    }
+    const resposta = await askRemanejamento(textoAntecipado, analise, sugestoes ?? [], pushName);
+    await sendReply(remoteJid, `🔄 ${resposta}`);
+    return new Response('OK', { status: 200 });
+  }
+
+  if (intencaoAntecipada === 'remane_excesso') {
+    const analise = await kvGet<AnaliseItem[]>('remanejamento_analise');
+    await sendReply(remoteJid, buildExcessoReply(analise ?? []));
+    return new Response('OK', { status: 200 });
+  }
+
+  if (intencaoAntecipada === 'remane_alta') {
+    const sugestoes = await kvGet<SugestaoRemanejamento[]>('remanejamento_sugestoes');
+    await sendReply(remoteJid, buildAltaPrioridadeReply(sugestoes ?? []));
     return new Response('OK', { status: 200 });
   }
 

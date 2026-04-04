@@ -1,7 +1,7 @@
 // Vercel Serverless Function — Salva snapshot de remanejamento no KV
 // POST /api/save-remanejamento
-// Body: { snapshot: string, analise?: AnaliseItem[] }
-// Persiste o texto + análise completa para o bot WhatsApp responder consultas por farmácia
+// Body: { snapshot: string, analise?: AnaliseItem[], sugestoes?: SugestaoRemanejamento[] }
+// Persiste o texto + análise + sugestões para o bot WhatsApp responder consultas
 
 interface AnaliseItem {
   produto: string;
@@ -15,6 +15,22 @@ interface AnaliseItem {
   status: 'EXCESSO' | 'NORMAL' | 'ALERTA' | 'CRÍTICO' | 'SEM CONSUMO';
   estMin: number;
   estMax: number;
+  custoMedio: number;
+}
+
+interface SugestaoRemanejamento {
+  produto: string;
+  unidade: string;
+  origemId: string;
+  origemNome: string;
+  saldoOrigem: number;
+  coberturaOrigem: number;
+  destinoId: string;
+  destinoNome: string;
+  saldoDestino: number;
+  coberturaDestino: number;
+  qtdSugerida: number;
+  prioridade: 'ALTA' | 'MÉDIA' | 'BAIXA';
   custoMedio: number;
 }
 
@@ -48,7 +64,7 @@ export default async function handler(req: Request): Promise<Response> {
     });
   }
 
-  let body: { snapshot: string; analise?: AnaliseItem[] };
+  let body: { snapshot: string; analise?: AnaliseItem[]; sugestoes?: SugestaoRemanejamento[] };
   try {
     body = await req.json();
   } catch {
@@ -70,9 +86,13 @@ export default async function handler(req: Request): Promise<Response> {
 
   // Salva análise completa por farmácia (para consultas de saldo por estoque)
   if (body.analise && body.analise.length > 0) {
-    // Filtra apenas itens com dados úteis para não estourar o KV
     const analiseUtil = body.analise.filter(i => i.saldoAtual > 0 || i.consumoTotal > 0);
     await kvSet('remanejamento_analise', analiseUtil);
+  }
+
+  // Salva sugestões de remanejamento (para respostas diretas de alta prioridade)
+  if (body.sugestoes && body.sugestoes.length > 0) {
+    await kvSet('remanejamento_sugestoes', body.sugestoes.slice(0, 50));
   }
 
   return new Response(JSON.stringify({ ok: true }), {
