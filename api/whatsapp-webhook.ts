@@ -41,12 +41,17 @@ async function kvGet<T>(key: string): Promise<T | null> {
   const token = process.env.KV_REST_API_TOKEN;
   if (!url || !token) return null;
 
-  const res  = await fetch(`${url}/get/${encodeURIComponent(key)}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) return null;
-  const json = await res.json() as { result: string | null };
-  return json.result ? JSON.parse(json.result) as T : null;
+  try {
+    const res  = await fetch(`${url}/get/${encodeURIComponent(key)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return null;
+    const json = await res.json() as { result: string | null };
+    return json.result ? JSON.parse(json.result) as T : null;
+  } catch {
+    return null;
+  }
 }
 
 // ─── Formata linha de um item ─────────────────────────────────────────────────
@@ -109,6 +114,7 @@ async function askClaude(system: string, user: string, maxTokens: number): Promi
         system,
         messages: [{ role: 'user', content: user }],
       }),
+      signal: AbortSignal.timeout(25000),
     });
     if (!res.ok) {
       const err = await res.text();
@@ -435,6 +441,7 @@ async function sendReply(to: string, text: string): Promise<void> {
     method: 'POST',
     headers: { apikey: apiKey, 'Content-Type': 'application/json' },
     body: JSON.stringify({ number: to, textMessage: { text } }),
+    signal: AbortSignal.timeout(10000),
   });
 }
 
