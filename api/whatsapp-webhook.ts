@@ -182,11 +182,12 @@ SEU JEITO DE SER:
 - No final de respostas complexas, sugira um próximo passo. Ex: "Quer que eu monte a lista de pedido urgente?"
 ${nomeUsuario ? `- A pessoa se chama *${nomeUsuario}*. Use o nome naturalmente no início ou durante a resposta quando fizer sentido. Ex: "Olá ${nomeUsuario}," ou "${nomeUsuario}, olha só:"` : ''}
 
-FORMATAÇÃO WHATSAPP: *negrito* para nomes/destaques, • para listas, _itálico_ para observações. Máximo 400 palavras.`;
+FORMATAÇÃO WHATSAPP: *negrito* para nomes/destaques, • para listas, _itálico_ para observações.
+IMPORTANTE: Máximo 5 itens na lista. Se houver mais, agrupe o restante em uma linha resumida. Termine SEMPRE com uma frase completa — nunca corte no meio.`;
 
   const usuarioMsg = `ESTOQUE ATUAL:\n${estoque}\n\nPERGUNTA: ${pergunta || 'Dá um resumo rápido da situação e me diz o que precisa de atenção agora.'}`;
 
-  return askClaude(sistemaMsg, usuarioMsg, 500);
+  return askClaude(sistemaMsg, usuarioMsg, 650);
 }
 
 // ─── Detecta intenção da pergunta ────────────────────────────────────────────
