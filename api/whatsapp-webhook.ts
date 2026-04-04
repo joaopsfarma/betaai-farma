@@ -460,8 +460,11 @@ export default async function handler(req: Request): Promise<Response> {
     return new Response('Bad request', { status: 400 });
   }
 
-  // Só processa novas mensagens (aceita maiúsculo e minúsculo)
-  const event = (payload.event ?? '').toLowerCase().replace('_', '.');
+  // Só processa novas mensagens (aceita maiúsculo, minúsculo, underscore ou ponto)
+  // Evolution API pode enviar: "messages.upsert", "MESSAGES_UPSERT", "messages_upsert"
+  const rawEvent = (payload.event ?? payload.type ?? payload.name ?? '').toString();
+  const event = rawEvent.toLowerCase().replace(/_/g, '.');
+  console.log('[WH] event:', rawEvent, '→', event, '| keys:', Object.keys(payload));
   if (event !== 'messages.upsert') {
     return new Response('OK', { status: 200 });
   }
@@ -482,14 +485,17 @@ export default async function handler(req: Request): Promise<Response> {
   // Verifica menção por correspondência parcial do número ou LID (WhatsApp moderno usa @lid)
   const botNumber = process.env.BOT_NUMBER ?? '';
   const botLid    = process.env.BOT_LID ?? '';
-  const botMentioned = mentionedJids.some(jid => {
+  // Se BOT_NUMBER não estiver configurado, aceita qualquer menção (@alguém no texto)
+  const mentionMatch = mentionedJids.some(jid => {
     const jidClean = jid.replace(/\D/g, '');
     const numClean = botNumber.replace(/\D/g, '');
     return (
       (numClean && (jidClean.includes(numClean) || numClean.includes(jidClean))) ||
       (botLid   && jid.includes(botLid))
     );
-  }) || text.includes(`@${botNumber}`);
+  });
+  const botMentioned = mentionMatch || mentionedJids.length > 0 || text.includes(`@${botNumber}`);
+  console.log('[WH] jid:', remoteJid, '| isGroup:', isGroup, '| mentioned:', botMentioned, '| text:', text.slice(0, 80), '| mentionedJids:', mentionedJids);
 
   // Em grupos: responde apenas quando mencionado
   // Em DM: responde sempre
