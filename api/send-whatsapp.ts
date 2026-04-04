@@ -91,7 +91,7 @@ export default async function handler(req: Request): Promise<Response> {
     );
   }
 
-  let body: { rows: TrackingRow[] };
+  let body: { rows: TrackingRow[]; diaLabels?: string[] };
   try {
     body = await req.json();
   } catch {
@@ -101,7 +101,7 @@ export default async function handler(req: Request): Promise<Response> {
     });
   }
 
-  const { rows } = body;
+  const { rows, diaLabels } = body;
   if (!rows?.length) {
     return new Response(JSON.stringify({ error: 'Nenhum dado recebido' }), {
       status: 400,
@@ -114,6 +114,7 @@ export default async function handler(req: Request): Promise<Response> {
 
   // Persiste snapshot no KV para o webhook responder menções
   await kvSet('last_stock_data', rows);
+  if (diaLabels?.length) await kvSet('last_stock_dia_labels', diaLabels);
 
   const results = await Promise.allSettled(
     numbers.map(number =>

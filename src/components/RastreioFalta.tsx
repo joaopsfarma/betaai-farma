@@ -204,14 +204,14 @@ Forneça 5 pontos de ação priorizados por urgência. Seja direto e prático. U
     }
   }, [data]);
 
-  const autoSendWhatsApp = useCallback(async (rows: TrackingRow[]) => {
+  const autoSendWhatsApp = useCallback(async (rows: TrackingRow[], diaLabels?: string[]) => {
     setWaStatus('sending');
     setWaError(null);
     try {
       const res = await fetch('/api/send-whatsapp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows }),
+        body: JSON.stringify({ rows, diaLabels: diaLabels ?? [] }),
       });
       const data = await res.json().catch(() => null);
       if (res.status === 503) {
@@ -236,7 +236,7 @@ Forneça 5 pontos de ação priorizados por urgência. Seja direto e prático. U
       try {
         const result = parseTracking(e.target?.result as string);
         setData(result);
-        autoSendWhatsApp(result.rows);
+        autoSendWhatsApp(result.rows, result.diaLabels);
       } catch (err) {
         console.error('Erro ao processar CSV:', err);
       } finally {

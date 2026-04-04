@@ -70,7 +70,7 @@ function formatItem(r: TrackingRow, compact = false): string {
 
 // ─── Monta texto compacto do estoque para enviar à IA ────────────────────────
 
-function resumoEstoqueParaIA(rows: TrackingRow[]): string {
+function resumoEstoqueParaIA(rows: TrackingRow[], diaLabels: string[] = []): string {
   const rupturas = rows.filter(r => r.projecao <= 0).length;
   const criticos = rows.filter(r => r.nivel === 'critico').length;
   const alertas  = rows.filter(r => r.nivel === 'alerta').length;
@@ -79,15 +79,35 @@ function resumoEstoqueParaIA(rows: TrackingRow[]): string {
 
   const cabecalho = `RESUMO: ${rows.length} itens total | Ruptura: ${rupturas} | Crítico: ${criticos} | Alerta: ${alertas} | Atenção: ${atencao} | OK: ${ok}`;
 
-  // Todos os itens não-ok ordenados por urgência + amostra dos ok
   const naoOk = rows
     .filter(r => r.nivel !== 'ok')
     .sort((a, b) => a.projecao - b.projecao);
 
+  // Aplica hist[] e aceleração: em listas grandes, apenas para crítico/alerta
+  const usarHist = (r: TrackingRow) =>
+    rows.length <= 30 || r.nivel === 'critico' || r.nivel === 'alerta';
+
   const linhas = naoOk.map(r => {
     const proj = r.projecao <= 0 ? 'SEM ESTOQUE' : `${Math.round(r.projecao)}d`;
     const tend = r.tendencia === 'alta' ? '↑' : r.tendencia === 'queda' ? '↓' : '→';
-    return `[${r.nivel.toUpperCase()}] ${r.codigo} ${r.comercial} | ${r.saldo}${r.unidade} | med:${r.media.toFixed(1)} | proj:${proj} | ${tend}`;
+
+    let extra = '';
+    if (usarHist(r) && r.dias.length > 0) {
+      const ultimos3 = r.dias.slice(-3);
+      const media3   = ultimos3.reduce((s, v) => s + v, 0) / (ultimos3.length || 1);
+      const acel     = r.media > 0 ? Math.round(((media3 - r.media) / r.media) * 100) : 0;
+      const acelStr  = acel > 10 ? ` acel:+${acel}%` : acel < -10 ? ` acel:${acel}%` : '';
+      // Prefixar com datas reais se disponíveis (últimos 5 dias)
+      const ultimos5vals   = r.dias.slice(-5);
+      const ultimos5labels = diaLabels.slice(-5);
+      const hist = ultimos5vals.map((v, i) => {
+        const label = ultimos5labels[i] ?? '';
+        return label ? `${label}:${v}` : `${v}`;
+      }).join(',');
+      extra = `${acelStr} | hist:[${hist}]`;
+    }
+
+    return `[${r.nivel.toUpperCase()}] ${r.codigo} ${r.comercial} | ${r.saldo}${r.unidade} | med:${r.media.toFixed(1)} | proj:${proj} | ${tend}${extra}`;
   });
 
   if (!linhas.length) return `${cabecalho}\nTodos os itens com estoque OK.`;
@@ -128,33 +148,39 @@ async function askClaude(system: string, user: string, maxTokens: number): Promi
   }
 }
 
-async function askGroq(pergunta: string, rows: TrackingRow[]): Promise<string> {
+async function askGroq(pergunta: string, rows: TrackingRow[], diaLabels?: string[]): Promise<string> {
   const date    = new Date().toLocaleDateString('pt-BR');
   const hora    = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-  const estoque = resumoEstoqueParaIA(rows);
+  const estoque = resumoEstoqueParaIA(rows, diaLabels);
 
   const rupturas = rows.filter(r => r.projecao <= 0).length;
   const criticos = rows.filter(r => r.nivel === 'critico').length;
   const situacao = rupturas > 0 ? '🚨 há rupturas agora' : criticos > 0 ? '⚠️ há itens críticos' : '✅ estoque estável';
 
-  const sistemaMsg = `Você é o FarmaBot, assistente de farmácia hospitalar do sistema FarmaIA. Hoje é ${date}, ${hora}. Situação geral: ${situacao}.
+  const sistemaMsg = `Você é o FarmaBot, assistente de farmácia hospitalar do FarmaIA. Hoje é ${date}, ${hora}.
 
-Seu jeito de ser:
-- Fale como um colega farmacêutico experiente, não como um robô. Seja humano e direto.
-- Adapte o tom à urgência: se há ruptura, seja objetivo e urgente. Se está tudo ok, seja mais tranquilo.
-- Quando a pergunta for vaga ("tá crítico?", "e aí?"), interprete pelo contexto do estoque e responda com o que for mais relevante.
-- Ao responder sobre um item específico, sempre mencione saldo, projeção e tendência.
-- Se a pergunta envolver "o que pedir", calcule uma sugestão de quantidade: (consumo médio × 30) − saldo atual.
-- No final de respostas longas, sugira uma próxima ação ou ofereça um follow-up natural. Ex: "Quer que eu liste os fornecedores críticos?" ou "Posso gerar um resumo para levar à reunião."
-- Nunca diga "com base nos dados fornecidos" ou frases robóticas assim. Fale naturalmente.
+CONTEXTO: Rastreio DIÁRIO de faltas de estoque hospitalar. Cada produto tem "hist:[...]" = histórico de consumo por dia (último valor = hoje). "acel:+XX%" indica que o consumo recente acelerou XX% acima da média histórica.
 
-Formatação WhatsApp: *negrito* para nomes e destaques, • para listas, _itálico_ para observações secundárias. Máximo 400 palavras.
+CAMPOS DO ESTOQUE:
+- projecao: saldo ÷ média diária = dias restantes (≤0 = ruptura ativa agora)
+- nivel: critico ≤7d | alerta 8-15d | atencao 16-30d | ok >30d
+- tendencia "alta": consumo hoje > 1,25× ontem (aceleração preocupante)
+- hist[]: últimos valores de consumo diário — leia a curva para detectar picos
 
-Campos do estoque:
-- nivel: critico (≤7d) | alerta (8–15d) | atencao (16–30d) | ok (>30d)
-- projecao: dias restantes de estoque (≤0 = ruptura)
-- media: consumo médio diário
-- tendencia: alta ↑ | queda ↓ | estavel →`;
+COMO RESPONDER POR TIPO DE PERGUNTA:
+- Tendência/subindo? Cite os 2-3 últimos valores do hist[], calcule o delta percentual e relacione com a projeção atual. Ex: "O Meropenem saiu de 8 para 12 amp/dia (+50%), restam só 4 dias."
+- Pedido/compra? Calcule (média × 30) − saldo para cada item crítico/alerta. Apresente lista por prioridade com quantidades e unidades.
+- Geral/resumo? Priorize por projeção crescente. Comece pelos zerados, depois críticos, depois alertas. Mencione tendências que agravam o risco.
+- Item específico? Saldo + projeção + tendência + últimos 2 valores do hist[] para contexto.
+
+SITUAÇÃO ATUAL: ${situacao}.
+
+SEU JEITO DE SER:
+- Farmacêutico experiente, direto, humano. Adapte o tom: ruptura → objetivo e urgente; estoque ok → tranquilo.
+- Nunca diga "com base nos dados fornecidos". Fale naturalmente.
+- No final de respostas complexas, sugira um próximo passo. Ex: "Quer que eu monte a lista de pedido urgente?"
+
+FORMATAÇÃO WHATSAPP: *negrito* para nomes/destaques, • para listas, _itálico_ para observações. Máximo 400 palavras.`;
 
   const usuarioMsg = `ESTOQUE ATUAL:\n${estoque}\n\nPERGUNTA: ${pergunta || 'Dá um resumo rápido da situação e me diz o que precisa de atenção agora.'}`;
 
@@ -163,7 +189,7 @@ Campos do estoque:
 
 // ─── Detecta intenção da pergunta ────────────────────────────────────────────
 
-type Intencao = 'ruptura' | 'critico' | 'alerta' | 'tudo' | 'geral' | 'ia' | 'ajuda' | 'remanejamento' | 'farmacia';
+type Intencao = 'ruptura' | 'critico' | 'alerta' | 'tudo' | 'geral' | 'ia' | 'ajuda' | 'remanejamento' | 'farmacia' | 'semana' | 'zerado' | 'tendencia_alta' | 'pedido';
 
 function detectarIntencao(texto: string): Intencao {
   if (!texto || texto.length < 2) return 'ajuda';
@@ -180,15 +206,20 @@ function detectarIntencao(texto: string): Intencao {
   if (/remanejar|remanejamento|transferir|redistribui|sobra|excesso entre estoques/.test(t)) return 'remanejamento';
 
   // Farmácia específica — checa ANTES do limite de palavras
-  // Permite: "meronem na central", "meronem no pronto socorro", "criticos cti", etc.
   if (detectarFarmacia(t) !== null || /farmacia|farmacias/.test(t)) return 'farmacia';
 
-  // Frases longas SEM farmácia específica → IA genérica
+  // Novas intenções diretas (checadas antes do corte por palavras)
+  if (/zerado|sem.?estoque|ruptura.?total|nao.?tem.?mais/.test(t)) return 'zerado';
+  if (/semana|7.?dias?|vai.?acabar|acab[ae]ndo|proximos.?dias|projecao.?curt/.test(t)) return 'semana';
+  if (/subindo|aumentando|crescendo|tendencia.?alt|consumo.?(sub|aument)/.test(t)) return 'tendencia_alta';
+  if (/quanto.?ped[ii]r|quanto.?compr|o.?que.?compr|sugest.?de.?compra|lista.?de.?compra|montar.?pedido|fazer.?pedido/.test(t)) return 'pedido';
+
+  // Frases longas SEM intenção específica → IA genérica
   const palavras = t.split(/\s+/).filter(Boolean);
   if (palavras.length > 3) return 'ia';
 
-  // Comandos curtos genéricos (sem farmácia específica)
-  if (/ruptur|sem estoque|zerado|acabou/.test(t)) return 'ruptura';
+  // Comandos curtos genéricos
+  if (/ruptur|acabou/.test(t))                    return 'ruptura';
   if (/^criti|^urgent|^emergenc/.test(t))         return 'critico';
   if (/^alert|^atenc/.test(t))                    return 'alerta';
   if (/^tudo$|^todos$|^resumo$|^status$/.test(t)) return 'tudo';
@@ -328,26 +359,35 @@ function buildRemanejamentoReply(snapshot: string): string {
 function buildHelp(): string {
   return `👋 Olá! Sou o *FarmaBot*, seu assistente de farmácia hospitalar.
 
-Pode me perguntar qualquer coisa sobre o estoque — falo português normal, não precisa de comando especial. Mas se quiser respostas rápidas, aqui estão alguns atalhos:
+Pode me perguntar qualquer coisa — falo português normal. Para respostas rápidas, use os atalhos abaixo:
 
 📋 *Relatórios instantâneos*
-  • *rupturas* — itens zerados ou acabando hoje
+  • *zerado* — itens com estoque zerado agora
+  • *semana* — itens que zeram nos próximos 7 dias
   • *crítico* — cobertura ≤7 dias
   • *alerta* — cobertura 8–15 dias
-  • *tudo* — relatório completo
+  • *tudo* — relatório completo (rupturas + crítico + alerta)
+
+📈 *Análise de consumo*
+  • *subindo* — itens com consumo crescendo
+  • _@bot o que está aumentando?_ — mesmo resultado
+
+🛒 *Compras*
+  • *pedido* — sugestão de quanto pedir (críticos e alertas)
+  • _@bot quanto pedir de meropenem?_ — pedido de item específico
 
 🏥 *Por farmácia ou produto*
   • _@bot saldo CTI_ — situação da CTI
   • _@bot meropenem nas farmácias_ — saldo por estoque
   • _@bot críticos PS_ — críticos no Pronto Socorro
-
-🧠 *Perguntas livres*
-  • _@bot o que precisa ser pedido urgente?_
-  • _@bot vai faltar alguma coisa essa semana?_
-  • _@bot quanto de amoxicilina ainda tem?_
   • _@bot remanejamento_ — sugestões de redistribuição
 
-_Dica: se o estoque foi atualizado hoje no FarmaIA, minhas respostas refletem a situação atual._`;
+🧠 *Perguntas livres*
+  • _@bot o que precisa de atenção agora?_
+  • _@bot vai faltar alguma coisa essa semana?_
+  • _@bot quanto de amoxicilina ainda tem?_
+
+_Dica: se o rastreio foi atualizado hoje no FarmaIA, minhas respostas refletem a situação atual._`;
 }
 
 // ─── Formata resposta de estoque (respostas rápidas por palavra-chave) ────────
@@ -376,6 +416,87 @@ function buildReply(rows: TrackingRow[], intencao: Intencao): string {
     if (!itens.length) return `✅ *ALERTAS — ${date}*\nNenhum item em nível Alerta no momento.`;
     let msg = `🟡 *ALERTA (8–15 dias) — ${date}*\n${itens.length} ${itens.length === 1 ? 'item' : 'itens'}\n\n`;
     itens.forEach(r => { msg += formatItem(r); });
+    return msg;
+  }
+
+  if (intencao === 'zerado') {
+    const itens = rows.filter(r => r.projecao <= 0).sort((a, b) => a.projecao - b.projecao);
+    if (!itens.length) return `✅ *SEM RUPTURAS — ${date}*\nNenhum item com estoque zerado no momento.`;
+    let msg = `⛔ *ESTOQUE ZERADO — ${date}*\n${itens.length} ${itens.length === 1 ? 'item zerado' : 'itens zerados'}\n\n`;
+    itens.forEach(r => { msg += formatItem(r); });
+    msg += `\n_Use *pedido* para ver sugestão de compra._`;
+    return msg;
+  }
+
+  if (intencao === 'semana') {
+    const itens  = rows.filter(r => r.projecao > 0 && r.projecao <= 7).sort((a, b) => a.projecao - b.projecao);
+    const zerados = rows.filter(r => r.projecao <= 0).length;
+    if (!itens.length) {
+      const aviso = zerados > 0 ? ` _(${zerados} ${zerados === 1 ? 'item já zerado' : 'itens já zerados'} — use *zerado*)_` : '';
+      return `✅ *PRÓXIMA SEMANA — ${date}*\nNenhum item vai zerar nos próximos 7 dias.${aviso}`;
+    }
+    let msg = `📅 *ZERAM EM ≤7 DIAS — ${date}*\n${itens.length} ${itens.length === 1 ? 'item' : 'itens'}`;
+    if (zerados > 0) msg += `\n_(+ ${zerados} já ${zerados === 1 ? 'zerado' : 'zerados'} — use *zerado*)_`;
+    msg += '\n\n';
+    itens.forEach(r => { msg += formatItem(r); });
+    msg += `\n_Use *pedido* para sugestão de compra urgente._`;
+    return msg;
+  }
+
+  if (intencao === 'tendencia_alta') {
+    const itens = rows.filter(r => r.tendencia === 'alta').sort((a, b) => a.projecao - b.projecao);
+    if (!itens.length) return `✅ *CONSUMO SUBINDO — ${date}*\nNenhum item com tendência de alta no momento.`;
+    let msg = `📈 *CONSUMO SUBINDO — ${date}*\n${itens.length} ${itens.length === 1 ? 'item com tendência de alta' : 'itens com tendência de alta'}\n\n`;
+    itens.forEach(r => {
+      msg += formatItem(r);
+      const ultDois = r.dias.slice(-2);
+      if (ultDois.length === 2 && ultDois[0] > 0) {
+        const varPct = Math.round(((ultDois[1] - ultDois[0]) / ultDois[0]) * 100);
+        if (varPct > 0) msg += `  _(+${varPct}% vs dia anterior)_\n`;
+      }
+    });
+    msg += `\n_Itens com alta tendência e baixa projeção são risco iminente._`;
+    return msg;
+  }
+
+  if (intencao === 'pedido') {
+    const itens = rows
+      .filter(r => r.nivel === 'critico' || r.nivel === 'alerta')
+      .sort((a, b) => a.projecao - b.projecao)
+      .slice(0, 20);
+    if (!itens.length) return `✅ *SUGESTÃO DE PEDIDO — ${date}*\nNenhum item crítico ou em alerta no momento.`;
+
+    let msg = `🛒 *SUGESTÃO DE PEDIDO — ${date}*\n_Cálculo: (média/dia × 30 dias) − saldo atual_\n\n`;
+
+    const zerados  = itens.filter(r => r.projecao <= 0);
+    const urgentes = itens.filter(r => r.projecao > 0 && r.nivel === 'critico');
+    const alertas  = itens.filter(r => r.nivel === 'alerta');
+
+    if (zerados.length) {
+      msg += `⛔ *ZERADOS — pedido imediato*\n`;
+      zerados.forEach(r => {
+        const qtd = Math.ceil(r.media * 30);
+        msg += `• *${r.codigo}* – ${r.comercial}: pedir *${qtd.toLocaleString('pt-BR')} ${r.unidade}*\n`;
+      });
+      msg += '\n';
+    }
+    if (urgentes.length) {
+      msg += `🔴 *CRÍTICO — pedido urgente*\n`;
+      urgentes.forEach(r => {
+        const qtd = Math.max(1, Math.ceil(r.media * 30 - r.saldo));
+        msg += `• *${r.codigo}* – ${r.comercial}: pedir *${qtd.toLocaleString('pt-BR')} ${r.unidade}* _(${Math.round(r.projecao)}d restantes)_\n`;
+      });
+      msg += '\n';
+    }
+    if (alertas.length) {
+      msg += `🟡 *ALERTA — planejar compra*\n`;
+      alertas.forEach(r => {
+        const qtd = Math.max(1, Math.ceil(r.media * 30 - r.saldo));
+        msg += `• *${r.codigo}* – ${r.comercial}: pedir *${qtd.toLocaleString('pt-BR')} ${r.unidade}* _(${Math.round(r.projecao)}d restantes)_\n`;
+      });
+      msg += '\n';
+    }
+    msg += `_Quantidades baseadas em 30 dias de cobertura. Ajuste conforme prazo do fornecedor._`;
     return msg;
   }
 
@@ -535,7 +656,10 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   // ─── Busca último snapshot de estoque ────────────────────────────────────
-  const rows = await kvGet<TrackingRow[]>('last_stock_data');
+  const [rows, diaLabels] = await Promise.all([
+    kvGet<TrackingRow[]>('last_stock_data'),
+    kvGet<string[]>('last_stock_dia_labels'),
+  ]);
 
   if (!rows || rows.length === 0) {
     await sendReply(
@@ -608,7 +732,7 @@ export default async function handler(req: Request): Promise<Response> {
 
   if (intencao === 'ia') {
     // Pergunta livre → Groq (Llama 3) analisa
-    const respostaIA = await askGroq(textoLimpo, rows);
+    const respostaIA = await askGroq(textoLimpo, rows, diaLabels ?? []);
     if (respostaIA) {
       await sendReply(remoteJid, `🤖 ${respostaIA}`);
       return new Response('OK', { status: 200 });
