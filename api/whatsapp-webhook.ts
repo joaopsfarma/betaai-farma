@@ -44,7 +44,7 @@ async function kvGet<T>(key: string): Promise<T | null> {
   try {
     const res  = await fetch(`${url}/get/${encodeURIComponent(key)}`, {
       headers: { Authorization: `Bearer ${token}` },
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(3000),
     });
     if (!res.ok) return null;
     const json = await res.json() as { result: string | null };
@@ -114,7 +114,7 @@ async function askClaude(system: string, user: string, maxTokens: number): Promi
         system,
         messages: [{ role: 'user', content: user }],
       }),
-      signal: AbortSignal.timeout(25000),
+      signal: AbortSignal.timeout(20000),
     });
     if (!res.ok) {
       const err = await res.text();
@@ -158,7 +158,7 @@ Campos do estoque:
 
   const usuarioMsg = `ESTOQUE ATUAL:\n${estoque}\n\nPERGUNTA: ${pergunta || 'Dá um resumo rápido da situação e me diz o que precisa de atenção agora.'}`;
 
-  return askClaude(sistemaMsg, usuarioMsg, 900);
+  return askClaude(sistemaMsg, usuarioMsg, 500);
 }
 
 // ─── Detecta intenção da pergunta ────────────────────────────────────────────
@@ -311,7 +311,7 @@ Status: CRÍTICO (<15d) | ALERTA (15–29d) | NORMAL (30–89d) | EXCESSO (≥90
 
   const usuarioMsg = `ESTOQUE POR FARMÁCIA:\n${dados}\n\nPERGUNTA: ${pergunta}`;
 
-  return askClaude(sistemaMsg, usuarioMsg, 700);
+  return askClaude(sistemaMsg, usuarioMsg, 450);
 }
 
 // ─── Remanejamento ───────────────────────────────────────────────────────────
@@ -441,7 +441,7 @@ async function sendReply(to: string, text: string): Promise<void> {
     method: 'POST',
     headers: { apikey: apiKey, 'Content-Type': 'application/json' },
     body: JSON.stringify({ number: to, textMessage: { text } }),
-    signal: AbortSignal.timeout(10000),
+    signal: AbortSignal.timeout(5000),
   });
 }
 
@@ -621,4 +621,4 @@ export default async function handler(req: Request): Promise<Response> {
   return new Response('OK', { status: 200 });
 }
 
-export const config = { runtime: 'nodejs' };
+export const config = { runtime: 'edge' };
