@@ -5,6 +5,8 @@
 
 import React, { useState, useMemo } from 'react';
 import { usePersistentState } from './hooks/usePersistentState';
+import { useAuth } from './contexts/AuthContext';
+import { LoginPage } from './components/LoginPage';
 import { MOCK_INVENTORY } from './mockData';
 import { processInventory } from './logic';
 import { InventoryTable } from './components/InventoryTable';
@@ -24,7 +26,6 @@ import { AnalysePendencies } from './components/AnalysePendencies';
 import { DashboardPrevisibilidade, PredictabilityData } from './components/DashboardPrevisibilidade';
 import { DashboardEquivalencia } from './components/DashboardEquivalencia';
 import { DispensaryProject } from './components/DispensaryProject';
-import Pedido24h from './components/Pedido24h';
 import { DailyTracking } from './components/DailyTracking';
 import { ConciliacaoEmprestimo } from './components/ConciliacaoEmprestimo';
 import { DashboardRastreio } from './components/DashboardRastreio';
@@ -62,7 +63,8 @@ import { DEFAULT_EQUIVALENCES } from './data/equivalences';
 import { LandingPage } from './components/LandingPage';
 
 function App() {
-  const [showApp, setShowApp] = usePersistentState<boolean>('logistica_farma_show_app', false);
+  const { user, loading: authLoading } = useAuth();
+  const [showApp, setShowApp] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<TabId>('analise_dispensacao');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [inventoryData, setInventoryData] = usePersistentState<Product[]>('logistica_farma_inventory', MOCK_INVENTORY);
@@ -188,17 +190,6 @@ function App() {
       ],
     },
     {
-      id: 'dispensacao',
-      label: 'Dispensação & CAF',
-      icon: <Activity className="w-4 h-4" />,
-      items: [
-        { id: 'multidose',    label: 'Multidose',    icon: <Activity className="w-5 h-5" />,   classes: V },
-        { id: 'painel_caf',   label: 'Painel CAF',   icon: <Package className="w-5 h-5" />,    classes: V },
-        { id: 'painel_caf_v2',label: 'Painel CAF V2',icon: <BarChart2 className="w-5 h-5" />,  classes: G },
-        { id: 'pedido24h',    label: 'Pedido 24h',   icon: <Clock className="w-5 h-5" />,      classes: G },
-      ],
-    },
-    {
       id: 'requisicao',
       label: 'Requisição & Supply',
       icon: <ShoppingCart className="w-4 h-4" />,
@@ -208,6 +199,8 @@ function App() {
         { id: 'ressuprimento',         label: 'Ressuprimento',    icon: <ShoppingCart className="w-5 h-5" />,   classes: V },
         { id: 'painel_tv_ressuprimento',label: 'Painel TV Ressup.',icon: <MonitorPlay className="w-5 h-5" />,   classes: V },
         { id: 'supply',                label: 'Supply',           icon: <Package className="w-5 h-5" />,        classes: G },
+        { id: 'painel_caf',            label: 'Painel CAF',       icon: <Package className="w-5 h-5" />,        classes: V },
+        { id: 'painel_caf_v2',         label: 'Painel CAF V2',    icon: <BarChart2 className="w-5 h-5" />,      classes: G },
         { id: 'remanejamento',         label: 'Remanejamento',    icon: <ArrowLeftRight className="w-5 h-5" />, classes: A },
       ],
     },
@@ -216,12 +209,13 @@ function App() {
       label: 'Rastreio & Cancelamento',
       icon: <Ban className="w-4 h-4" />,
       items: [
-        { id: 'rastreio',        label: 'Rastreio Cancelamento', icon: <Ban className="w-5 h-5" />,           classes: V },
-        { id: 'rastreio_falta',  label: 'Rastreio de Falta',     icon: <AlertTriangle className="w-5 h-5" />, classes: G },
-        { id: 'cancelamento_v2', label: 'Cancelamento V2',       icon: <XCircle className="w-5 h-5" />,       classes: G },
-        { id: 'daily_tracking',  label: 'Tracking Diário SV',    icon: <Activity className="w-5 h-5" />,      classes: V },
-        { id: 'previsibilidade',    label: 'Previsibilidade',    icon: <AlertCircle className="w-5 h-5" />,   classes: V },
-        { id: 'previsibilidade_v2', label: 'Previsibilidade V2', icon: <LineChart className="w-5 h-5" />,     classes: G },
+        { id: 'multidose',          label: 'Multidose',            icon: <Activity className="w-5 h-5" />,      classes: V },
+        { id: 'rastreio',           label: 'Rastreio Cancelamento', icon: <Ban className="w-5 h-5" />,          classes: V },
+        { id: 'rastreio_falta',     label: 'Rastreio de Falta',     icon: <AlertTriangle className="w-5 h-5" />,classes: G },
+        { id: 'cancelamento_v2',    label: 'Cancelamento V2',       icon: <XCircle className="w-5 h-5" />,      classes: G },
+        { id: 'daily_tracking',     label: 'Tracking Diário SV',    icon: <Activity className="w-5 h-5" />,     classes: V },
+        { id: 'previsibilidade',    label: 'Previsibilidade',       icon: <AlertCircle className="w-5 h-5" />,  classes: V },
+        { id: 'previsibilidade_v2', label: 'Previsibilidade V2',    icon: <LineChart className="w-5 h-5" />,    classes: G },
       ],
     },
     {
@@ -268,6 +262,18 @@ function App() {
     return <LandingPage onEnter={() => setShowApp(true)} />;
   }
 
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <span className="w-8 h-8 border-4 border-violet-200 border-t-violet-600 rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginPage onBack={() => setShowApp(false)} />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 flex flex-col md:flex-row">
       <MobileHeader 
@@ -299,13 +305,7 @@ function App() {
           </div>
         )}
 
-        {activeTab === 'pedido24h' && (
-          <div className="max-w-7xl mx-auto">
-             <Pedido24h />
-          </div>
-        )}
-
-        {activeTab === 'daily_tracking' as TabId && (
+{activeTab === 'daily_tracking' as TabId && (
           <div className="max-w-7xl mx-auto">
              <DailyTracking />
           </div>

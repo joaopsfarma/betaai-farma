@@ -53,18 +53,21 @@ interface TrackingRow {
 // ─── Vercel KV (Upstash REST) helpers ────────────────────────────────────────
 
 async function kvGet<T>(key: string): Promise<T | null> {
-  const url   = process.env.KV_REST_API_URL;
-  const token = process.env.KV_REST_API_TOKEN;
+  const url   = process.env.SUPABASE_URL;
+  const token = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !token) return null;
 
   try {
-    const res  = await fetch(`${url}/get/${encodeURIComponent(key)}`, {
-      headers: { Authorization: `Bearer ${token}` },
-      signal: AbortSignal.timeout(3000),
-    });
+    const res = await fetch(
+      `${url}/rest/v1/bot_cache?key=eq.${encodeURIComponent(key)}&select=value`,
+      {
+        headers: { 'apikey': token, 'Authorization': `Bearer ${token}` },
+        signal: AbortSignal.timeout(3000),
+      },
+    );
     if (!res.ok) return null;
-    const json = await res.json() as { result: string | null };
-    return json.result ? JSON.parse(json.result) as T : null;
+    const data = await res.json() as { value: T }[];
+    return data[0]?.value ?? null;
   } catch {
     return null;
   }

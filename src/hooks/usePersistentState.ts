@@ -1,25 +1,46 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
 
 export function usePersistentState<T>(key: string, initialValue: T): [T, (value: T | ((val: T) => T)) => void] {
-  // Inicialização preguiçosa para ler o localStorage apenas uma vez
-  const [state, setState] = useState<T>(() => {
-    try {
-      const item = window.localStorage.getItem(key);
-      return item ? JSON.parse(item) : initialValue;
-    } catch (error) {
-      console.warn(`Error reading localStorage key "${key}":`, error);
-      return initialValue;
-    }
-  });
+  const { user } = useAuth();
+  const [state, setState] = useState<T>(initialValue);
+  const loaded = useRef(false);
 
-  // Salva no localStorage sempre que o state mudar
+  // Carrega do Supabase quando o usuário está disponível
   useEffect(() => {
-    try {
-      window.localStorage.setItem(key, JSON.stringify(state));
-    } catch (error) {
-      console.warn(`Error setting localStorage key "${key}":`, error);
+    if (!user) {
+      setState(initialValue);
+      loaded.current = false;
+      return;
     }
-  }, [key, state]);
+    loaded.current = false;
+    supabase
+      .from('app_state')
+      .select('value')
+      .eq('key', key)
+      .eq('user_id', user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.value !== undefined && data.value !== null) {
+          setState(data.value as T);
+        }
+        loaded.current = true;
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, key]);
+
+  // Persiste no Supabase sempre que o estado mudar (debounced 500ms)
+  useEffect(() => {
+    if (!user || !loaded.current) return;
+    const timer = setTimeout(() => {
+      supabase
+        .from('app_state')
+        .upsert({ user_id: user.id, key, value: state }, { onConflict: 'user_id,key' });
+    }, 500);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, user?.id, key]);
 
   return [state, setState];
 }

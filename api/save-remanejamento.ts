@@ -35,14 +35,19 @@ interface SugestaoRemanejamento {
 }
 
 async function kvSet(key: string, value: unknown): Promise<void> {
-  const url   = process.env.KV_REST_API_URL;
-  const token = process.env.KV_REST_API_TOKEN;
+  const url   = process.env.SUPABASE_URL;
+  const token = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !token) return;
 
-  await fetch(url, {
+  await fetch(`${url}/rest/v1/bot_cache`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(['SET', key, JSON.stringify(value)]),
+    headers: {
+      'apikey': token,
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'resolution=merge-duplicates',
+    },
+    body: JSON.stringify({ key, value }),
   });
 }
 
