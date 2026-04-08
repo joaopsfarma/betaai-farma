@@ -46,3 +46,13 @@ CREATE TRIGGER bot_cache_updated_at
 -- Bot usa service_role key — sem RLS necessário
 -- (caso queira restringir, descomente abaixo)
 -- ALTER TABLE bot_cache ENABLE ROW LEVEL SECURITY;
+
+-- Tabela de códigos de convite (cadastro controlado)
+CREATE TABLE IF NOT EXISTS invite_codes (
+  id         BIGSERIAL   PRIMARY KEY,
+  code       TEXT        NOT NULL UNIQUE,
+  used       BOOLEAN     NOT NULL DEFAULT FALSE,
+  used_by    TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  used_at    TIMESTAMPTZ
+);
