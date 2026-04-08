@@ -1511,15 +1511,15 @@ export const exportNutricaoPDF = (
 
   let currentY = drawPDFHeader(
     doc,
-    'Painel da Nutrição',
+    'Painel da Nutricao',
     'Controle de Validade e Estoque — Dietas Enterais',
     color
   );
 
   currentY = drawKPICards(doc, [
     { label: 'Total de Produtos', value: kpis.total.toString(), color: PDF_COLORS.teal },
-    { label: 'Vencendo ≤30 dias', value: kpis.urgente.toString(), color: PDF_COLORS.red },
-    { label: 'Vencendo ≤60 dias', value: kpis.atencao.toString(), color: PDF_COLORS.amber },
+    { label: 'Vencendo <=30 dias', value: kpis.urgente.toString(), color: PDF_COLORS.red },
+    { label: 'Vencendo <=60 dias', value: kpis.atencao.toString(), color: PDF_COLORS.amber },
     { label: 'Estoque Total', value: kpis.estoqueTotal.toLocaleString('pt-BR'), color: PDF_COLORS.slate },
   ], currentY);
 
@@ -1527,60 +1527,68 @@ export const exportNutricaoPDF = (
   const ascii = (s: string) =>
     s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7E]/g, ' ').replace(/\s+/g, ' ').trim();
 
-  const tableData = produtos.map(p => [
-    ascii(p.nome),
-    p.produtoId,
-    p.unidade,
-    p.estoqueAtual.toLocaleString('pt-BR'),
-    p.menorValidade || '—',
-    p.menorDias <= 0 ? 'Vencido' : `${p.menorDias}d`,
-    p.status === 'ATENCAO' ? 'ATENÇÃO' : p.status,
-    p.lotes.map(l => `${l.lote} (${l.validade} · ${l.quantidade.toLocaleString('pt-BR')}un)`).join('\n'),
-  ]);
+  // Split into two groups
+  const urgentes = [...produtos]
+    .filter(p => p.menorDias <= 60)
+    .sort((a, b) => a.menorDias - b.menorDias);
+
+  const demais = [...produtos]
+    .filter(p => p.menorDias > 60)
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 
   const STATUS_COLORS_NUT: Record<string, [number, number, number]> = {
     URGENTE: [220, 38, 38],
-    ATENÇÃO: [202, 138, 4],
+    'ATEN\u00C7\u00C3O': [202, 138, 4],
     OK: [22, 163, 74],
   };
 
-  autoTable(doc, {
-    startY: currentY + 2,
-    head: [['Produto', 'Cód.', 'Un.', 'Estoque', 'Validade', 'Dias', 'Status', 'Lotes']],
-    body: tableData,
-    theme: 'grid',
+  const buildRows = (rows: NutricaoPDFRow[]) =>
+    rows.map(p => [
+      ascii(p.nome),
+      p.produtoId,
+      p.unidade,
+      p.estoqueAtual.toLocaleString('pt-BR'),
+      p.menorValidade || '\u2014',
+      p.menorDias <= 0 ? 'Vencido' : `${p.menorDias}d`,
+      p.status === 'ATENCAO' ? 'ATEN\u00C7\u00C3O' : p.status,
+      p.lotes.map(l => `${l.lote} (${l.validade} · ${l.quantidade.toLocaleString('pt-BR')}un)`).join('\n'),
+    ]);
+
+  const TABLE_HEAD = [['Produto', 'Cod.', 'Un.', 'Estoque', 'Validade', 'Dias', 'Status', 'Lotes']];
+
+  const sharedTableOptions = {
+    theme: 'grid' as const,
     margin: { left: 12, right: 12, bottom: 20 },
     styles: {
       fontSize: 7,
       cellPadding: 2.5,
-      valign: 'middle',
-      overflow: 'linebreak',
+      valign: 'middle' as const,
+      overflow: 'linebreak' as const,
     },
     headStyles: {
       fillColor: color,
-      textColor: [255, 255, 255],
-      fontStyle: 'bold',
-      halign: 'center',
+      textColor: [255, 255, 255] as [number, number, number],
+      fontStyle: 'bold' as const,
+      halign: 'center' as const,
     },
-    alternateRowStyles: { fillColor: [248, 250, 252] },
     columnStyles: {
-      0: { cellWidth: 75, fontStyle: 'bold', textColor: [30, 41, 59] },
-      1: { cellWidth: 14, halign: 'center' },
-      2: { cellWidth: 16, halign: 'center' },
-      3: { cellWidth: 16, halign: 'right' },
-      4: { cellWidth: 20, halign: 'center' },
-      5: { cellWidth: 12, halign: 'center', fontStyle: 'bold' },
-      6: { cellWidth: 16, halign: 'center', fontStyle: 'bold' },
-      7: { cellWidth: 'auto' },
+      0: { cellWidth: 75, fontStyle: 'bold' as const, textColor: [30, 41, 59] as [number, number, number] },
+      1: { cellWidth: 14, halign: 'center' as const },
+      2: { cellWidth: 16, halign: 'center' as const },
+      3: { cellWidth: 16, halign: 'right' as const },
+      4: { cellWidth: 20, halign: 'center' as const },
+      5: { cellWidth: 12, halign: 'center' as const, fontStyle: 'bold' as const },
+      6: { cellWidth: 16, halign: 'center' as const, fontStyle: 'bold' as const },
+      7: { cellWidth: 'auto' as const },
     },
-    didParseCell(data) {
+    didParseCell(data: any) {
       if (data.section === 'body' && data.column.index === 6) {
         const c = STATUS_COLORS_NUT[data.cell.raw as string];
         if (c) data.cell.styles.textColor = c;
       }
       if (data.section === 'body' && data.column.index === 5) {
         const raw = data.cell.raw as string;
-        if (raw === 'Vencido' || raw.replace('d', '') !== raw) {
+        if (raw === 'Vencido' || raw.includes('d')) {
           const dias = parseInt(raw, 10);
           if (raw === 'Vencido' || dias <= 30) data.cell.styles.textColor = [220, 38, 38];
           else if (dias <= 60) data.cell.styles.textColor = [202, 138, 4];
@@ -1588,7 +1596,47 @@ export const exportNutricaoPDF = (
         }
       }
     },
-  });
+  };
+
+  // ── Seção 1: Vencimentos Próximos (página 1) ─────────────────────────────
+  if (urgentes.length > 0) {
+    currentY += 3;
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(220, 38, 38);
+    doc.text(`Vencimentos Proximos — URGENTE / ATENCAO (${urgentes.length} produto${urgentes.length !== 1 ? 's' : ''})`, 12, currentY);
+
+    autoTable(doc, {
+      startY: currentY + 5,
+      head: TABLE_HEAD,
+      body: buildRows(urgentes),
+      ...sharedTableOptions,
+      alternateRowStyles: { fillColor: [255, 247, 247] },
+    });
+  }
+
+  // ── Seção 2: Demais Dietas ────────────────────────────────────────────────
+  if (demais.length > 0) {
+    if (urgentes.length > 0) {
+      doc.addPage();
+      currentY = 20;
+    } else {
+      currentY += 3;
+    }
+
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(color[0], color[1], color[2]);
+    doc.text(`Demais Dietas — OK (${demais.length} produto${demais.length !== 1 ? 's' : ''})`, 12, currentY);
+
+    autoTable(doc, {
+      startY: currentY + 5,
+      head: TABLE_HEAD,
+      body: buildRows(demais),
+      ...sharedTableOptions,
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+    });
+  }
 
   drawPDFFooters(doc, color);
   doc.save('painel-nutricao.pdf');

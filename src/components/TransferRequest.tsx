@@ -350,6 +350,7 @@ export const TransferRequest: React.FC = () => {
             <td class="td-produto" rowspan="${rowspan}">${item.name}</td>
             <td class="td-un" rowspan="${rowspan}">${item.unit}</td>
             <td class="td-qtd" rowspan="${rowspan}">${item.orderQty}</td>
+            <td class="td-caf" rowspan="${rowspan}">${item.supplierStock}</td>
             ${lotCell}
             <td class="td-atd-final" rowspan="${rowspan}"></td>
           </tr>`;
@@ -393,10 +394,11 @@ export const TransferRequest: React.FC = () => {
     overflow: hidden;
   }
   col.c-id   { width: 5%; }
-  col.c-prod { width: 38%; }
-  col.c-un   { width: 8%; }
+  col.c-prod { width: 34%; }
+  col.c-un   { width: 7%; }
   col.c-qtd  { width: 4%; }
-  col.c-lot  { width: 35%; }
+  col.c-caf  { width: 6%; }
+  col.c-lot  { width: 34%; }
   col.c-atd  { width: 10%; }
 
   thead tr { background: #2d5282; color: white; }
@@ -425,6 +427,7 @@ export const TransferRequest: React.FC = () => {
   .td-produto { font-size: 9px; font-weight: 600; color: #1e293b; word-break: break-word; line-height: 1.35; }
   .td-un      { font-size: 8px; color: #4a5568; word-break: break-word; line-height: 1.3; }
   .td-qtd     { text-align: center; font-size: 13px; font-weight: 800; color: #2d5282; padding: 6px 4px; }
+  .td-caf     { text-align: center; font-size: 11px; font-weight: 700; color: #7c3aed; }
   .td-lot-cell { padding: 5px 8px; width: 100%; }
 
   /* ─── LINHA DE LOTE ─── */
@@ -560,7 +563,7 @@ export const TransferRequest: React.FC = () => {
 
 <table>
   <colgroup>
-    <col class="c-id"><col class="c-prod"><col class="c-un"><col class="c-qtd"><col class="c-lot"><col class="c-atd">
+    <col class="c-id"><col class="c-prod"><col class="c-un"><col class="c-qtd"><col class="c-caf"><col class="c-lot"><col class="c-atd">
   </colgroup>
   <thead>
     <tr>
@@ -568,6 +571,7 @@ export const TransferRequest: React.FC = () => {
       <th>Produto</th>
       <th>Unidade</th>
       <th style="text-align:center">Qtd</th>
+      <th style="text-align:center">Est. CAF</th>
       <th>Lotes Sugeridos (FEFO) &nbsp;·&nbsp; &#9744; Conferido &nbsp;·&nbsp; Atendido</th>
       <th style="text-align:center;border-left:2px solid rgba(255,255,255,0.25)">Qtd Atendida Final</th>
     </tr>

@@ -393,12 +393,7 @@ export function PainelNutricao() {
     [dados]);
 
   const handleExportPDF = () => {
-    exportNutricaoPDF(displayData, {
-      total: displayData.length,
-      urgente: displayData.filter(p => p.menorDias <= 30).length,
-      atencao: displayData.filter(p => p.menorDias > 30 && p.menorDias <= 60).length,
-      estoqueTotal: displayData.reduce((s, p) => s + p.estoqueAtual, 0),
-    });
+    exportNutricaoPDF(dados, kpis);
   };
 
   const SortIcon = ({ field }: { field: typeof sortField }) => {
