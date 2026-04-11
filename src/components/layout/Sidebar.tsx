@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Menu, X, Pill, ChevronRight } from 'lucide-react';
+import { Menu, X, Pill, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export type TabId =
@@ -41,7 +41,8 @@ export type TabId =
   | 'indicadores_logisticos_v2'
   | 'daily_tracking'
   | 'painel_tv_ressuprimento'
-  | 'painel_nutricao';
+  | 'painel_nutricao'
+  | 'abastecimento-farmaceutico';
 
 export interface NavItem {
   id: TabId;
@@ -71,6 +72,8 @@ interface SidebarProps {
   activeTab: TabId;
   setActiveTab: (tab: TabId) => void;
   navGroups: NavGroup[];
+  isCollapsed: boolean;
+  setIsCollapsed: (v: boolean) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -78,7 +81,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   setIsSidebarOpen,
   activeTab,
   setActiveTab,
-  navGroups
+  navGroups,
+  isCollapsed,
+  setIsCollapsed,
 }) => {
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => {
     const initial = navGroups.find(g => g.items.some(i => i.id === activeTab));
@@ -104,6 +109,83 @@ export const Sidebar: React.FC<SidebarProps> = ({
     });
   };
 
+  // ── COLLAPSED (mini) sidebar ──────────────────────────────────────────────
+  if (isCollapsed) {
+    return (
+      <>
+        <AnimatePresence>
+          {isSidebarOpen && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsSidebarOpen(false)}
+              className="fixed inset-0 bg-slate-900/50 z-40 md:hidden backdrop-blur-sm"
+            />
+          )}
+        </AnimatePresence>
+
+        <aside
+          className={`
+            fixed md:sticky top-0 left-0 h-screen bg-white border-r border-violet-100 z-50
+            w-16 flex-shrink-0 flex flex-col transition-all duration-300 ease-in-out shadow-xl shadow-violet-100/50 md:shadow-none
+            ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+          `}
+        >
+          {/* Mini header */}
+          <div className="p-3 border-b border-violet-100 hidden md:flex flex-col items-center gap-3 bg-gradient-to-br from-emerald-50 to-violet-50">
+            <div className="bg-gradient-to-br from-emerald-500 to-violet-600 p-2 rounded-xl shadow-md shadow-violet-200">
+              <Pill className="w-5 h-5 text-white" />
+            </div>
+            <button
+              onClick={() => setIsCollapsed(false)}
+              title="Expandir menu"
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-violet-500 hover:bg-violet-100 transition-colors"
+            >
+              <ChevronsRight className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Flat icon list */}
+          <div className="flex-1 overflow-y-auto py-3 px-1.5 custom-scrollbar">
+            <div className="space-y-0.5">
+              {navGroups.flatMap(g => g.items).map(item => {
+                const isActive = activeTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      setActiveTab(item.id);
+                      setIsSidebarOpen(false);
+                    }}
+                    title={item.label}
+                    className={`
+                      w-full flex justify-center items-center p-2.5 rounded-xl transition-all
+                      ${isActive
+                        ? `${item.classes.activeBg} ${item.classes.iconActive} shadow-sm border ${item.classes.activeBorder}`
+                        : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50 border border-transparent'
+                      }
+                    `}
+                  >
+                    <div className={isActive ? item.classes.iconActive : ''}>
+                      {item.icon}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Mini footer */}
+          <div className="p-2 border-t border-violet-100 flex justify-center">
+            <div className="w-2 h-2 rounded-full bg-emerald-400" title="Sistema Atualizado" />
+          </div>
+        </aside>
+      </>
+    );
+  }
+
+  // ── EXPANDED sidebar (default) ────────────────────────────────────────────
   return (
     <>
       {/* Sidebar Overlay (Mobile) */}
@@ -123,11 +205,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <aside
         className={`
           fixed md:sticky top-0 left-0 h-screen bg-white border-r border-violet-100 z-50
-          w-72 flex-shrink-0 flex flex-col transition-transform duration-300 ease-in-out shadow-xl shadow-violet-100/50 md:shadow-none
+          w-72 flex-shrink-0 flex flex-col transition-all duration-300 ease-in-out shadow-xl shadow-violet-100/50 md:shadow-none
           ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
         `}
       >
-        <div className="p-6 border-b border-violet-100 hidden md:block bg-gradient-to-br from-emerald-50 to-violet-50">
+        <div className="p-4 border-b border-violet-100 hidden md:flex items-center justify-between bg-gradient-to-br from-emerald-50 to-violet-50">
           <div className="flex items-center gap-3">
             <div className="bg-gradient-to-br from-emerald-500 to-violet-600 p-2.5 rounded-xl shadow-md shadow-violet-200">
               <Pill className="w-6 h-6 text-white" />
@@ -137,6 +219,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <p className="text-[10px] font-semibold text-violet-400 uppercase tracking-wider mt-1">Sistema Farmacêutico</p>
             </div>
           </div>
+          <button
+            onClick={() => setIsCollapsed(true)}
+            title="Recolher menu"
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-violet-400 hover:text-violet-600 hover:bg-violet-100 transition-colors"
+          >
+            <ChevronsLeft className="w-4 h-4" />
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto py-4 px-3 custom-scrollbar">

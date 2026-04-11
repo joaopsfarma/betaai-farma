@@ -54,6 +54,7 @@ import { Supply } from './components/Supply';
 import { Multidose } from './components/Multidose';
 import { BaixasEstoque } from './components/BaixasEstoque';
 import { PainelNutricao } from './components/PainelNutricao';
+import AbastecimentoFarmaceutico from './components/AbastecimentoFarmaceutico';
 import { AnaliseOperacional } from './components/AnaliseOperacional';
 import { MobileHeader } from './components/layout/MobileHeader';
 import { Sidebar, NavItem, NavGroup, TabId } from './components/layout/Sidebar';
@@ -67,6 +68,7 @@ function App() {
   const [showApp, setShowApp] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<TabId>('analise_dispensacao');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [inventoryData, setInventoryData] = usePersistentState<Product[]>('logistica_farma_inventory', MOCK_INVENTORY);
   const [followUpData, setFollowUpData] = usePersistentState<FollowUpItem[]>('logistica_farma_followup', MOCK_FOLLOW_UP);
   const [selectedCategory, setSelectedCategory] = useState<ProductCategory | 'Todos'>('Todos');
@@ -78,6 +80,11 @@ function App() {
     itens: false,
     estoque: false
   });
+
+  // Auto-colapsa o sidebar na aba de Abastecimento para maximizar a área de visualização
+  React.useEffect(() => {
+    setIsSidebarCollapsed(activeTab === 'abastecimento-farmaceutico');
+  }, [activeTab]);
 
   // Garante que as equivalências do DEFAULT_EQUIVALENCES estejam sempre no mapa compartilhado
   React.useEffect(() => {
@@ -199,6 +206,7 @@ function App() {
         { id: 'ressuprimento',         label: 'Ressuprimento',    icon: <ShoppingCart className="w-5 h-5" />,   classes: V },
         { id: 'painel_tv_ressuprimento',label: 'Painel TV Ressup.',icon: <MonitorPlay className="w-5 h-5" />,   classes: V },
         { id: 'supply',                label: 'Supply',           icon: <Package className="w-5 h-5" />,        classes: G },
+        { id: 'abastecimento-farmaceutico', label: 'Visão de Abastecimento', icon: <Package className="w-5 h-5" />, classes: G },
         { id: 'painel_caf',            label: 'Painel CAF',       icon: <Package className="w-5 h-5" />,        classes: V },
         { id: 'painel_caf_v2',         label: 'Painel CAF V2',    icon: <BarChart2 className="w-5 h-5" />,      classes: G },
         { id: 'remanejamento',         label: 'Remanejamento',    icon: <ArrowLeftRight className="w-5 h-5" />, classes: A },
@@ -287,6 +295,8 @@ function App() {
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         navGroups={navGroups}
+        isCollapsed={isSidebarCollapsed}
+        setIsCollapsed={setIsSidebarCollapsed}
       />
 
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 md:py-10">
@@ -510,6 +520,11 @@ function App() {
         {activeTab === 'painel_nutricao' && (
           <div className="max-w-7xl mx-auto">
             <PainelNutricao />
+          </div>
+        )}
+        {activeTab === 'abastecimento-farmaceutico' && (
+          <div className="w-full -mx-4 sm:-mx-6 lg:-mx-8 -mt-8 md:-mt-10">
+            <AbastecimentoFarmaceutico />
           </div>
         )}
       </motion.div>

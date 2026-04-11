@@ -178,6 +178,103 @@ export const exportToPDF = (config: PDFExportConfig) => {
   doc.save(config.filename);
 };
 
+// ─── Abastecimento Farmacêutico Export ────────────────────────────────────────
+
+export const exportAbastecimentoPDF = (
+  data: Record<string, any>[],
+  kpis: Record<string, number>
+) => {
+  const doc = new jsPDF({ orientation: 'landscape' });
+  const color = [16, 100, 205] as PDFAccentColor;
+
+  let y = drawPDFHeader(
+    doc,
+    'Visão de Abastecimento Farmacêutico',
+    'Gestão de Risco e Follow-up de Pedidos',
+    color
+  );
+
+  y = drawKPICards(doc, [
+    { label: 'Ruptura / Em Falta',     value: String(kpis.emFalta ?? 0),         color: PDF_COLORS.red },
+    { label: 'Risco Crítico (< 7d)',   value: String(kpis.coberturaCritica ?? 0), color: PDF_COLORS.orange },
+    { label: 'Pedidos Atrasados',      value: String(kpis.atrasados ?? 0),        color: PDF_COLORS.amber },
+    { label: 'Alto Custo',             value: String(kpis.altoCusto ?? 0),        color: [109, 40, 217] as PDFAccentColor },
+    { label: 'Total Analisado',        value: String(kpis.total ?? 0),            color: PDF_COLORS.slate },
+  ], y);
+
+  const headers = ['Código', 'Medicamento / Material', 'Fornecedor', 'Disp.', 'Tot.', 'Qtd Pend.', 'Valor Total', 'OC', 'Dt. Entrega', 'Atraso(d)', 'Situação'];
+
+  const rows = data.map(item => {
+    const isFalta = item['Em Falta'] === 'Sim' || item['Ruptura'] === 'Sim';
+    const diasAtraso = parseInt(item['Dias Atraso']) || 0;
+    const isAtrasado = diasAtraso > 0 || item['Atrasado'] === 'Sim';
+    const cobertura = item['Cobertura'] ? parseFloat(item['Cobertura'].replace(',', '.')) : 999;
+
+    let status = '';
+    if (isFalta) status = 'RUPTURA';
+    else if (cobertura < 7) status = `Crítico (${item['Cobertura']}d)`;
+    else if (isAtrasado) status = `${diasAtraso}d atraso`;
+    if (item['Item de Alto Custo (R$)'] === 'Sim') status = status ? `${status} | Alto Custo` : 'Alto Custo';
+
+    return [
+      item['Cod Item'] || '',
+      item['Desc Item'] || '',
+      item['Fornec'] || '',
+      item['Estoq Disp'] || '0',
+      item['Estoq Tot'] || '0',
+      `${item['Qtd Pend'] || '0'} ${item['Un'] || ''}`.trim(),
+      item['Valor total (R$)'] || '',
+      item['OC - Núm'] || '',
+      item['Nova Data Ent'] || item['OC - Entrega'] || '',
+      diasAtraso > 0 ? String(diasAtraso) : '',
+      status,
+    ];
+  });
+
+  autoTable(doc, {
+    startY: y + 2,
+    head: [headers],
+    body: rows,
+    theme: 'grid',
+    margin: { left: 10, right: 10, bottom: 20 },
+    styles: { fontSize: 7, cellPadding: 2.5, valign: 'middle', overflow: 'linebreak' },
+    headStyles: { fillColor: color, textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', fontSize: 7.5 },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+    columnStyles: {
+      0:  { cellWidth: 20, halign: 'center' },
+      1:  { cellWidth: 55 },
+      2:  { cellWidth: 38 },
+      3:  { cellWidth: 13, halign: 'center' },
+      4:  { cellWidth: 13, halign: 'center' },
+      5:  { cellWidth: 18, halign: 'center' },
+      6:  { cellWidth: 24, halign: 'right' },
+      7:  { cellWidth: 20, halign: 'center' },
+      8:  { cellWidth: 22, halign: 'center' },
+      9:  { cellWidth: 14, halign: 'center' },
+      10: { cellWidth: 'auto' },
+    },
+    didParseCell: (hookData) => {
+      if (hookData.section === 'body') {
+        const rowRaw = hookData.row.raw as string[];
+        const situacao = rowRaw[10] || '';
+        if (situacao.includes('RUPTURA')) {
+          hookData.cell.styles.fillColor = [254, 226, 226];
+          hookData.cell.styles.textColor = [185, 28, 28];
+        } else if (situacao.includes('Crítico')) {
+          hookData.cell.styles.fillColor = [255, 237, 213];
+          hookData.cell.styles.textColor = [194, 65, 12];
+        } else if (situacao.includes('atraso')) {
+          hookData.cell.styles.fillColor = [254, 243, 199];
+          hookData.cell.styles.textColor = [146, 64, 14];
+        }
+      }
+    },
+  });
+
+  drawPDFFooters(doc, color);
+  doc.save(`abastecimento-farmaceutico-${new Date().toISOString().slice(0, 10)}.pdf`);
+};
+
 // ─── Inventory Export ─────────────────────────────────────────────────────────
 
 export const exportInventoryToPDF = (
