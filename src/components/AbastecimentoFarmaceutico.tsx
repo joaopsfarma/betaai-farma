@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   UploadCloud,
   AlertTriangle,
@@ -24,7 +24,8 @@ import {
   Download,
   Warehouse,
   Layers,
-  BadgeDollarSign
+  BadgeDollarSign,
+  Monitor
 } from 'lucide-react';
 
 // --- UTILITÁRIO: Capitaliza cada palavra e decodifica entidades HTML ---
@@ -151,7 +152,11 @@ const parseCSV = (csvText: string) => {
   return result;
 };
 
-export default function AbastecimentoFarmaceutico() {
+interface AbastecimentoFarmaceuticoProps {
+  onNavigateToTV?: () => void;
+}
+
+export default function AbastecimentoFarmaceutico({ onNavigateToTV }: AbastecimentoFarmaceuticoProps) {
   const [data, setData] = useState<Record<string, string>[] | null>(null);
   const [nfData, setNfData] = useState<Record<string, string>[] | null>(null);
   const [lcData, setLcData] = useState<Record<string, string>[] | null>(null);
@@ -275,9 +280,26 @@ export default function AbastecimentoFarmaceutico() {
     const taxaRuptura = data.length > 0 ? parseFloat(((emFalta / data.length) * 100).toFixed(1)) : 0;
     const taxaConformidade = data.length > 0 ? parseFloat(((conformes / data.length) * 100).toFixed(1)) : 0;
 
+    // ── Novos KPIs farmacêuticos de follow-up ──
+    const semOC = data.filter(item =>
+      (item['Em Falta'] === 'Sim' || item['Ruptura'] === 'Sim') && !item['OC - Núm']
+    ).length;
+
+    const valorEmRisco = data.reduce((sum, item) => {
+      const isFaltaItem = item['Em Falta'] === 'Sim' || item['Ruptura'] === 'Sim' || item['Status'] === 'Em Falta';
+      return isFaltaItem ? sum + parseBrNumber(item['Valor total (R$)'] || '0') : sum;
+    }, 0);
+
+    const otif = (() => {
+      const comOC = data.filter(item => item['OC - Núm']);
+      if (comOC.length === 0) return 100;
+      const noTempo = comOC.filter(item => (parseInt(item['Dias Atraso']) || 0) === 0 && item['Atrasado'] !== 'Sim');
+      return parseFloat(((noTempo.length / comOC.length) * 100).toFixed(1));
+    })();
+
     const kpis = {
       total: data.length, emFalta, atrasados, altoCusto, coberturaCritica, comDependencia,
-      coberturaMedia, taxaRuptura, taxaConformidade
+      coberturaMedia, taxaRuptura, taxaConformidade, semOC, valorEmRisco, otif
     };
 
     // ── Avaliação de Fornecedores (RDC 204/2017 — qualificação de fornecedores) ──
@@ -325,7 +347,7 @@ export default function AbastecimentoFarmaceutico() {
       });
     }
 
-    let result: Record<string, any>[] = data.map(item => {
+    let result: Record<string, any>[] = data.filter(item => item['Desc Item'] && item['Desc Item'].trim() !== '').map(item => {
       const numNf = item['NF - Núm'] ? item['NF - Núm'].toString().trim() : null;
       if (numNf && nfMap.has(numNf)) {
         return { ...item, nfDetails: nfMap.get(numNf) };
@@ -385,6 +407,53 @@ export default function AbastecimentoFarmaceutico() {
 
     return { kpis, filteredData: result, fornecedores, fornecedorStats };
   }, [data, nfData, searchTerm, activeFilter, colFilters]);
+
+  // ── Persistência para Painel TV ──
+  useEffect(() => {
+    if (!data || !kpis.total) return;
+    const payload = {
+      savedAt: new Date().toISOString(),
+      kpis: {
+        emFalta: kpis.emFalta || 0,
+        atrasados: kpis.atrasados || 0,
+        altoCusto: kpis.altoCusto || 0,
+        coberturaCritica: kpis.coberturaCritica || 0,
+        comDependencia: kpis.comDependencia || 0,
+        coberturaMedia: kpis.coberturaMedia || 0,
+        taxaRuptura: kpis.taxaRuptura || 0,
+        taxaConformidade: kpis.taxaConformidade || 0,
+        total: kpis.total || 0,
+      },
+      items: data.map(item => ({
+        codItem: item['Cod Item'] || '',
+        descItem: item['Desc Item'] || '',
+        fornec: item['Fornec'] || '',
+        emFalta: item['Em Falta'] === 'Sim' || item['Ruptura'] === 'Sim' || item['Status'] === 'Em Falta',
+        ruptura: item['Ruptura'] === 'Sim',
+        diasAtraso: parseInt(item['Dias Atraso']) || 0,
+        cobertura: item['Cobertura'] ? parseFloat(item['Cobertura'].replace(',', '.')) : 999,
+        estoqDisp: parseInt(item['Estoq Disp']) || 0,
+        estoqTot: parseInt(item['Estoq Tot']) || 0,
+        qtdPend: parseInt(item['Qtd Pend']) || 0,
+        atrasado: (parseInt(item['Dias Atraso']) || 0) > 0 || item['Atrasado'] === 'Sim',
+        ocNum: item['OC - Núm'] || '',
+        ocEntrega: item['Nova Data Ent'] || item['OC - Entrega'] || '',
+        nfNum: item['NF - Núm'] || '',
+        valorTotal: item['Valor total (R$)'] || '',
+        vlUnit: item['Vl. Unit. (R$)'] || '',
+        altoCusto: item['Item de Alto Custo (R$)'] === 'Sim',
+        importado: item['Importado'] === 'Sim',
+        dependencia: item['Dependência'] || '',
+        curvABC: item['Curva ABC'] || '',
+      })),
+      suppliers: fornecedores,
+    };
+    try {
+      localStorage.setItem('abastecimento_tv_data', JSON.stringify(payload));
+    } catch (e) {
+      console.warn('[AbastecimentoFarmaceutico] localStorage write failed', e);
+    }
+  }, [data, kpis, fornecedores]);
 
   // ── Lista Crítica do Planejamento ──
   const lcStats = useMemo(() => {
@@ -694,70 +763,106 @@ export default function AbastecimentoFarmaceutico() {
   const SortIcon = ({ columnKey }: { columnKey: string }) => {
     if (sortConfig.key !== columnKey) return <ArrowUpDown className="w-3 h-3 text-slate-300 ml-1 inline-block" />;
     return sortConfig.direction === 'asc'
-      ? <ArrowUp className="w-3 h-3 text-blue-600 ml-1 inline-block" />
-      : <ArrowDown className="w-3 h-3 text-blue-600 ml-1 inline-block" />;
+      ? <ArrowUp className="w-3 h-3 text-violet-600 ml-1 inline-block" />
+      : <ArrowDown className="w-3 h-3 text-violet-600 ml-1 inline-block" />;
   };
 
-  // KPI Card — linha 1 (críticos, com barra de progresso)
+  // KPI Card — alerta crítico com animação de pulso e emoji
   const CriticalKpiCard = ({
-    title, value, total, icon: Icon, colorClass, bgClass, borderClass, description
+    emoji, title, value, total, description, scheme, pulse = false
   }: {
-    title: string; value: number; total: number; icon: React.ElementType;
-    colorClass: string; bgClass: string; borderClass: string; description: string;
+    emoji: string; title: string; value: number; total: number;
+    description: string; scheme: { border: string; bg: string; text: string; bar: string; badge: string; ping: string; dot: string; glow: string };
+    pulse?: boolean;
   }) => {
     const pct = total > 0 ? Math.round((value / total) * 100) : 0;
+    const isAlert = pulse && value > 0;
     return (
-      <div className={`bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-col relative overflow-hidden border-t-4 ${borderClass}`}>
-        <div className={`absolute top-0 right-0 w-24 h-24 rounded-bl-full opacity-10 -mr-4 -mt-4 ${bgClass}`} />
-        <div className="flex justify-between items-start mb-3">
-          <div>
-            <p className="text-slate-500 text-xs font-semibold uppercase tracking-wider">{title}</p>
-            <h3 className={`text-3xl font-bold mt-1 ${colorClass}`}>{value}</h3>
+      <div className={`relative bg-white rounded-2xl border-2 p-5 flex flex-col overflow-hidden transition-all duration-300
+        ${isAlert ? `${scheme.border} shadow-lg ${scheme.glow}` : 'border-slate-200 shadow-sm'}`}>
+        {isAlert && <div className={`absolute inset-0 ${scheme.bg} opacity-[0.04] animate-pulse pointer-events-none`} />}
+        <div className="flex items-start justify-between mb-3 relative z-10">
+          <div className="flex items-center gap-2">
+            <span className="text-3xl leading-none">{emoji}</span>
+            {isAlert && (
+              <span className="relative flex h-3 w-3 mt-0.5">
+                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${scheme.ping} opacity-75`} />
+                <span className={`relative inline-flex rounded-full h-3 w-3 ${scheme.dot}`} />
+              </span>
+            )}
           </div>
-          <div className={`p-3 rounded-lg ${bgClass}`}>
-            <Icon className={`w-6 h-6 ${colorClass}`} />
-          </div>
+          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isAlert ? scheme.badge : 'bg-slate-100 text-slate-400'}`}>
+            {pct}%
+          </span>
         </div>
-        <div className="mb-2">
-          <div className="flex justify-between text-[10px] text-slate-400 font-medium mb-1">
-            <span>{value} de {total} itens</span>
-            <span className={colorClass}>{pct}%</span>
-          </div>
-          <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all duration-700 ${bgClass.replace('100', '500')}`}
-              style={{ width: `${Math.min(pct, 100)}%` }}
-            />
-          </div>
+        <div className="relative z-10 mb-3">
+          <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-1">{title}</p>
+          <h3 className={`text-4xl font-black ${isAlert ? scheme.text : 'text-slate-700'}`}>{value}</h3>
         </div>
-        <p className="text-xs text-slate-400 mt-auto">{description}</p>
+        <div className="mb-3 relative z-10">
+          <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+            <div className={`h-full rounded-full transition-all duration-1000 ${scheme.bar}`}
+              style={{ width: `${Math.min(pct, 100)}%` }} />
+          </div>
+          <p className="text-[10px] text-slate-400 mt-1">{value} de {total} itens</p>
+        </div>
+        <p className="text-[11px] text-slate-400 mt-auto relative z-10 leading-snug">{description}</p>
       </div>
     );
   };
 
-  // KPI Card — linha 2 (métricas farmacêuticas)
+  // KPI Card — métrica farmacêutica com emoji e semáforo visual
   const MetricKpiCard = ({
-    title, value, suffix, icon: Icon, colorClass, bgClass, target, targetLabel
+    emoji, title, value, suffix, sub, statusColor, statusLabel, target
   }: {
-    title: string; value: number | string; suffix?: string;
-    icon: React.ElementType; colorClass: string; bgClass: string;
-    target?: string; targetLabel?: string;
-  }) => (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center gap-4">
-      <div className={`p-2.5 rounded-lg ${bgClass} flex-shrink-0`}>
-        <Icon className={`w-5 h-5 ${colorClass}`} />
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-xs text-slate-500 font-medium truncate">{title}</p>
-        <p className={`text-xl font-bold ${colorClass}`}>
-          {value}<span className="text-sm font-medium ml-0.5">{suffix}</span>
-        </p>
-        {target && (
-          <p className="text-[10px] text-slate-400 mt-0.5">Meta: {target} · {targetLabel}</p>
+    emoji: string; title: string; value: number | string; suffix?: string;
+    sub?: string; statusColor: 'green' | 'red' | 'orange' | 'amber' | 'blue' | 'purple';
+    statusLabel?: string; target?: string;
+  }) => {
+    const colors: Record<string, string> = {
+      green:  'from-emerald-500 to-teal-500',
+      red:    'from-red-500 to-rose-500',
+      orange: 'from-orange-500 to-amber-500',
+      amber:  'from-amber-500 to-yellow-500',
+      blue:   'from-blue-500 to-indigo-500',
+      purple: 'from-purple-500 to-violet-500',
+    };
+    const textColors: Record<string, string> = {
+      green: 'text-emerald-700', red: 'text-red-700', orange: 'text-orange-700',
+      amber: 'text-amber-700', blue: 'text-blue-700', purple: 'text-purple-700',
+    };
+    const bgColors: Record<string, string> = {
+      green: 'bg-emerald-50', red: 'bg-red-50', orange: 'bg-orange-50',
+      amber: 'bg-amber-50', blue: 'bg-blue-50', purple: 'bg-purple-50',
+    };
+    return (
+      <div className={`relative bg-white rounded-2xl shadow-sm border border-slate-200 p-4 flex flex-col gap-2 overflow-hidden group hover:shadow-md transition-shadow duration-200`}>
+        <div className={`absolute top-0 left-0 w-1 h-full bg-gradient-to-b ${colors[statusColor]} rounded-l-2xl`} />
+        <div className="pl-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-2xl leading-none">{emoji}</span>
+            <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider leading-tight">{title}</p>
+          </div>
+        </div>
+        <div className="pl-3">
+          <p className={`text-2xl font-black ${textColors[statusColor]}`}>
+            {value}<span className="text-sm font-semibold ml-0.5 opacity-70">{suffix}</span>
+          </p>
+          {sub && <p className="text-[10px] text-slate-400 mt-0.5">{sub}</p>}
+        </div>
+        {(statusLabel || target) && (
+          <div className="pl-3 flex items-center gap-2">
+            {target && <span className="text-[10px] text-slate-400">Meta: {target}</span>}
+            {statusLabel && (
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${bgColors[statusColor]} ${textColors[statusColor]}`}>
+                {statusLabel}
+              </span>
+            )}
+          </div>
         )}
       </div>
-    </div>
-  );
+    );
+  };
 
   // ── TELA DE UPLOAD ──
   if (!data) {
@@ -765,7 +870,7 @@ export default function AbastecimentoFarmaceutico() {
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/20 flex items-center justify-center p-4 font-sans">
         <div className="max-w-lg w-full">
           <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 shadow-lg shadow-blue-200 mb-4">
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-violet-600 to-emerald-600 shadow-lg shadow-violet-200 mb-4">
               <Activity className="w-8 h-8 text-white" />
             </div>
             <h1 className="text-2xl font-bold text-slate-800">Abastecimento Farmacêutico</h1>
@@ -773,15 +878,15 @@ export default function AbastecimentoFarmaceutico() {
           </div>
 
           <div className="bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden">
-            <div className="bg-gradient-to-r from-blue-600 to-indigo-700 px-6 py-4">
+            <div className="bg-gradient-to-r from-violet-600 to-emerald-600 px-6 py-4">
               <p className="text-white font-semibold text-sm">Importar Dados</p>
-              <p className="text-blue-200 text-xs mt-0.5">Arquivo CSV (Follow Up) gerado pelo sistema ERP</p>
+              <p className="text-violet-200 text-xs mt-0.5">Arquivo CSV (Follow Up) gerado pelo sistema ERP</p>
             </div>
             <div className="p-6">
               <label className="relative flex flex-col items-center justify-center w-full h-48 border-2 border-blue-200 border-dashed rounded-xl cursor-pointer bg-blue-50/40 hover:bg-blue-50 hover:border-blue-400 transition-all group">
                 <div className="flex flex-col items-center justify-center gap-3">
                   <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-100 to-indigo-100 flex items-center justify-center group-hover:from-blue-200 group-hover:to-indigo-200 transition-colors">
-                    <UploadCloud className="w-6 h-6 text-blue-600" />
+                    <UploadCloud className="w-6 h-6 text-violet-600" />
                   </div>
                   <div className="text-center">
                     <p className="text-sm font-semibold text-blue-700">Clique para selecionar o CSV</p>
@@ -808,18 +913,34 @@ export default function AbastecimentoFarmaceutico() {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
       {/* HEADER */}
-      <header className="bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 px-6 py-5 sticky top-0 z-20 shadow-lg">
+      <header className="bg-gradient-to-r from-violet-700 via-purple-700 to-emerald-600 px-6 py-4 sticky top-0 z-20 shadow-xl border-b border-white/10">
         <div className="max-w-7xl mx-auto flex items-center justify-between flex-wrap gap-4">
           <div className="flex items-center gap-4">
-            <div className="p-2.5 bg-white/10 backdrop-blur-sm rounded-xl border border-white/20">
+            <div className="relative p-2.5 bg-white/15 backdrop-blur-sm rounded-xl border border-white/25 shadow-inner">
               <Pill className="w-6 h-6 text-white" />
+              {kpis.emFalta > 0 && (
+                <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500" />
+                </span>
+              )}
             </div>
             <div>
-              <h1 className="text-lg font-bold text-white leading-none tracking-tight">
-                Visão de Abastecimento Farmacêutico
-              </h1>
-              <span className="text-blue-200 text-xs mt-0.5 block">
-                Gestão de Risco · Follow-up · {kpis.total} itens analisados
+              <div className="flex items-center gap-2">
+                <h1 className="text-lg font-black text-white leading-none tracking-tight">
+                  💊 Abastecimento Farmacêutico
+                </h1>
+                <span className="flex items-center gap-1 px-2 py-0.5 bg-emerald-400/20 border border-emerald-400/40 rounded-full text-emerald-300 text-[10px] font-bold">
+                  <span className="relative flex h-1.5 w-1.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400" />
+                  </span>
+                  LIVE
+                </span>
+              </div>
+              <span className="text-violet-200 text-xs mt-1 block">
+                🏥 Gestão de Risco · Follow-up · <strong className="text-white">{kpis.total}</strong> itens
+                {kpis.emFalta > 0 && <span className="ml-2 text-red-300 font-bold animate-pulse">🚨 {kpis.emFalta} em ruptura</span>}
               </span>
             </div>
           </div>
@@ -856,6 +977,15 @@ export default function AbastecimentoFarmaceutico() {
                 <Warehouse className="w-4 h-4" /> Estoque ({stockStats?.totalItens} itens)
               </div>
             )}
+            {onNavigateToTV && (
+              <button
+                onClick={onNavigateToTV}
+                className="flex items-center gap-2 text-xs font-semibold text-white bg-violet-500/30 border border-violet-300/40 hover:bg-violet-400/50 px-3 py-2 rounded-lg transition-colors"
+                title="Abrir Painel TV Abastecimento"
+              >
+                <Monitor className="w-4 h-4" /> Modo TV
+              </button>
+            )}
             <button
               onClick={exportPDF}
               className="flex items-center gap-2 text-xs font-semibold text-white bg-white/10 border border-white/20 hover:bg-white/20 px-3 py-2 rounded-lg transition-colors"
@@ -875,89 +1005,121 @@ export default function AbastecimentoFarmaceutico() {
       {/* MAIN CONTENT */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-6 flex flex-col gap-5">
 
-        {/* KPI LINHA 1 — Indicadores Críticos */}
+        {/* KPI LINHA 1 — Alertas Críticos com animação de pulso */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <CriticalKpiCard
+            emoji="🚨"
             title="Ruptura / Em Falta"
             value={kpis.emFalta}
             total={kpis.total}
-            icon={PackageX}
-            colorClass="text-red-600"
-            bgClass="bg-red-100"
-            borderClass="border-t-red-500"
-            description="Itens zerados — Risco Assistencial Máximo"
+            description="Itens zerados — risco assistencial máximo. Ação imediata necessária."
+            pulse={true}
+            scheme={{
+              border: 'border-red-400',
+              bg: 'bg-red-500',
+              text: 'text-red-600',
+              bar: 'bg-gradient-to-r from-red-400 to-rose-500',
+              badge: 'bg-red-100 text-red-700',
+              ping: 'bg-red-400',
+              dot: 'bg-red-600',
+              glow: 'shadow-red-100',
+            }}
           />
           <CriticalKpiCard
-            title="Risco Crítico (< 7 dias)"
+            emoji="⚠️"
+            title="Cobertura Crítica < 7d"
             value={kpis.coberturaCritica}
             total={kpis.total}
-            icon={TrendingDown}
-            colorClass="text-orange-500"
-            bgClass="bg-orange-100"
-            borderClass="border-t-orange-500"
-            description="Baixa cobertura no estoque disponível"
+            description="Risco iminente de ruptura. Acionar pedido de emergência."
+            pulse={true}
+            scheme={{
+              border: 'border-orange-400',
+              bg: 'bg-orange-500',
+              text: 'text-orange-600',
+              bar: 'bg-gradient-to-r from-orange-400 to-amber-500',
+              badge: 'bg-orange-100 text-orange-700',
+              ping: 'bg-orange-400',
+              dot: 'bg-orange-600',
+              glow: 'shadow-orange-100',
+            }}
           />
           <CriticalKpiCard
-            title="Pedidos Atrasados"
+            emoji="🕐"
+            title="OCs em Atraso"
             value={kpis.atrasados}
             total={kpis.total}
-            icon={Clock}
-            colorClass="text-amber-600"
-            bgClass="bg-amber-100"
-            borderClass="border-t-amber-500"
-            description="Fornecedores com entrega pendente"
+            description="Fornecedores com entrega vencida. Cobrar e registrar justificativa."
+            pulse={true}
+            scheme={{
+              border: 'border-amber-400',
+              bg: 'bg-amber-500',
+              text: 'text-amber-700',
+              bar: 'bg-gradient-to-r from-amber-400 to-yellow-500',
+              badge: 'bg-amber-100 text-amber-700',
+              ping: 'bg-amber-400',
+              dot: 'bg-amber-600',
+              glow: 'shadow-amber-100',
+            }}
           />
           <CriticalKpiCard
-            title="Alto Custo"
-            value={kpis.altoCusto}
-            total={kpis.total}
-            icon={DollarSign}
-            colorClass="text-indigo-600"
-            bgClass="bg-indigo-100"
-            borderClass="border-t-indigo-500"
-            description="Requer atenção na gestão de capital"
+            emoji="📋"
+            title="Sem Pedido de Compra"
+            value={kpis.semOC}
+            total={kpis.emFalta}
+            description="Em ruptura sem OC aberta — risco de desabastecimento prolongado."
+            pulse={true}
+            scheme={{
+              border: 'border-purple-400',
+              bg: 'bg-purple-500',
+              text: 'text-purple-700',
+              bar: 'bg-gradient-to-r from-purple-400 to-violet-500',
+              badge: 'bg-purple-100 text-purple-700',
+              ping: 'bg-purple-400',
+              dot: 'bg-purple-600',
+              glow: 'shadow-purple-100',
+            }}
           />
         </div>
 
-        {/* KPI LINHA 2 — Métricas Farmacêuticas (skill farmacêutico-hospitalar) */}
+        {/* KPI LINHA 2 — Métricas Farmacêuticas com semáforo */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <MetricKpiCard
+            emoji="📊"
             title="Taxa de Ruptura"
             value={kpis.taxaRuptura}
             suffix="%"
-            icon={AlertTriangle}
-            colorClass={kpis.taxaRuptura > 2 ? 'text-red-600' : 'text-emerald-600'}
-            bgClass={kpis.taxaRuptura > 2 ? 'bg-red-100' : 'bg-emerald-100'}
+            statusColor={kpis.taxaRuptura > 5 ? 'red' : kpis.taxaRuptura > 2 ? 'orange' : 'green'}
+            statusLabel={kpis.taxaRuptura <= 2 ? '✅ Ok' : kpis.taxaRuptura <= 5 ? '⚠️ Atenção' : '🚨 Crítico'}
             target="< 2%"
-            targetLabel={kpis.taxaRuptura <= 2 ? 'Dentro do limite' : 'Acima do limite'}
+            sub={`${kpis.emFalta} itens em falta de ${kpis.total} analisados`}
           />
           <MetricKpiCard
+            emoji="📦"
             title="Cobertura Média"
             value={kpis.coberturaMedia}
             suffix=" dias"
-            icon={BarChart2}
-            colorClass={kpis.coberturaMedia < 7 ? 'text-red-600' : kpis.coberturaMedia <= 30 ? 'text-emerald-600' : 'text-amber-600'}
-            bgClass={kpis.coberturaMedia < 7 ? 'bg-red-100' : kpis.coberturaMedia <= 30 ? 'bg-emerald-100' : 'bg-amber-100'}
+            statusColor={kpis.coberturaMedia < 7 ? 'red' : kpis.coberturaMedia <= 30 ? 'green' : 'amber'}
+            statusLabel={kpis.coberturaMedia < 7 ? '🔴 Baixa' : kpis.coberturaMedia <= 30 ? '🟢 Ideal' : '🟡 Excesso'}
             target="15–30 dias"
-            targetLabel="Janela ideal"
+            sub="Janela terapêutica segura"
           />
           <MetricKpiCard
-            title="Taxa de Conformidade"
-            value={kpis.taxaConformidade}
+            emoji="🎯"
+            title="OTIF"
+            value={kpis.otif}
             suffix="%"
-            icon={TrendingUp}
-            colorClass={kpis.taxaConformidade >= 95 ? 'text-emerald-600' : 'text-orange-500'}
-            bgClass={kpis.taxaConformidade >= 95 ? 'bg-emerald-100' : 'bg-orange-100'}
+            statusColor={kpis.otif >= 95 ? 'green' : kpis.otif >= 80 ? 'amber' : 'red'}
+            statusLabel={kpis.otif >= 95 ? '✅ Excelente' : kpis.otif >= 80 ? '⚠️ Parcial' : '🚨 Crítico'}
             target="> 95%"
-            targetLabel={kpis.taxaConformidade >= 95 ? 'Meta atingida' : 'Abaixo da meta'}
+            sub="On Time In Full — entregas no prazo"
           />
           <MetricKpiCard
-            title="Com Dependência"
-            value={kpis.comDependencia}
-            suffix=" itens"
-            icon={Users}
-            colorClass="text-purple-600"
-            bgClass="bg-purple-100"
+            emoji="💸"
+            title="Valor em Risco"
+            value={kpis.valorEmRisco === 0 ? '—' : `R$ ${kpis.valorEmRisco.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
+            statusColor={kpis.valorEmRisco > 50000 ? 'red' : kpis.valorEmRisco > 10000 ? 'orange' : 'blue'}
+            statusLabel={kpis.valorEmRisco === 0 ? '✅ Zerado' : kpis.valorEmRisco > 50000 ? '🚨 Alto' : '⚠️ Monitorar'}
+            sub="Soma dos itens em ruptura"
           />
         </div>
 
@@ -1420,7 +1582,7 @@ export default function AbastecimentoFarmaceutico() {
             <input
               type="text"
               placeholder="Buscar por código, princípio ativo ou fornecedor..."
-              className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all text-sm"
+              className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 focus:bg-white transition-all text-sm"
               value={searchTerm}
               onChange={(e) => {
                 setSearchTerm(e.target.value);
@@ -1431,34 +1593,37 @@ export default function AbastecimentoFarmaceutico() {
 
           <div className="flex gap-2 overflow-x-auto w-full lg:w-auto pb-2 lg:pb-0 hide-scrollbar">
             {[
-              { label: 'Todos',           count: kpis.total,            icon: null,         color: null },
-              { label: 'Em Falta',        count: kpis.emFalta,          icon: AlertTriangle, color: 'text-red-500' },
-              { label: 'Risco Crítico',   count: kpis.coberturaCritica, icon: TrendingDown,  color: 'text-orange-500' },
-              { label: 'Atrasados',       count: kpis.atrasados,        icon: Clock,         color: 'text-amber-500' },
-              { label: 'Alto Custo',      count: kpis.altoCusto,        icon: DollarSign,    color: 'text-indigo-500' },
-              { label: 'Com Dependência', count: kpis.comDependencia,   icon: Link,          color: 'text-purple-500' },
-            ].map(({ label, count, icon: Icon, color }) => (
+              { label: 'Todos',           count: kpis.total,            emoji: '💊', activeGrad: 'from-violet-600 to-purple-700', alertClass: '' },
+              { label: 'Em Falta',        count: kpis.emFalta,          emoji: '🚨', activeGrad: 'from-red-500 to-rose-600',   alertClass: kpis.emFalta > 0 ? 'border-red-300 text-red-700' : '' },
+              { label: 'Risco Crítico',   count: kpis.coberturaCritica, emoji: '⚠️', activeGrad: 'from-orange-500 to-amber-600', alertClass: kpis.coberturaCritica > 0 ? 'border-orange-300 text-orange-700' : '' },
+              { label: 'Atrasados',       count: kpis.atrasados,        emoji: '🕐', activeGrad: 'from-amber-500 to-yellow-600', alertClass: kpis.atrasados > 0 ? 'border-amber-300 text-amber-700' : '' },
+              { label: 'Alto Custo',      count: kpis.altoCusto,        emoji: '💰', activeGrad: 'from-indigo-500 to-blue-600', alertClass: '' },
+              { label: 'Com Dependência', count: kpis.comDependencia,   emoji: '🔗', activeGrad: 'from-purple-500 to-violet-600', alertClass: '' },
+            ].map(({ label, count, emoji, activeGrad, alertClass }) => (
               <button
                 key={label}
-                onClick={() => {
-                  setActiveFilter(label);
-                  setCurrentPage(1);
-                }}
-                className={`whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-medium transition-all flex items-center gap-1.5
+                onClick={() => { setActiveFilter(label); setCurrentPage(1); }}
+                className={`whitespace-nowrap px-3 py-2 rounded-xl text-sm font-semibold transition-all duration-200 flex items-center gap-1.5 relative
                   ${activeFilter === label
-                    ? 'bg-slate-800 text-white shadow-md'
-                    : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                    ? `bg-gradient-to-r ${activeGrad} text-white shadow-md scale-105`
+                    : alertClass
+                      ? `bg-white border-2 ${alertClass} hover:scale-105`
+                      : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50 hover:scale-105'
                   }`}
               >
-                {Icon && <Icon className={`w-3.5 h-3.5 ${activeFilter === label ? 'text-slate-300' : color}`} />}
+                <span className="text-base leading-none">{emoji}</span>
                 {label}
-                {label !== 'Todos' && (
-                  <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold
-                    ${activeFilter === label
-                      ? 'bg-white/20 text-white'
-                      : count > 0 ? 'bg-slate-100 text-slate-600' : 'bg-slate-50 text-slate-400'
-                    }`}>
-                    {count}
+                <span className={`ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold
+                  ${activeFilter === label
+                    ? 'bg-white/25 text-white'
+                    : count > 0 ? 'bg-slate-100 text-slate-700' : 'bg-slate-50 text-slate-400'
+                  }`}>
+                  {count}
+                </span>
+                {count > 0 && activeFilter !== label && label !== 'Todos' && label !== 'Alto Custo' && label !== 'Com Dependência' && (
+                  <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-60" />
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
                   </span>
                 )}
               </button>
@@ -1476,34 +1641,34 @@ export default function AbastecimentoFarmaceutico() {
                   <th className="w-1 p-0" />
                   {/* Código / Medicamento */}
                   <th className="px-4 py-4 align-top">
-                    <div className="mb-2 flex items-center justify-between cursor-pointer hover:text-blue-600 transition-colors" onClick={() => handleSort('Desc Item')}>
+                    <div className="mb-2 flex items-center justify-between cursor-pointer hover:text-violet-600 transition-colors" onClick={() => handleSort('Desc Item')}>
                       <span className="text-xs font-semibold uppercase tracking-wider">Código / Medicamento</span>
                       <SortIcon columnKey="Desc Item" />
                     </div>
                     <input
                       type="text"
                       placeholder="Filtrar cód/med..."
-                      className="w-full px-2 py-1.5 text-xs font-normal border border-slate-300 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white shadow-sm"
+                      className="w-full px-2 py-1.5 text-xs font-normal border border-slate-300 rounded focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 bg-white shadow-sm"
                       value={colFilters.medicamento}
                       onChange={e => { setColFilters(p => ({...p, medicamento: e.target.value})); setCurrentPage(1); }}
                     />
                   </th>
                   {/* Fornecedor */}
                   <th className="px-4 py-4 align-top">
-                    <div className="mb-2 flex items-center justify-between cursor-pointer hover:text-blue-600 transition-colors" onClick={() => handleSort('Fornec')}>
+                    <div className="mb-2 flex items-center justify-between cursor-pointer hover:text-violet-600 transition-colors" onClick={() => handleSort('Fornec')}>
                       <span className="text-xs font-semibold uppercase tracking-wider">Fornecedor</span>
                       <SortIcon columnKey="Fornec" />
                     </div>
                     <input
                       type="text"
                       placeholder="Filtrar fornecedor..."
-                      className="w-full px-2 py-1.5 text-xs font-normal border border-slate-300 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white shadow-sm"
+                      className="w-full px-2 py-1.5 text-xs font-normal border border-slate-300 rounded focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 bg-white shadow-sm"
                       value={colFilters.fornecedor}
                       onChange={e => { setColFilters(p => ({...p, fornecedor: e.target.value})); setCurrentPage(1); }}
                     />
                   </th>
                   {/* Cobertura — nova coluna */}
-                  <th className="px-4 py-4 align-top text-center cursor-pointer hover:text-blue-600 transition-colors" onClick={() => handleSort('Cobertura')}>
+                  <th className="px-4 py-4 align-top text-center cursor-pointer hover:text-violet-600 transition-colors" onClick={() => handleSort('Cobertura')}>
                     <div className="flex items-center justify-center gap-1 text-xs font-semibold uppercase tracking-wider">
                       <span>Cobertura</span>
                       <SortIcon columnKey="Cobertura" />
@@ -1511,28 +1676,28 @@ export default function AbastecimentoFarmaceutico() {
                   </th>
                   {/* Estoque */}
                   <th className="px-4 py-4 align-top">
-                    <div className="mt-1 flex items-center justify-between cursor-pointer hover:text-blue-600 transition-colors" onClick={() => handleSort('Estoq Disp')}>
+                    <div className="mt-1 flex items-center justify-between cursor-pointer hover:text-violet-600 transition-colors" onClick={() => handleSort('Estoq Disp')}>
                       <span className="text-xs font-semibold uppercase tracking-wider">Estoque (Disp/Tot)</span>
                       <SortIcon columnKey="Estoq Disp" />
                     </div>
                   </th>
                   {/* Qtd */}
                   <th className="px-4 py-4 align-top">
-                    <div className="mt-1 flex items-center justify-between cursor-pointer hover:text-blue-600 transition-colors" onClick={() => handleSort('Qtd Pend')}>
+                    <div className="mt-1 flex items-center justify-between cursor-pointer hover:text-violet-600 transition-colors" onClick={() => handleSort('Qtd Pend')}>
                       <span className="text-xs font-semibold uppercase tracking-wider">Qtd. (Pend/Tot)</span>
                       <SortIcon columnKey="Qtd Pend" />
                     </div>
                   </th>
                   {/* Valores */}
                   <th className="px-4 py-4 align-top">
-                    <div className="mt-1 flex items-center justify-between cursor-pointer hover:text-blue-600 transition-colors" onClick={() => handleSort('Valor total (R$)')}>
+                    <div className="mt-1 flex items-center justify-between cursor-pointer hover:text-violet-600 transition-colors" onClick={() => handleSort('Valor total (R$)')}>
                       <span className="text-xs font-semibold uppercase tracking-wider">Valores (Unit/Total)</span>
                       <SortIcon columnKey="Valor total (R$)" />
                     </div>
                   </th>
                   {/* OC e NF */}
                   <th className="px-4 py-4 align-top">
-                    <div className="mb-2 flex items-center justify-between cursor-pointer hover:text-blue-600 transition-colors" onClick={() => handleSort('Dias Atraso')}>
+                    <div className="mb-2 flex items-center justify-between cursor-pointer hover:text-violet-600 transition-colors" onClick={() => handleSort('Dias Atraso')}>
                       <span className="text-xs font-semibold uppercase tracking-wider">OC e Nota Fiscal</span>
                       <SortIcon columnKey="Dias Atraso" />
                     </div>
@@ -1540,14 +1705,14 @@ export default function AbastecimentoFarmaceutico() {
                       <input
                         type="text"
                         placeholder="Filtrar OC..."
-                        className="w-1/2 px-2 py-1.5 text-xs font-normal border border-slate-300 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white shadow-sm"
+                        className="w-1/2 px-2 py-1.5 text-xs font-normal border border-slate-300 rounded focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 bg-white shadow-sm"
                         value={colFilters.oc}
                         onChange={e => { setColFilters(p => ({...p, oc: e.target.value})); setCurrentPage(1); }}
                       />
                       <input
                         type="text"
                         placeholder="Filtrar NF..."
-                        className="w-1/2 px-2 py-1.5 text-xs font-normal border border-slate-300 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white shadow-sm"
+                        className="w-1/2 px-2 py-1.5 text-xs font-normal border border-slate-300 rounded focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 bg-white shadow-sm"
                         value={colFilters.nf}
                         onChange={e => { setColFilters(p => ({...p, nf: e.target.value})); setCurrentPage(1); }}
                       />
@@ -1577,23 +1742,34 @@ export default function AbastecimentoFarmaceutico() {
                     const isAltoCusto = item['Item de Alto Custo (R$)'] === 'Sim';
 
                     return (
-                      <tr key={index} className={`hover:bg-slate-50/80 transition-colors
-                        ${isFalta ? 'bg-red-50/40' : isCritico ? 'bg-orange-50/30' : isAtrasado ? 'bg-amber-50/20' : ''}
+                      <tr key={index} className={`transition-colors duration-150 group
+                        ${isFalta
+                          ? 'bg-red-50/60 hover:bg-red-50'
+                          : isCritico
+                          ? 'bg-orange-50/40 hover:bg-orange-50/60'
+                          : isAtrasado
+                          ? 'bg-amber-50/30 hover:bg-amber-50/50'
+                          : 'hover:bg-slate-50/80'}
                       `}>
-                        {/* Tira de status */}
-                        <td className={`p-0 w-1 ${
-                          isFalta    ? 'bg-red-500'    :
-                          isCritico  ? 'bg-orange-400' :
-                          isAtrasado ? 'bg-amber-400'  :
-                                       'bg-emerald-400'
+                        {/* Tira de status animada */}
+                        <td className={`p-0 w-1.5 ${
+                          isFalta    ? 'bg-gradient-to-b from-red-500 to-rose-600'    :
+                          isCritico  ? 'bg-gradient-to-b from-orange-400 to-amber-500' :
+                          isAtrasado ? 'bg-gradient-to-b from-amber-400 to-yellow-500'  :
+                                       'bg-gradient-to-b from-emerald-400 to-teal-500'
                         }`} />
 
                         {/* Medicamento */}
                         <td className="px-4 py-4">
-                          <div className="font-medium text-slate-800 max-w-[250px] truncate text-sm" title={toTitleCase(item['Desc Item'] || '')}>
-                            {toTitleCase(item['Desc Item'] || '') || 'N/A'}
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-base leading-none flex-shrink-0">
+                              {isFalta ? '🚨' : isCritico ? '⚠️' : isAtrasado ? '🕐' : isAltoCusto ? '💰' : '✅'}
+                            </span>
+                            <div className="font-semibold text-slate-800 max-w-[230px] truncate text-sm" title={toTitleCase(item['Desc Item'] || '')}>
+                              {toTitleCase(item['Desc Item'] || '') || 'N/A'}
+                            </div>
                           </div>
-                          <div className="text-xs text-slate-500 flex items-center gap-2 mt-1 flex-wrap">
+                          <div className="text-xs text-slate-500 flex items-center gap-2 mt-1.5 flex-wrap pl-7">
                             <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">{item['Cod Item']}</span>
                             {item['Curva ABC'] && (
                               <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
@@ -1609,37 +1785,44 @@ export default function AbastecimentoFarmaceutico() {
 
                         {/* Fornecedor */}
                         <td className="px-4 py-4">
-                          <div className="text-slate-700 max-w-[150px] truncate text-sm" title={toTitleCase(item['Fornec'] || '')}>
-                            {toTitleCase(item['Fornec'] || '') || '-'}
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm leading-none">🏭</span>
+                            <div className="text-slate-700 max-w-[140px] truncate text-sm" title={toTitleCase(item['Fornec'] || '')}>
+                              {toTitleCase(item['Fornec'] || '') || '-'}
+                            </div>
                           </div>
                         </td>
 
-                        {/* Cobertura — nova coluna com pill colorido */}
+                        {/* Cobertura — pill colorido com emoji */}
                         <td className="px-4 py-4 text-center">
                           {isFalta ? (
-                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700 border border-red-200">
-                              Ruptura
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700 border border-red-200 animate-pulse">
+                              🚨 Ruptura
+                            </span>
+                          ) : !item['Cobertura'] ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-500 border border-slate-200">
+                              — S/D
                             </span>
                           ) : cobertura < 7 ? (
-                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-orange-100 text-orange-700 border border-orange-200">
-                              {item['Cobertura']}d
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-orange-100 text-orange-700 border border-orange-200">
+                              🔴 {item['Cobertura']}d
                             </span>
                           ) : cobertura <= 14 ? (
-                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700 border border-amber-200">
-                              {item['Cobertura']}d
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700 border border-amber-200">
+                              🟡 {item['Cobertura']}d
                             </span>
                           ) : (
-                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">
-                              {item['Cobertura'] || '—'}d
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">
+                              🟢 {item['Cobertura']}d
                             </span>
                           )}
                         </td>
 
                         {/* Estoque */}
                         <td className="px-4 py-4">
-                          <div className="flex flex-col">
-                            <span className={`font-semibold text-sm ${isFalta || item['Estoq Disp'] === '0' ? 'text-red-600' : 'text-slate-700'}`}>
-                              Disp: {item['Estoq Disp'] || '0'}
+                          <div className="flex flex-col gap-0.5">
+                            <span className={`font-semibold text-sm flex items-center gap-1 ${isFalta || item['Estoq Disp'] === '0' ? 'text-red-600' : 'text-slate-700'}`}>
+                              📦 Disp: {item['Estoq Disp'] || '0'}
                             </span>
                             <span className="text-xs text-slate-400">Tot: {item['Estoq Tot'] || '0'}</span>
                           </div>
@@ -1647,7 +1830,7 @@ export default function AbastecimentoFarmaceutico() {
 
                         {/* Qtd */}
                         <td className="px-4 py-4">
-                          <div className="flex flex-col">
+                          <div className="flex flex-col gap-0.5">
                             <span className="text-sm font-semibold text-slate-700" title="Quantidade Pendente">
                               {item['Qtd Pend'] || item['Qtd. Total'] || '0'} <span className="text-xs font-normal text-slate-500">{item['Un']}</span>
                             </span>
@@ -1659,9 +1842,9 @@ export default function AbastecimentoFarmaceutico() {
 
                         {/* Valores */}
                         <td className="px-4 py-4">
-                          <div className="flex flex-col">
+                          <div className="flex flex-col gap-0.5">
                             <span className="text-sm font-semibold text-slate-700">
-                              {item['Valor total (R$)'] || 'R$ 0,00'}
+                              💲 {item['Valor total (R$)'] || 'R$ 0,00'}
                             </span>
                             <span className="text-xs text-slate-400">
                               Unit: {item['Vl. Unit. (R$)'] || 'R$ 0,00'}

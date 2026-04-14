@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { Pill, LogIn, ArrowLeft, Layers, UserPlus } from 'lucide-react';
+import {
+  Pill, LogIn, ArrowLeft, Layers, UserPlus,
+  Activity, ShieldCheck, TrendingUp, Package,
+} from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface LoginPageProps {
@@ -9,38 +12,28 @@ interface LoginPageProps {
 
 type Mode = 'login' | 'register';
 
-function Navbar({ onBack }: { onBack: () => void }) {
-  return (
-    <nav className="fixed top-0 left-0 right-0 bg-white/80 backdrop-blur-md border-b border-violet-100 z-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between items-center h-16">
-          <div className="flex items-center gap-2">
-            <div className="bg-gradient-to-br from-emerald-500 to-violet-600 p-2 rounded-lg shadow-sm shadow-violet-200">
-              <Pill className="w-6 h-6 text-white" />
-            </div>
-            <span className="text-xl font-bold bg-gradient-to-r from-emerald-600 to-violet-700 bg-clip-text text-transparent">
-              FarmaIA
-            </span>
-            <span className="text-xs font-semibold bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full ml-1">
-              BETA 0.1V
-            </span>
-            <span className="hidden sm:inline-flex items-center gap-1 text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-100 px-2 py-0.5 rounded-full ml-1">
-              <Layers className="w-3 h-3" />
-              33+ ferramentas
-            </span>
-          </div>
-          <button
-            onClick={onBack}
-            className="flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-violet-600 transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Voltar
-          </button>
-        </div>
-      </div>
-    </nav>
-  );
-}
+const FEATURES = [
+  {
+    icon: <Activity className="w-3.5 h-3.5 text-white" />,
+    title: 'Monitoramento em tempo real',
+    desc: 'Rastreie dispensações, devoluções e faltas com atualização contínua.',
+  },
+  {
+    icon: <ShieldCheck className="w-3.5 h-3.5 text-white" />,
+    title: 'Segurança e rastreabilidade',
+    desc: 'Controle de acesso e log completo de cada movimentação farmacêutica.',
+  },
+  {
+    icon: <TrendingUp className="w-3.5 h-3.5 text-white" />,
+    title: 'Previsibilidade de consumo',
+    desc: 'IA para projetar demanda e evitar rupturas de estoque hospitalar.',
+  },
+  {
+    icon: <Package className="w-3.5 h-3.5 text-white" />,
+    title: 'Gestão de suprimentos',
+    desc: 'Ressuprimento, remanejamento e conciliação integrados em um único painel.',
+  },
+];
 
 export function LoginPage({ onBack }: LoginPageProps) {
   const { signIn } = useAuth();
@@ -106,13 +99,103 @@ export function LoginPage({ onBack }: LoginPageProps) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-900 overflow-x-hidden">
-      <Navbar onBack={onBack} />
+    <div className="flex min-h-screen w-full overflow-hidden font-sans text-slate-900">
 
-      <div className="flex items-center justify-center min-h-screen px-4 pt-16">
+      {/* LEFT PANEL */}
+      <motion.div
+        initial={{ opacity: 0, x: -20 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ duration: 0.5, ease: 'easeOut' }}
+        className="hidden md:flex md:w-[45%] relative flex-col justify-between bg-gradient-to-br from-emerald-500 to-violet-700 px-10 py-12 overflow-hidden"
+      >
+        {/* Decorative circles */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute -top-16 -right-16 w-72 h-72 rounded-full bg-white/5 blur-2xl" />
+          <div className="absolute bottom-24 -left-12 w-56 h-56 rounded-full bg-emerald-300/10 blur-3xl" />
+          <div className="absolute top-1/2 right-8 w-40 h-40 rounded-full bg-violet-300/10 blur-2xl" />
+        </div>
+
+        <div className="relative z-10 flex flex-col h-full justify-between">
+          <div>
+            {/* Back button */}
+            <button
+              onClick={onBack}
+              className="flex items-center gap-1.5 text-white/70 hover:text-white text-sm font-medium transition-colors mb-10"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Voltar
+            </button>
+
+            {/* Logo + Name */}
+            <div className="flex items-center gap-3 mb-6">
+              <div className="bg-white/20 backdrop-blur-sm p-3 rounded-2xl shadow-lg shadow-black/10">
+                <Pill className="w-9 h-9 text-white" />
+              </div>
+              <div>
+                <h1 className="text-4xl font-extrabold text-white tracking-tight">FarmaIA</h1>
+                <span className="text-xs font-semibold bg-white/20 text-white px-2.5 py-0.5 rounded-full">
+                  BETA 0.1V
+                </span>
+              </div>
+            </div>
+
+            {/* Tagline */}
+            <p className="text-white/90 text-lg font-medium leading-snug mb-2">
+              Inteligência artificial para logística farmacêutica hospitalar.
+            </p>
+            <p className="text-white/60 text-sm mb-10">
+              Acesso exclusivo para equipes autorizadas.
+            </p>
+
+            {/* Feature bullets */}
+            <ul className="space-y-5">
+              {FEATURES.map((f, i) => (
+                <li key={i} className="flex items-start gap-3">
+                  <div className="mt-0.5 flex-shrink-0 w-6 h-6 rounded-full bg-white/15 flex items-center justify-center">
+                    {f.icon}
+                  </div>
+                  <div>
+                    <p className="text-white font-semibold text-sm">{f.title}</p>
+                    <p className="text-white/60 text-xs leading-relaxed">{f.desc}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Bottom badge */}
+          <div className="flex items-center gap-2 text-white/50 text-xs">
+            <Layers className="w-3.5 h-3.5" />
+            <span>33+ ferramentas disponíveis</span>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* RIGHT PANEL */}
+      <div className="flex flex-1 flex-col items-center justify-center min-h-screen bg-white px-6 py-10 md:px-12 lg:px-16">
+
+        {/* Mobile-only header */}
+        <div className="flex md:hidden w-full max-w-md items-center justify-between mb-8">
+          <div className="flex items-center gap-2">
+            <div className="bg-gradient-to-br from-emerald-500 to-violet-600 p-2 rounded-lg shadow-sm shadow-violet-200">
+              <Pill className="w-5 h-5 text-white" />
+            </div>
+            <span className="text-lg font-bold bg-gradient-to-r from-emerald-600 to-violet-700 bg-clip-text text-transparent">
+              FarmaIA
+            </span>
+          </div>
+          <button
+            onClick={onBack}
+            className="flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-violet-600 transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Voltar
+          </button>
+        </div>
+
         <motion.div
-          initial={{ opacity: 0, y: 24 }}
-          animate={{ opacity: 1, y: 0 }}
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.45, ease: 'easeOut' }}
           className="w-full max-w-md"
         >

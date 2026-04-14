@@ -42,7 +42,9 @@ export type TabId =
   | 'daily_tracking'
   | 'painel_tv_ressuprimento'
   | 'painel_nutricao'
-  | 'abastecimento-farmaceutico';
+  | 'abastecimento-farmaceutico'
+  | 'painel_tv_abastecimento'
+  | 'sinalizador';
 
 export interface NavItem {
   id: TabId;

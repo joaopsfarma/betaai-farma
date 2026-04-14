@@ -55,6 +55,8 @@ import { Multidose } from './components/Multidose';
 import { BaixasEstoque } from './components/BaixasEstoque';
 import { PainelNutricao } from './components/PainelNutricao';
 import AbastecimentoFarmaceutico from './components/AbastecimentoFarmaceutico';
+import { Sinalizador } from './components/Sinalizador';
+import { PainelTVAbastecimento } from './components/PainelTVAbastecimento';
 import { AnaliseOperacional } from './components/AnaliseOperacional';
 import { MobileHeader } from './components/layout/MobileHeader';
 import { Sidebar, NavItem, NavGroup, TabId } from './components/layout/Sidebar';
@@ -62,6 +64,8 @@ import { exportInventoryToPDF } from './utils/pdfExport';
 import { EQUIVALENCE_MAP } from './data/equivalenceMap';
 import { DEFAULT_EQUIVALENCES } from './data/equivalences';
 import { LandingPage } from './components/LandingPage';
+import { TUTORIALS, TutorialData } from './data/tutorials';
+import { TutorialModal, TutorialHelpButton } from './components/TutorialModal';
 
 function App() {
   const { user, loading: authLoading } = useAuth();
@@ -81,10 +85,27 @@ function App() {
     estoque: false
   });
 
-  // Auto-colapsa o sidebar na aba de Abastecimento para maximizar a área de visualização
+  const [tutorialsSeen, setTutorialsSeen] = usePersistentState<Record<string, boolean>>(
+    'logistica_farma_tutorials_seen', {}
+  );
+  const [activeTutorial, setActiveTutorial] = useState<TutorialData | null>(null);
+
+  // Auto-colapsa o sidebar na aba de Abastecimento e no Painel TV para maximizar a área de visualização
   React.useEffect(() => {
-    setIsSidebarCollapsed(activeTab === 'abastecimento-farmaceutico');
+    setIsSidebarCollapsed(
+      activeTab === 'abastecimento-farmaceutico' ||
+      activeTab === 'painel_tv_abastecimento'
+    );
   }, [activeTab]);
+
+  // Exibe o tutorial na primeira visita a cada aba
+  React.useEffect(() => {
+    const tutorial = TUTORIALS[activeTab];
+    if (tutorial && !tutorialsSeen[activeTab]) {
+      const timer = setTimeout(() => setActiveTutorial(tutorial), 400);
+      return () => clearTimeout(timer);
+    }
+  }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Garante que as equivalências do DEFAULT_EQUIVALENCES estejam sempre no mapa compartilhado
   React.useEffect(() => {
@@ -207,6 +228,8 @@ function App() {
         { id: 'painel_tv_ressuprimento',label: 'Painel TV Ressup.',icon: <MonitorPlay className="w-5 h-5" />,   classes: V },
         { id: 'supply',                label: 'Supply',           icon: <Package className="w-5 h-5" />,        classes: G },
         { id: 'abastecimento-farmaceutico', label: 'Visão de Abastecimento', icon: <Package className="w-5 h-5" />, classes: G },
+        { id: 'painel_tv_abastecimento', label: 'Painel TV Abastecimento', icon: <MonitorPlay className="w-5 h-5" />, classes: A },
+        { id: 'sinalizador', label: 'Sinalizador', icon: <AlertTriangle className="w-5 h-5" />, classes: A },
         { id: 'painel_caf',            label: 'Painel CAF',       icon: <Package className="w-5 h-5" />,        classes: V },
         { id: 'painel_caf_v2',         label: 'Painel CAF V2',    icon: <BarChart2 className="w-5 h-5" />,      classes: G },
         { id: 'remanejamento',         label: 'Remanejamento',    icon: <ArrowLeftRight className="w-5 h-5" />, classes: A },
@@ -309,6 +332,12 @@ function App() {
             transition={{ duration: 0.3, ease: "easeOut" }}
             className="w-full"
           >
+        {activeTab === 'sinalizador' && (
+          <div className="max-w-7xl mx-auto">
+            <Sinalizador />
+          </div>
+        )}
+
         {activeTab === 'dispensaryProject' && (
           <div className="max-w-7xl mx-auto">
              <DispensaryProject />
@@ -524,12 +553,37 @@ function App() {
         )}
         {activeTab === 'abastecimento-farmaceutico' && (
           <div className="w-full -mx-4 sm:-mx-6 lg:-mx-8 -mt-8 md:-mt-10">
-            <AbastecimentoFarmaceutico />
+            <AbastecimentoFarmaceutico onNavigateToTV={() => setActiveTab('painel_tv_abastecimento')} />
+          </div>
+        )}
+        {activeTab === 'painel_tv_abastecimento' && (
+          <div className="w-full -mx-4 sm:-mx-6 lg:-mx-8 -mt-8 md:-mt-10">
+            <PainelTVAbastecimento onBack={() => setActiveTab('abastecimento-farmaceutico')} />
           </div>
         )}
       </motion.div>
         </AnimatePresence>
       </main>
+
+      {activeTutorial && (
+        <TutorialModal
+          tutorial={activeTutorial}
+          onDismiss={(neverShow) => {
+            if (neverShow) {
+              setTutorialsSeen(prev => ({ ...prev, [activeTutorial.tabId]: true }));
+            }
+            setActiveTutorial(null);
+          }}
+        />
+      )}
+      {TUTORIALS[activeTab] && !activeTutorial && (
+        <TutorialHelpButton
+          onClick={() => {
+            const t = TUTORIALS[activeTab];
+            if (t) setActiveTutorial(t);
+          }}
+        />
+      )}
     </div>
   );
 }
