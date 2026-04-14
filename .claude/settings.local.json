@@ -17,7 +17,8 @@
       "Bash(node node_modules/typescript/bin/tsc --noEmit)",
       "Bash(node node_modules/esbuild/bin/esbuild src/main.tsx --bundle --platform=browser --jsx=automatic --loader:.tsx=tsx --loader:.ts=ts --external:react --external:react-dom)",
       "Bash(powershell.exe -Command \"Get-Content ''C:\\\\Users\\\\Admin\\\\Desktop\\\\Projeto Claude\\\\src\\\\components\\\\AnaliseDispensariosV2.tsx'' | Measure-Object -Line\")",
-      "Bash(npx vite:*)"
+      "Bash(npx vite:*)",
+      "Bash(npx tsc:*)"
     ]
   }
 }
