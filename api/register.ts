@@ -1,6 +1,6 @@
-// Vercel Serverless Function — Cadastro com código de convite
+// Vercel Serverless Function — Cadastro aberto
 // POST /api/register
-// Body: { email: string, password: string, code: string }
+// Body: { email: string, password: string }
 
 export default async function handler(req: Request): Promise<Response> {
   const cors = {
@@ -24,7 +24,7 @@ export default async function handler(req: Request): Promise<Response> {
     });
   }
 
-  let body: { email: string; password: string; code: string };
+  let body: { email: string; password: string };
   try {
     body = await req.json();
   } catch {
@@ -33,8 +33,8 @@ export default async function handler(req: Request): Promise<Response> {
     });
   }
 
-  const { email, password, code } = body;
-  if (!email || !password || !code) {
+  const { email, password } = body;
+  if (!email || !password) {
     return new Response(JSON.stringify({ error: 'Preencha todos os campos.' }), {
       status: 400, headers: { 'Content-Type': 'application/json', ...cors },
     });
@@ -46,27 +46,6 @@ export default async function handler(req: Request): Promise<Response> {
     'Content-Type': 'application/json',
   };
 
-  // 1. Valida o código de convite
-  const codeRes = await fetch(
-    `${supabaseUrl}/rest/v1/invite_codes?code=eq.${encodeURIComponent(code.trim().toUpperCase())}&select=id,used`,
-    { headers },
-  );
-  const codes = await codeRes.json() as { id: number; used: boolean }[];
-
-  if (!codes.length) {
-    return new Response(JSON.stringify({ error: 'Código de convite inválido.' }), {
-      status: 400, headers: { 'Content-Type': 'application/json', ...cors },
-    });
-  }
-  if (codes[0].used) {
-    return new Response(JSON.stringify({ error: 'Este código de convite já foi utilizado.' }), {
-      status: 400, headers: { 'Content-Type': 'application/json', ...cors },
-    });
-  }
-
-  const codeId = codes[0].id;
-
-  // 2. Cria o usuário via Admin API
   const createRes = await fetch(`${supabaseUrl}/auth/v1/admin/users`, {
     method: 'POST',
     headers,
@@ -83,13 +62,6 @@ export default async function handler(req: Request): Promise<Response> {
       status: 400, headers: { 'Content-Type': 'application/json', ...cors },
     });
   }
-
-  // 3. Marca o código como usado
-  await fetch(`${supabaseUrl}/rest/v1/invite_codes?id=eq.${codeId}`, {
-    method: 'PATCH',
-    headers: { ...headers, 'Prefer': 'return=minimal' },
-    body: JSON.stringify({ used: true, used_by: email, used_at: new Date().toISOString() }),
-  });
 
   return new Response(JSON.stringify({ ok: true }), {
     status: 200, headers: { 'Content-Type': 'application/json', ...cors },

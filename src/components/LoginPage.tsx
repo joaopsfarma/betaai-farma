@@ -47,7 +47,6 @@ export function LoginPage({ onBack }: LoginPageProps) {
   const [regEmail, setRegEmail] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regConfirm, setRegConfirm] = useState('');
-  const [regCode, setRegCode] = useState('');
   const [regSuccess, setRegSuccess] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
@@ -84,7 +83,7 @@ export function LoginPage({ onBack }: LoginPageProps) {
       const res = await fetch('/api/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: regEmail, password: regPassword, code: regCode }),
+        body: JSON.stringify({ email: regEmail, password: regPassword }),
       });
       const data = await res.json() as { ok?: boolean; error?: string };
       if (!res.ok || !data.ok) {
@@ -330,17 +329,6 @@ export function LoginPage({ onBack }: LoginPageProps) {
                           required
                           className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 transition-all"
                           placeholder="••••••••"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1.5">Código de convite</label>
-                        <input
-                          type="text"
-                          value={regCode}
-                          onChange={e => setRegCode(e.target.value.toUpperCase())}
-                          required
-                          className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 transition-all font-mono tracking-widest uppercase"
-                          placeholder="EX: FARMA2026"
                         />
                       </div>
                       {error && <ErrorBox message={error} />}
