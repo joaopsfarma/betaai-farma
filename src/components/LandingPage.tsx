@@ -299,58 +299,177 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
               Painel Operacional ao Vivo
             </span>
           </div>
-          <div className="absolute inset-0 bg-gradient-to-t from-slate-50 via-transparent to-transparent z-10 bottom-0 h-32 top-auto" />
+          <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-slate-50 via-slate-50/60 to-transparent z-10 pointer-events-none" />
           <div className="rounded-2xl border border-violet-100 bg-white shadow-2xl shadow-violet-100/50 overflow-hidden">
-            <div className="h-8 bg-gradient-to-r from-emerald-50 to-violet-50 border-b border-violet-100 flex items-center px-4 gap-2">
+            {/* Browser Chrome */}
+            <div className="h-8 bg-gradient-to-r from-emerald-50 to-violet-50 border-b border-violet-100 flex items-center px-4 gap-2 flex-shrink-0">
               <div className="w-3 h-3 rounded-full bg-red-400" />
               <div className="w-3 h-3 rounded-full bg-amber-400" />
               <div className="w-3 h-3 rounded-full bg-emerald-400" />
               <span className="ml-3 text-xs text-slate-400 font-mono">farmaia — painel principal</span>
+              <div className="ml-4 flex-1 max-w-xs h-4 bg-white/70 border border-violet-100 rounded-full flex items-center px-2 gap-1">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                <span className="text-[9px] text-slate-400 font-mono truncate">app.farmaia.com.br/painel</span>
+              </div>
             </div>
-            <div className="p-3 bg-slate-50 aspect-[16/9] flex items-center justify-center relative overflow-hidden">
-              <div
-                className="absolute inset-0 opacity-20"
-                style={{ backgroundImage: 'radial-gradient(#a78bfa 1px, transparent 1px)', backgroundSize: '20px 20px' }}
-              />
-              <div className="grid grid-cols-3 gap-3 w-full h-full p-3 z-10">
-                <div className="col-span-2 bg-white rounded-xl shadow-sm border border-violet-100 p-4 flex flex-col gap-3">
-                  <div className="flex items-center gap-2">
-                    <div className="h-5 w-5 rounded bg-violet-200" />
-                    <div className="h-4 w-1/3 bg-violet-100 rounded-md" />
+            {/* Dashboard Shell */}
+            <div className="aspect-[16/9] flex overflow-hidden bg-slate-100">
+              {/* Sidebar */}
+              <div className="w-14 bg-gradient-to-b from-slate-800 to-violet-950 flex flex-col items-center py-2 gap-1 flex-shrink-0">
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-violet-600 flex items-center justify-center mb-2">
+                  <Pill className="w-4 h-4 text-white" />
+                </div>
+                {[
+                  { icon: <BarChart2 className="w-3.5 h-3.5" />, label: 'Painel', active: true },
+                  { icon: <Package className="w-3.5 h-3.5" />, label: 'Estoque', active: false },
+                  { icon: <Activity className="w-3.5 h-3.5" />, label: 'Alertas', active: false },
+                  { icon: <ShoppingCart className="w-3.5 h-3.5" />, label: 'Pedidos', active: false },
+                  { icon: <Zap className="w-3.5 h-3.5" />, label: 'IA', active: false },
+                ].map((item) => (
+                  <div
+                    key={item.label}
+                    className={`w-10 rounded-lg flex flex-col items-center py-1.5 gap-0.5 cursor-default ${
+                      item.active ? 'bg-violet-600 text-white' : 'text-slate-400'
+                    }`}
+                  >
+                    {item.icon}
+                    <span className="text-[7px] font-medium leading-none">{item.label}</span>
                   </div>
-                  <div className="flex-1 bg-gradient-to-br from-emerald-50 to-violet-50 rounded-lg border border-violet-100 p-3 flex flex-col justify-end gap-1">
-                    <div className="flex items-end gap-1 h-16">
-                      {[40, 65, 45, 80, 55, 70, 90, 60, 75, 85].map((h, i) => (
-                        <div
-                          key={i}
-                          className="flex-1 rounded-t"
-                          style={{
-                            height: `${h}%`,
-                            background: i % 2 === 0
-                              ? 'linear-gradient(to top, #10b981, #34d399)'
-                              : 'linear-gradient(to top, #7c3aed, #a78bfa)',
-                          }}
-                        />
+                ))}
+              </div>
+              {/* Main Content */}
+              <div className="flex-1 flex flex-col p-2.5 gap-2 overflow-hidden bg-slate-50 min-w-0">
+                <div className="flex items-center justify-between flex-shrink-0">
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-800 leading-none">Painel Operacional</p>
+                    <p className="text-[8px] text-slate-400 mt-0.5">Atualizado agora • Segunda-feira, 13 Abr 2026</p>
+                  </div>
+                  <div className="h-5 px-2 bg-emerald-500 rounded-md flex items-center gap-1">
+                    <span className="w-1 h-1 rounded-full bg-white animate-pulse" />
+                    <span className="text-[8px] text-white font-semibold">AO VIVO</span>
+                  </div>
+                </div>
+                {/* KPI Row */}
+                <div className="grid grid-cols-3 gap-1.5 flex-shrink-0">
+                  {[
+                    { label: 'Itens Ativos', value: '1.247', sub: '+12 hoje', color: 'emerald', icon: <Package className="w-3 h-3" /> },
+                    { label: 'Disponibilidade', value: '98,2%', sub: 'Meta: 95%', color: 'violet', icon: <ShieldCheck className="w-3 h-3" /> },
+                    { label: 'Alertas Críticos', value: '47', sub: '8 novos', color: 'red', icon: <Activity className="w-3 h-3" /> },
+                  ].map((kpi) => (
+                    <div key={kpi.label} className="bg-white rounded-lg border border-violet-100 p-2 flex flex-col gap-1 shadow-sm">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[8px] font-medium text-slate-500 uppercase tracking-wide">{kpi.label}</span>
+                        <div className={`w-4 h-4 rounded flex items-center justify-center ${kpi.color === 'emerald' ? 'bg-emerald-100 text-emerald-600' : kpi.color === 'violet' ? 'bg-violet-100 text-violet-600' : 'bg-red-100 text-red-500'}`}>
+                          {kpi.icon}
+                        </div>
+                      </div>
+                      <p className={`text-sm font-extrabold leading-none ${kpi.color === 'emerald' ? 'text-emerald-600' : kpi.color === 'violet' ? 'text-violet-700' : 'text-red-500'}`}>{kpi.value}</p>
+                      <p className="text-[8px] text-slate-400">{kpi.sub}</p>
+                    </div>
+                  ))}
+                </div>
+                {/* Bar Chart */}
+                <div className="bg-white rounded-lg border border-violet-100 p-2 shadow-sm flex-shrink-0">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[9px] font-bold text-slate-700">Dispensações por Dia</span>
+                    <span className="text-[8px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">Esta semana</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <div className="flex flex-col justify-between items-end pb-4" style={{ width: 18 }}>
+                      {['300', '200', '100', '0'].map((l) => (
+                        <span key={l} className="text-[7px] text-slate-300 leading-none">{l}</span>
                       ))}
+                    </div>
+                    <div className="flex-1 flex flex-col gap-0">
+                      <div className="flex items-end gap-1" style={{ height: 44 }}>
+                        {[
+                          { day: 'Seg', pct: 72, val: '214', color: 'emerald' },
+                          { day: 'Ter', pct: 88, val: '264', color: 'violet' },
+                          { day: 'Qua', pct: 65, val: '195', color: 'emerald' },
+                          { day: 'Qui', pct: 95, val: '285', color: 'violet' },
+                          { day: 'Sex', pct: 80, val: '241', color: 'emerald' },
+                          { day: 'Sáb', pct: 40, val: '118', color: 'violet' },
+                          { day: 'Dom', pct: 28, val: '83', color: 'violet' },
+                        ].map((bar) => (
+                          <div key={bar.day} className="flex-1 flex flex-col items-center gap-0.5 h-full justify-end">
+                            <span className="text-[6px] text-slate-400 leading-none">{bar.val}</span>
+                            <div className="w-full rounded-t" style={{ height: `${bar.pct}%`, background: bar.color === 'emerald' ? 'linear-gradient(to top, #10b981, #34d399)' : 'linear-gradient(to top, #7c3aed, #a78bfa)' }} />
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex items-center gap-1 pt-1 border-t border-slate-100">
+                        {['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'].map((d) => (
+                          <div key={d} className="flex-1 text-center">
+                            <span className="text-[7px] text-slate-400">{d}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </div>
-                <div className="col-span-1 flex flex-col gap-3">
-                  <div className="bg-gradient-to-br from-emerald-50 to-violet-50 rounded-xl border border-violet-100 p-3 flex flex-col gap-2">
-                    <div className="h-3 w-1/2 bg-violet-200 rounded" />
-                    <div className="h-8 w-3/4 bg-emerald-100 rounded-md" />
-                    <div className="h-2 w-full bg-violet-100 rounded-full">
-                      <div className="h-2 w-3/4 bg-emerald-400 rounded-full" />
-                    </div>
+                {/* Mini Table */}
+                <div className="bg-white rounded-lg border border-violet-100 shadow-sm overflow-hidden flex-shrink-0">
+                  <div className="flex items-center justify-between px-2 py-1.5 border-b border-slate-100">
+                    <span className="text-[9px] font-bold text-slate-700">Itens em Atenção</span>
+                    <span className="text-[7px] text-violet-600 font-semibold">Ver todos →</span>
                   </div>
-                  <div className="bg-white rounded-xl shadow-sm border border-violet-100 p-3 flex flex-col gap-2 flex-1">
-                    <div className="h-3 w-2/3 bg-slate-100 rounded" />
-                    {[1, 2, 3].map(i => (
-                      <div key={i} className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
-                        <div className="h-2 flex-1 bg-slate-100 rounded" />
+                  <div className="divide-y divide-slate-50">
+                    {[
+                      { nome: 'Dipirona 500mg EV', qtd: '18 un', status: 'Crítico', statusColor: 'red' },
+                      { nome: 'Amoxicilina 250mg', qtd: '124 un', status: 'Normal', statusColor: 'emerald' },
+                      { nome: 'Insulina NPH 100UI', qtd: '7 frascos', status: 'Baixo', statusColor: 'amber' },
+                    ].map((row) => (
+                      <div key={row.nome} className="flex items-center gap-2 px-2 py-1">
+                        <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${row.statusColor === 'red' ? 'bg-red-400' : row.statusColor === 'amber' ? 'bg-amber-400' : 'bg-emerald-400'}`} />
+                        <span className="text-[8px] font-medium text-slate-700 flex-1 truncate">{row.nome}</span>
+                        <span className="text-[8px] text-slate-400">{row.qtd}</span>
+                        <span className={`text-[7px] font-semibold px-1 py-0.5 rounded-full ${row.statusColor === 'red' ? 'bg-red-100 text-red-600' : row.statusColor === 'amber' ? 'bg-amber-100 text-amber-600' : 'bg-emerald-100 text-emerald-600'}`}>{row.status}</span>
                       </div>
                     ))}
+                  </div>
+                </div>
+              </div>
+              {/* Right Panel */}
+              <div className="w-36 flex flex-col gap-2 p-2 bg-white border-l border-violet-100 flex-shrink-0">
+                <div className="bg-gradient-to-br from-emerald-50 to-violet-50 rounded-lg border border-violet-100 p-2 flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[8px] font-bold text-slate-600 uppercase tracking-wide">Nível de Estoque</span>
+                    <TrendingUp className="w-3 h-3 text-emerald-500" />
+                  </div>
+                  <p className="text-lg font-extrabold text-emerald-600 leading-none">82,4%</p>
+                  <p className="text-[8px] text-slate-500">Capacidade utilizada</p>
+                  <div className="h-1.5 w-full bg-violet-100 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-violet-500" style={{ width: '82%' }} />
+                  </div>
+                  <p className="text-[7px] text-emerald-600 font-medium">↑ +3,1% vs semana anterior</p>
+                </div>
+                <div className="bg-white rounded-lg border border-violet-100 flex flex-col gap-1 flex-1">
+                  <div className="px-2 pt-2 pb-1 border-b border-slate-100">
+                    <span className="text-[8px] font-bold text-slate-700">Alertas Recentes</span>
+                  </div>
+                  <div className="flex flex-col gap-1 px-2 py-1">
+                    {[
+                      { msg: 'Dipirona abaixo do mínimo', type: 'red' },
+                      { msg: 'Pedido #4821 aprovado', type: 'emerald' },
+                      { msg: 'Vencimento em 3 dias: Heparina', type: 'amber' },
+                      { msg: 'IA: Sugestão de ressuprimento', type: 'violet' },
+                    ].map((alert, i) => (
+                      <div key={i} className="flex items-start gap-1">
+                        <div className={`w-1 h-1 rounded-full flex-shrink-0 mt-0.5 ${alert.type === 'red' ? 'bg-red-400' : alert.type === 'amber' ? 'bg-amber-400' : alert.type === 'violet' ? 'bg-violet-400' : 'bg-emerald-400'}`} />
+                        <span className="text-[8px] text-slate-600 leading-tight">{alert.msg}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="bg-gradient-to-br from-violet-600 to-violet-800 rounded-lg p-2 flex flex-col gap-1">
+                  <div className="flex items-center gap-1">
+                    <Zap className="w-3 h-3 text-violet-200" />
+                    <span className="text-[8px] font-bold text-white">IA Ativa</span>
+                    <div className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse ml-auto" />
+                  </div>
+                  <p className="text-[8px] text-violet-200 leading-tight">3 análises em execução</p>
+                  <div className="h-1 w-full bg-violet-900/50 rounded-full overflow-hidden">
+                    <div className="h-full bg-gradient-to-r from-emerald-400 to-violet-300 rounded-full" style={{ width: '65%' }} />
                   </div>
                 </div>
               </div>
