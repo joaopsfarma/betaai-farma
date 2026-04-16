@@ -73,6 +73,79 @@ async function kvGet<T>(key: string): Promise<T | null> {
   }
 }
 
+async function kvSet<T>(key: string, value: T): Promise<void> {
+  const url   = process.env.SUPABASE_URL;
+  const token = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !token) return;
+
+  try {
+    await fetch(`${url}/rest/v1/bot_cache`, {
+      method: 'POST',
+      headers: {
+        'apikey': token,
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates'
+      },
+      body: JSON.stringify([{ key, value }]),
+      signal: AbortSignal.timeout(3000),
+    });
+  } catch (e) {
+    console.error('[WH] kvSet erro:', e);
+  }
+}
+
+// ─── Levenshtein & Fuzzy Search Helpers ──────────────────────────────────────
+
+function levenshteinDistance(a: string, b: string): number {
+  const an = a ? a.length : 0;
+  const bn = b ? b.length : 0;
+  if (an === 0) return bn;
+  if (bn === 0) return an;
+  const matrix = new Array<number[]>(bn + 1);
+  for (let i = 0; i <= bn; ++i) {
+    let row = matrix[i] = new Array<number>(an + 1);
+    row[0] = i;
+  }
+  const firstRow = matrix[0];
+  for (let j = 1; j <= an; ++j) {
+    firstRow[j] = j;
+  }
+  for (let i = 1; i <= bn; ++i) {
+    for (let j = 1; j <= an; ++j) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1, // substitution
+          Math.min(matrix[i][j - 1] + 1, // insertion
+            matrix[i - 1][j] + 1) // deletion
+        );
+      }
+    }
+  }
+  return matrix[bn][an];
+}
+
+function stringSimilarity(a: string, b: string): number {
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  const dist = levenshteinDistance(a, b);
+  return 1 - dist / Math.max(a.length, b.length);
+}
+
+function fuzzySubstringMatch(query: string, target: string): boolean {
+  if (!query || !target) return false;
+  if (target.includes(query)) return true;
+  // Comparações por palavra (ignorando pequenas conjunções)
+  const targetWords = target.split(/\s+/);
+  for (const word of targetWords) {
+    if (word.length < 4) continue;
+    if (stringSimilarity(query, word) >= 0.75) return true;
+  }
+  return false;
+}
+
 // ─── Classificação de satélites por dias de cobertura ────────────────────────
 
 function nivelSatelite(projecao: number): { label: string; emoji: string } {
@@ -160,9 +233,18 @@ function resumoEstoqueParaIA(rows: TrackingRow[], diaLabels: string[] = []): str
 
 // ─── Claude (Anthropic) — análise inteligente ────────────────────────────────
 
-async function askClaude(system: string, user: string, maxTokens: number): Promise<string> {
+export interface AnthropicMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+async function askClaude(system: string, userMessages: string | AnthropicMessage[], maxTokens: number): Promise<string> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return '⚠️ ANTHROPIC_API_KEY não configurada no ambiente.';
+
+  const messagesPayload = typeof userMessages === 'string' 
+    ? [{ role: 'user', content: userMessages }] 
+    : userMessages;
 
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -173,10 +255,10 @@ async function askClaude(system: string, user: string, maxTokens: number): Promi
         'content-type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
+        model: 'claude-3-5-haiku-20241022',
         max_tokens: maxTokens,
         system,
-        messages: [{ role: 'user', content: user }],
+        messages: messagesPayload,
       }),
       signal: AbortSignal.timeout(20000),
     });
@@ -192,7 +274,7 @@ async function askClaude(system: string, user: string, maxTokens: number): Promi
   }
 }
 
-async function askGroq(pergunta: string, rows: TrackingRow[], diaLabels?: string[], nomeUsuario?: string): Promise<string> {
+async function askGroq(pergunta: string, rows: TrackingRow[], diaLabels?: string[], nomeUsuario?: string, history: AnthropicMessage[] = []): Promise<string> {
   const date    = new Date().toLocaleDateString('pt-BR');
   const hora    = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
   const estoque = resumoEstoqueParaIA(rows, diaLabels);
@@ -235,8 +317,9 @@ FORMATAÇÃO WHATSAPP: *negrito* para nomes/destaques, • para listas, _itálic
 IMPORTANTE: Liste TODOS os itens relevantes, sem cortar. Termine SEMPRE com uma frase de impacto curta e direta — ex: "São X itens em risco real hoje. Hora de agir." Nunca corte no meio da resposta.`;
 
   const usuarioMsg = `ESTOQUE ATUAL:\n${estoque}\n\nPERGUNTA: ${pergunta || 'Dá um resumo rápido da situação e me diz o que precisa de atenção agora.'}`;
-
-  return askClaude(sistemaMsg, usuarioMsg, 900);
+  
+  const thread = [...history, { role: 'user', content: usuarioMsg } as AnthropicMessage];
+  return askClaude(sistemaMsg, thread, 900);
 }
 
 // ─── Apresentação da Silky — farmacêutica do Noturno ────────────────────────
@@ -400,7 +483,7 @@ function resumoAnaliseParaIA(analise: AnaliseItem[], farmaciaKey: string | null,
   return `${cabecalho}\n\n${linhas.join('\n')}`;
 }
 
-async function askGroqFarmacias(pergunta: string, analise: AnaliseItem[], nomeUsuario?: string): Promise<string> {
+async function askGroqFarmacias(pergunta: string, analise: AnaliseItem[], nomeUsuario?: string, history: AnthropicMessage[] = []): Promise<string> {
   const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const t = norm(pergunta);
 
@@ -437,8 +520,9 @@ Formatação WhatsApp: *negrito*, • listas, _itálico_. Máximo 350 palavras.
 Status: CRÍTICO (<15d) | ALERTA (15–29d) | NORMAL (30–89d) | EXCESSO (≥90d) | SEM CONSUMO`;
 
   const usuarioMsg = `ESTOQUE POR FARMÁCIA:\n${dados}\n\nPERGUNTA: ${pergunta}`;
-
-  return askClaude(sistemaMsg, usuarioMsg, 450);
+  
+  const thread = [...history, { role: 'user', content: usuarioMsg } as AnthropicMessage];
+  return askClaude(sistemaMsg, thread, 450);
 }
 
 // ─── Remanejamento ───────────────────────────────────────────────────────────
@@ -545,6 +629,7 @@ async function askRemanejamento(
   analise: AnaliseItem[],
   sugestoes: SugestaoRemanejamento[],
   nomeUsuario?: string,
+  history: AnthropicMessage[] = []
 ): Promise<string> {
   const date  = new Date().toLocaleDateString('pt-BR');
   const dados = resumoAnaliseRemanejamento(analise, sugestoes);
@@ -582,8 +667,9 @@ FORMATAÇÃO WHATSAPP: *negrito* para nomes/destaques, • para listas, _itálic
 IMPORTANTE: Liste TODOS os itens relevantes. Termine com frase de impacto. Nunca corte no meio.`;
 
   const usuarioMsg = `DADOS DE REMANEJAMENTO:\n${dados}\n\nPERGUNTA: ${pergunta || 'Qual é a situação atual? O que é mais urgente transferir?'}`;
-
-  return askClaude(sistemaMsg, usuarioMsg, 900);
+  
+  const thread = [...history, { role: 'user', content: usuarioMsg } as AnthropicMessage];
+  return askClaude(sistemaMsg, thread, 900);
 }
 
 // ─── Menu de ajuda ───────────────────────────────────────────────────────────
@@ -891,7 +977,9 @@ export default async function handler(req: Request): Promise<Response> {
       );
       return new Response('OK', { status: 200 });
     }
-    const resposta = await askGroqFarmacias(textoAntecipado, analise, pushName);
+    const history = await kvGet<AnthropicMessage[]>(`chat_${remoteJid}`) || [];
+    const resposta = await askGroqFarmacias(textoAntecipado, analise, pushName, history);
+    if (!resposta.includes('⚠️ Erro')) await kvSet(`chat_${remoteJid}`, [...history, { role: 'user', content: textoAntecipado } as AnthropicMessage, { role: 'assistant', content: resposta } as AnthropicMessage].slice(-6));
     await sendReply(remoteJid, `🏥 ${resposta}`);
     return new Response('OK', { status: 200 });
   }
@@ -908,7 +996,9 @@ export default async function handler(req: Request): Promise<Response> {
       );
       return new Response('OK', { status: 200 });
     }
-    const resposta = await askRemanejamento(textoAntecipado, analise, sugestoes ?? [], pushName);
+    const history = await kvGet<AnthropicMessage[]>(`chat_${remoteJid}`) || [];
+    const resposta = await askRemanejamento(textoAntecipado, analise, sugestoes ?? [], pushName, history);
+    if (!resposta.includes('⚠️ Erro')) await kvSet(`chat_${remoteJid}`, [...history, { role: 'user', content: textoAntecipado } as AnthropicMessage, { role: 'assistant', content: resposta } as AnthropicMessage].slice(-6));
     await sendReply(remoteJid, `🔄 ${resposta}`);
     return new Response('OK', { status: 200 });
   }
@@ -991,6 +1081,14 @@ export default async function handler(req: Request): Promise<Response> {
       }
     }
 
+    // Busca Difusa (Fuzzy Search - Similaridade >= 75%)
+    if (!filtrado.length) {
+      filtrado = rowsFiltrados.filter(r => 
+        fuzzySubstringMatch(termoBusca, normalizar(r.comercial)) ||
+        fuzzySubstringMatch(termoBusca, normalizar(r.generico ?? ''))
+      );
+    }
+
     if (filtrado.length > 0) {
       const reply = buildReply(filtrado, 'tudo');
       await sendReply(remoteJid, reply);
@@ -1028,8 +1126,13 @@ export default async function handler(req: Request): Promise<Response> {
 
   if (intencao === 'ia') {
     // Pergunta livre → Claude analisa (já recebe rowsFiltrados sem dietas)
-    const respostaIA = await askGroq(textoLimpo, rowsFiltrados, diaLabels ?? [], pushName);
-    if (respostaIA) {
+    const history = await kvGet<AnthropicMessage[]>(`chat_${remoteJid}`) || [];
+    const respostaIA = await askGroq(textoLimpo, rowsFiltrados, diaLabels ?? [], pushName, history);
+    if (respostaIA && !respostaIA.includes('⚠️ Erro')) {
+      await kvSet(`chat_${remoteJid}`, [...history, { role: 'user', content: textoLimpo } as AnthropicMessage, { role: 'assistant', content: respostaIA } as AnthropicMessage].slice(-6));
+      await sendReply(remoteJid, `🤖 ${respostaIA}`);
+      return new Response('OK', { status: 200 });
+    } else if (respostaIA) {
       await sendReply(remoteJid, `🤖 ${respostaIA}`);
       return new Response('OK', { status: 200 });
     }
