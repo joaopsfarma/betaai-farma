@@ -353,7 +353,7 @@ Máximo 200 palavras. Seja criativo — não escreva um currículo, escreva uma 
 
 // ─── Detecta intenção da pergunta ────────────────────────────────────────────
 
-type Intencao = 'ruptura' | 'critico' | 'alerta' | 'tudo' | 'geral' | 'ia' | 'ajuda' | 'social' | 'silky' | 'remanejamento' | 'farmacia' | 'semana' | 'zerado' | 'tendencia_alta' | 'pedido' | 'remane_ia' | 'remane_excesso' | 'remane_alta';
+type Intencao = 'ruptura' | 'critico' | 'alerta' | 'tudo' | 'geral' | 'ia' | 'ajuda' | 'social' | 'silky' | 'remanejamento' | 'farmacia' | 'semana' | 'zerado' | 'tendencia_alta' | 'pedido' | 'remane_ia' | 'remane_excesso' | 'remane_alta' | 'ruptura_24h' | 'ruptura_48h' | 'ruptura_72h';
 
 function detectarIntencao(texto: string): Intencao {
   if (!texto || texto.length < 2) return 'ajuda';
@@ -390,6 +390,9 @@ function detectarIntencao(texto: string): Intencao {
   if (palavras.length > 3) return 'ia';
 
   // Comandos curtos (≤3 palavras) — resposta direta sem IA
+  if (/24\s?h|24\s?horas/.test(t) && /ruptur|falta|acabo|quase/.test(t)) return 'ruptura_24h';
+  if (/48\s?h|48\s?horas/.test(t)) return 'ruptura_48h';
+  if (/72\s?h|72\s?horas/.test(t)) return 'ruptura_72h';
   if (/^zerado$|^sem.?estoque$|^ruptura.?total$/.test(t)) return 'zerado';
   if (/^semana$|^7.?dias?$|^proxima.?semana$/.test(t))    return 'semana';
   if (/^subindo$|^aumentando$|^tendencia.?alta?$/.test(t)) return 'tendencia_alta';
@@ -681,6 +684,7 @@ Pode me perguntar qualquer coisa — falo português normal. Para respostas ráp
 
 📋 *Relatórios instantâneos*
   • *zerado* — itens com estoque zerado agora
+  • *48h* / *72h* — alertas antecipados de ruptura
   • *semana* — itens que zeram nos próximos 7 dias
   • *crítico* — cobertura ≤7 dias
   • *alerta* — cobertura 8–15 dias
@@ -719,10 +723,27 @@ _Dica: se o rastreio foi atualizado hoje no FarmaIA, minhas respostas refletem a
 function buildReply(rows: TrackingRow[], intencao: Intencao): string {
   const date = new Date().toLocaleDateString('pt-BR');
 
-  if (intencao === 'ruptura') {
+  if (intencao === 'ruptura' || intencao === 'ruptura_24h') {
     const itens = rows.filter(r => r.projecao <= 1);
-    if (!itens.length) return `✅ *RUPTURAS — ${date}*\nNenhum item com ruptura hoje (projeção 0–1 dia).`;
-    let msg = `🚨 *RUPTURAS HOJE — ${date}*\n${itens.length} ${itens.length === 1 ? 'item' : 'itens'} com projeção de 0–1 dia\n\n`;
+    const tit = intencao === 'ruptura_24h' ? 'EM ATÉ 24h' : 'HOJE';
+    if (!itens.length) return `✅ *RUPTURAS ${tit} — ${date}*\nNenhum item com ruptura (projeção 0–1 dia).`;
+    let msg = `🚨 *RUPTURAS ${tit} — ${date}*\n${itens.length} ${itens.length === 1 ? 'item' : 'itens'} com projeção de 0–1 dia\n\n`;
+    itens.forEach(r => { msg += formatItem(r); });
+    return msg;
+  }
+
+  if (intencao === 'ruptura_48h') {
+    const itens = rows.filter(r => r.projecao <= 2);
+    if (!itens.length) return `✅ *RUPTURAS EM ATÉ 48h — ${date}*\nNenhum item com projeção ≤2 dias.`;
+    let msg = `🚨 *RUPTURAS EM ATÉ 48h — ${date}*\n${itens.length} ${itens.length === 1 ? 'item' : 'itens'} com projeção de 0–2 dias\n\n`;
+    itens.forEach(r => { msg += formatItem(r); });
+    return msg;
+  }
+
+  if (intencao === 'ruptura_72h') {
+    const itens = rows.filter(r => r.projecao <= 3);
+    if (!itens.length) return `✅ *RUPTURAS EM ATÉ 72h — ${date}*\nNenhum item com projeção ≤3 dias.`;
+    let msg = `🚨 *RUPTURAS EM ATÉ 72h — ${date}*\n${itens.length} ${itens.length === 1 ? 'item' : 'itens'} com projeção de 0–3 dias\n\n`;
     itens.forEach(r => { msg += formatItem(r); });
     return msg;
   }
