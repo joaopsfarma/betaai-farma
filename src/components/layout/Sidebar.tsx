@@ -44,7 +44,10 @@ export type TabId =
   | 'painel_nutricao'
   | 'abastecimento-farmaceutico'
   | 'painel_tv_abastecimento'
-  | 'sinalizador';
+  | 'sinalizador'
+  | 'curva_abcxyz'
+  | 'cobertura_multi_unidade'
+  | 'historico_consumo';
 
 export interface NavItem {
   id: TabId;

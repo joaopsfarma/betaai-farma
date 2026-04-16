@@ -58,6 +58,9 @@ import AbastecimentoFarmaceutico from './components/AbastecimentoFarmaceutico';
 import { Sinalizador } from './components/Sinalizador';
 import { PainelTVAbastecimento } from './components/PainelTVAbastecimento';
 import { AnaliseOperacional } from './components/AnaliseOperacional';
+import { CurvaABCXYZ } from './components/CurvaABCXYZ';
+import { CoberturaMultiUnidade } from './components/CoberturaMultiUnidade';
+import { HistoricoConsumo } from './components/HistoricoConsumo';
 import { MobileHeader } from './components/layout/MobileHeader';
 import { Sidebar, NavItem, NavGroup, TabId } from './components/layout/Sidebar';
 import { exportInventoryToPDF } from './utils/pdfExport';
@@ -233,6 +236,9 @@ function App() {
         { id: 'painel_caf',            label: 'Painel CAF',       icon: <Package className="w-5 h-5" />,        classes: V },
         { id: 'painel_caf_v2',         label: 'Painel CAF V2',    icon: <BarChart2 className="w-5 h-5" />,      classes: G },
         { id: 'remanejamento',         label: 'Remanejamento',    icon: <ArrowLeftRight className="w-5 h-5" />, classes: A },
+        { id: 'curva_abcxyz',          label: 'Curva ABC/XYZ',    icon: <BarChart2 className="w-5 h-5" />,      classes: G },
+        { id: 'cobertura_multi_unidade', label: 'Multi-Unidade',  icon: <Package className="w-5 h-5" />,        classes: G },
+        { id: 'historico_consumo',     label: 'Histórico Consumo',icon: <LineChart className="w-5 h-5" />,      classes: V },
       ],
     },
     {
@@ -530,6 +536,15 @@ function App() {
           <div className="max-w-7xl mx-auto">
             <Supply />
           </div>
+        )}
+        {activeTab === 'curva_abcxyz' && (
+          <CurvaABCXYZ />
+        )}
+        {activeTab === 'cobertura_multi_unidade' && (
+          <CoberturaMultiUnidade />
+        )}
+        {activeTab === 'historico_consumo' && (
+          <HistoricoConsumo />
         )}
         {activeTab === 'multidose' && (
           <div className="max-w-[1400px] mx-auto">

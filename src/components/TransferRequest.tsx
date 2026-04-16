@@ -102,7 +102,7 @@ export const TransferRequest: React.FC = () => {
   const [safetyMargin, setSafetyMargin] = useState(20);
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<'all' | 'medicamento' | 'material' | 'dieta'>('all');
-  const [subCategoryFilter, setSubCategoryFilter] = useState<'all' | 'comprimido' | 'frasco'>('all');
+  const [subCategoryFilter, setSubCategoryFilter] = useState<'all' | 'comprimido' | 'injetavel' | 'soroterapia' | 'solucao'>('all');
   const [filesData, setFilesData] = useState<{
     consumo: string | null;
     movi: string | null;
@@ -659,9 +659,28 @@ export const TransferRequest: React.FC = () => {
       // Lógica de Categorização
       const isDieta = name.includes("DIETA") || name.includes("NUTRIFICA") || name.includes("ENTERAL") || name.includes("PARENTERAL") || name.includes("SUPLEMENTO") || name.includes("MODULO ALIMENTAR");
       
-      const isComprimido = name.includes("COMP") || name.includes(" CP") || name.includes("CPR") || name.includes("TAB") || unit.includes("COMP") || unit.includes("CP") || unit.includes("CPR");
-      const isFrasco = name.includes("FRASCO") || name.includes(" FR") || name.includes(" FA") || name.includes("AMP") || unit.includes("FR") || unit.includes("FA") || unit.includes("AMP")
-        || name.includes("BOLSA") || name.includes(" BS") || unit.includes("BOLSA") || unit.includes("BS");
+      const txt = name + ' ' + unit;
+
+      const isComprimido = /\bCOMP\b|COMPRIMIDO|\bCP\b|\bCPR\b|\bTAB\b|C[ÁA]PSULA|\bCAPS\b|DR[ÁA]GEA|\bDRG\b|SACH[ÊE]|ENVELOPE|\bENV\b|GRANULADO|P[ÓO]\s*ORAL/.test(txt);
+
+      // Soroterapia: APENAS fluidos base de grande volume (50-1000ml)
+      // Volumes em formato BR: 1.000ML, 500ML etc
+      const isSoroterapia = /SORO\s*FISIOL|SORO\s*GLICOS|CLOR.*SODIO\s*0,9|NACL\s*0,9|GLICOSE\s*5|RINGER|MANITOL|\bSF\s*0,9|\bSG\s*5|\bRL\b|AGUA\s*(DEST|P.*INJ|BIDEST)/.test(name)
+        && /\b(50|100|250|500|1\.?000)\s*ML\b/.test(name);
+
+      // Soluções: orais, tópicas, oftálmicas, nasais, suspensões, gotas, bisnagas, tubos
+      // Formas: FR SUSP, FR GTS, BG (bisnaga), TB (tubo), TOP (tópico), OFTAL
+      // Soluções: orais, tópicas, oftálmicas, inalatórias, retais, aerossóis
+      const isSolucao = /XAROPE|SUSPENS[ÃA]O|\bSUSP\b|\bGOTAS\b|\bGOTA\b|\bGTS\b|\bCREME\b|\bPOMADA\b|\bGEL\b|LO[ÇC][ÃA]O|COL[ÍI]RIO|\bOFTAL\b|\bSPRAY\b|\bENEMA\b|SUPOSIT[ÓO]RIO|\bTOP\b|\bBG\b|\bINAL\b|\bAER\b|\bRETAL\b|\bSOL\b|SOL(U[ÇC][ÃA]O)?\s*(ORAL|T[OÓ]PICA|OFT[ÁA]LM|NASAL)/.test(txt);
+
+      // Injetáveis: ampolas + frascos + frascos-ampola + seringas + bolsas de medicamentos
+      // Exclui o que já foi classificado como soroterapia ou solução
+      const isInjetavel = !isSoroterapia && !isSolucao && !name.includes('POSIFLUSH') && (
+        /\bAMP\b|AMPOLA|\bFR\b|FRASCO|FR[/.]?AMP|\bFCO\b|\bFA\b|SER.*PRE|CANETA|INJET[ÁA]VEL|\bINJ\b|LIOFILIZADO|BOLSA|\bBLC\b|\bBLF\b|INFUS[ÃA]O|\bEV\b|\bIM\b|\bSC\b/.test(txt)
+      );
+
+      // Compat: isFrasco mantido para lógica de isMed abaixo
+      const isFrasco = isInjetavel || isSoroterapia || isSolucao;
 
       const matKeywords = [
         "SERINGA", "AGULHA", "SONDA", "COMPRESSA", "FRALDA", "EXTENSOR", 
@@ -682,7 +701,9 @@ export const TransferRequest: React.FC = () => {
       } else if (categoryFilter === 'medicamento') {
         if (!isMed) return false;
         if (subCategoryFilter === 'comprimido' && !isComprimido) return false;
-        if (subCategoryFilter === 'frasco' && !isFrasco) return false;
+        if (subCategoryFilter === 'injetavel' && !isInjetavel) return false;
+        if (subCategoryFilter === 'soroterapia' && !isSoroterapia) return false;
+        if (subCategoryFilter === 'solucao' && !isSolucao) return false;
       } else if (categoryFilter === 'material') {
         if (!isMat) return false;
       }
@@ -918,24 +939,36 @@ export const TransferRequest: React.FC = () => {
                 </div>
 
                 {categoryFilter === 'medicamento' && (
-                  <div className="flex bg-white border border-emerald-200 rounded-lg p-1 shadow-sm animate-in fade-in slide-in-from-left-2">
-                    <button 
+                  <div className="flex flex-wrap bg-white border border-emerald-200 rounded-lg p-1 shadow-sm animate-in fade-in slide-in-from-left-2">
+                    <button
                       onClick={() => setSubCategoryFilter('all')}
                       className={`px-2 py-1 text-[10px] font-bold uppercase rounded-md transition-all ${subCategoryFilter === 'all' ? 'bg-emerald-600 text-white' : 'text-emerald-600 hover:bg-emerald-50'}`}
                     >
                       Todos Meds
                     </button>
-                    <button 
+                    <button
                       onClick={() => setSubCategoryFilter('comprimido')}
                       className={`px-2 py-1 text-[10px] font-bold uppercase rounded-md transition-all ${subCategoryFilter === 'comprimido' ? 'bg-emerald-600 text-white' : 'text-emerald-600 hover:bg-emerald-50'}`}
                     >
-                      Comprimidos
+                      💊 Comprimidos
                     </button>
                     <button
-                      onClick={() => setSubCategoryFilter('frasco')}
-                      className={`px-2 py-1 text-[10px] font-bold uppercase rounded-md transition-all ${subCategoryFilter === 'frasco' ? 'bg-emerald-600 text-white' : 'text-emerald-600 hover:bg-emerald-50'}`}
+                      onClick={() => setSubCategoryFilter('injetavel')}
+                      className={`px-2 py-1 text-[10px] font-bold uppercase rounded-md transition-all ${subCategoryFilter === 'injetavel' ? 'bg-purple-600 text-white' : 'text-purple-600 hover:bg-purple-50'}`}
                     >
-                      Frascos/Amp/Bolsas
+                      💉 Injetáveis
+                    </button>
+                    <button
+                      onClick={() => setSubCategoryFilter('soroterapia')}
+                      className={`px-2 py-1 text-[10px] font-bold uppercase rounded-md transition-all ${subCategoryFilter === 'soroterapia' ? 'bg-blue-600 text-white' : 'text-blue-600 hover:bg-blue-50'}`}
+                    >
+                      🩸 Soroterapia
+                    </button>
+                    <button
+                      onClick={() => setSubCategoryFilter('solucao')}
+                      className={`px-2 py-1 text-[10px] font-bold uppercase rounded-md transition-all ${subCategoryFilter === 'solucao' ? 'bg-teal-600 text-white' : 'text-teal-600 hover:bg-teal-50'}`}
+                    >
+                      🧪 Soluções
                     </button>
                   </div>
                 )}

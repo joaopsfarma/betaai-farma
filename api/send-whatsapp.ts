@@ -60,7 +60,7 @@ async function kvSet(key: string, value: unknown): Promise<void> {
       'Content-Type': 'application/json',
       'Prefer': 'resolution=merge-duplicates',
     },
-    body: JSON.stringify({ key, value }),
+    body: JSON.stringify([{ key, value }]),
   });
 }
 
@@ -89,13 +89,6 @@ export default async function handler(req: Request): Promise<Response> {
   // Múltiplos destinos separados por vírgula
   const targets  = process.env.WHATSAPP_TARGETS;
 
-  if (!apiUrl || !apiKey || !instance || !targets) {
-    return new Response(
-      JSON.stringify({ error: 'Evolution API não configurada. Defina EVOLUTION_API_URL, EVOLUTION_API_KEY, EVOLUTION_INSTANCE e WHATSAPP_TARGETS.' }),
-      { status: 503, headers: { 'Content-Type': 'application/json' } }
-    );
-  }
-
   let body: { rows: TrackingRow[]; diaLabels?: string[] };
   try {
     body = await req.json();
@@ -114,12 +107,21 @@ export default async function handler(req: Request): Promise<Response> {
     });
   }
 
-  const message  = buildMessage(rows);
-  const numbers  = targets.split(',').map(n => n.trim()).filter(Boolean);
-
-  // Persiste snapshot no KV para o webhook responder menções
+  // Persiste snapshot no KV para o webhook responder menções MESMO QUE o envio de WhatsApp falhe
   await kvSet('last_stock_data', rows);
   if (diaLabels?.length) await kvSet('last_stock_dia_labels', diaLabels);
+
+  if (!apiUrl || !apiKey || !instance || !targets) {
+    return new Response(
+      JSON.stringify({ error: 'Evolution API não configurada. Dados salvos no cache do Bot, mas os alertas do Zap não foram enviados. Defina EVOLUTION_API_URL, EVOLUTION_API_KEY, EVOLUTION_INSTANCE e WHATSAPP_TARGETS.' }),
+      { status: 503, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
+
+
+  const message  = buildMessage(rows);
+  const numbers  = targets.split(',').map(n => n.trim()).filter(Boolean);
 
   const results = await Promise.allSettled(
     numbers.map(number =>

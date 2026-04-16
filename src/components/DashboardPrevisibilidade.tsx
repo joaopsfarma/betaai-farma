@@ -1,9 +1,28 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { useDropzone } from 'react-dropzone';
 import Papa from 'papaparse';
-import { AlertTriangle, CheckCircle, UploadCloud, Search, Filter, Package, AlertOctagon, FileText, XCircle, ChevronDown, ChevronUp, Download, RefreshCw, Database, Activity, Target, ShieldAlert, Zap, ArrowUpDown, ArrowUp, ArrowDown, TrendingDown, Brain } from 'lucide-react';
+import { AlertTriangle, CheckCircle, UploadCloud, Search, Filter, Package, AlertOctagon, FileText, XCircle, ChevronDown, ChevronUp, Download, RefreshCw, Database, Activity, Target, ShieldAlert, Zap, ArrowUpDown, ArrowUp, ArrowDown, TrendingDown, Brain, Settings2, BarChart3, TrendingUp, Gauge, SlidersHorizontal } from 'lucide-react';
 import { PanelGuide } from './common/PanelGuide';
 import { motion, AnimatePresence } from 'motion/react';
+import {
+  calcularScorePrioridade,
+  mediaMovelPonderada,
+  coeficienteVariacao,
+  classificarXYZ,
+  regressaoLinearSimples,
+  projecaoComBandaConfianca,
+  estoqueSegurancaDinamico,
+  SCORE_COLORS,
+  SCORE_LABELS,
+  type ScorePesos,
+  DEFAULT_SCORE_PESOS,
+} from '../utils/supplyScore';
+import {
+  type SupplyConfig,
+  DEFAULT_SUPPLY_CONFIG,
+  SUPPLY_CONFIG_LABELS,
+  SUPPLY_CONFIG_KEY,
+} from '../utils/supplyConfig';
 
 export interface LoteData {
   lote: string;
@@ -78,6 +97,21 @@ export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> =
   const [aiResult, setAiResult]       = useState<string | null>(null);
   const [showAiModal, setShowAiModal] = useState(false);
 
+  // ── WhatsApp Alert ──────────────────────────────────────────────────────
+  const [isSendingWhatsApp, setIsSendingWhatsApp] = useState(false);
+  const [whatsAppResult, setWhatsAppResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  // ── Config & Score ───────────────────────────────────────────────────────
+  const [showConfigPanel, setShowConfigPanel] = useState(false);
+  const [supplyConfig, setSupplyConfig] = useState<SupplyConfig>(DEFAULT_SUPPLY_CONFIG);
+  const [scorePesos, setScorePesos] = useState<ScorePesos>(DEFAULT_SCORE_PESOS);
+
+  // ── Simulador de Cenários ───────────────────────────────────────────────
+  const [showSimulador, setShowSimulador] = useState(false);
+  const [simConsumoVar, setSimConsumoVar] = useState(0);   // -50 a +100 (%)
+  const [simAtrasoFornecedor, setSimAtrasoFornecedor] = useState(0); // 0-30 dias
+  const [simHorizonte, setSimHorizonte] = useState(7);     // 7-90 dias
+
   // 1. Filtro por busca apenas (sem ruptura ainda — será aplicado após recálculo)
   const searchFiltered = useMemo(() => {
     return safeData.filter(item =>
@@ -118,11 +152,61 @@ export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> =
     });
   }, [searchFiltered, windowHours]);
 
+  // 2.5 Enriquecer com Score de Prioridade e classificação XYZ
+  const enrichedData = useMemo(() => {
+    return windowedData.map(item => {
+      // Extrair valores diários das solicitações para análise estatística
+      const dailyValues: number[] = [];
+      const dayMap = new Map<string, number>();
+      item.Solicitacoes.forEach(s => {
+        const key = extractDayKey(s.data);
+        if (key) dayMap.set(key, (dayMap.get(key) || 0) + s.qt);
+      });
+      dayMap.forEach(v => dailyValues.push(v));
+
+      const cv = coeficienteVariacao(dailyValues);
+      const classeXYZ = classificarXYZ(cv);
+      const tendencia = regressaoLinearSimples(dailyValues);
+      const mediaPonderada = mediaMovelPonderada(dailyValues);
+      const coberturaDias = mediaPonderada > 0 ? item.Estoque_Atual / mediaPonderada : 999;
+
+      const scoreResult = calcularScorePrioridade({
+        nomeProduto: item.Produto_Nome,
+        coberturaDias,
+        consumoMedio: mediaPonderada,
+      }, scorePesos);
+
+      // Simulador: projeção com variação de consumo
+      const consumoSimulado = mediaPonderada * (1 + simConsumoVar / 100);
+      const demandaSimulada = consumoSimulado * simHorizonte;
+      const saldoSimulado = item.Estoque_Atual - demandaSimulada;
+      const coberturaSimulada = consumoSimulado > 0 ? item.Estoque_Atual / consumoSimulado : 999;
+
+      // Estoque de segurança dinâmico
+      const ssSeguranca = dailyValues.length >= 2
+        ? estoqueSegurancaDinamico(dailyValues, supplyConfig.coberturaAlerta)
+        : Math.ceil(mediaPonderada * supplyConfig.coberturaAlerta * (supplyConfig.multiplicadorSeguranca - 1));
+
+      return {
+        ...item,
+        _score: scoreResult,
+        _classeXYZ: classeXYZ,
+        _cv: cv,
+        _tendencia: tendencia.tendencia,
+        _mediaPonderada: mediaPonderada,
+        _coberturaDias: coberturaDias,
+        _ssSeguranca: ssSeguranca,
+        _saldoSimulado: saldoSimulado,
+        _coberturaSimulada: coberturaSimulada,
+      };
+    });
+  }, [windowedData, scorePesos, simConsumoVar, simHorizonte, supplyConfig]);
+
   // 3. Filtro por ruptura aplicado após recálculo (para refletir status da janela)
   const filteredData = useMemo(() => {
-    if (!showOnlyRupture) return windowedData;
-    return windowedData.filter(d => d.Status === 'Ruptura Predita');
-  }, [windowedData, showOnlyRupture]);
+    if (!showOnlyRupture) return enrichedData;
+    return enrichedData.filter(d => d.Status === 'Ruptura Predita');
+  }, [enrichedData, showOnlyRupture]);
 
   const sortedFilteredData = useMemo(() => {
     if (!sortConfig) return filteredData;
@@ -155,8 +239,8 @@ export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> =
       : <ArrowDown className="w-3 h-3 text-indigo-500" />;
   };
 
-  // Base ativa para KPIs: usa dados janelados (ou todos) sem o filtro de ruptura
-  const activeData = windowedData;
+  // Base ativa para KPIs: usa dados enriquecidos sem o filtro de ruptura
+  const activeData = enrichedData;
 
   const uniqueProductsCount = activeData.length;
   const ruptureCount = activeData.filter(d => d.Status === 'Ruptura Predita').length;
@@ -379,6 +463,44 @@ Seja objetivo, direto e prático. Priorize a segurança do paciente.`;
     }
   }, [windowedData, windowHours]);
 
+  const handleWhatsAppAlert = useCallback(async () => {
+    const rupturas = enrichedData.filter(d => d.Status === 'Ruptura Predita' || d.Status === 'Falta, mas com Substituto');
+    if (rupturas.length === 0) return;
+
+    setIsSendingWhatsApp(true);
+    setWhatsAppResult(null);
+
+    try {
+      const items = rupturas.map(item => ({
+        produtoId: item.Produto_ID,
+        produtoNome: item.Produto_Nome,
+        estoqueAtual: item.Estoque_Atual,
+        totalSolicitado: item.Total_Solicitado,
+        saldoProjetado: item.Saldo_Projetado,
+        status: item.Status,
+        score: item._score.score,
+        classificacao: item._score.classificacao,
+        riscoAssistencial: item._score.riscoLevel,
+        substituto: item.Sugestao_Substituicao?.nome,
+      }));
+
+      const res = await fetch('/api/send-rupture-alert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items }),
+      });
+
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      setWhatsAppResult({ ok: true, message: `Alerta enviado para ${json.sent} destino(s)` });
+    } catch (err) {
+      setWhatsAppResult({ ok: false, message: err instanceof Error ? err.message : 'Erro ao enviar' });
+    } finally {
+      setIsSendingWhatsApp(false);
+      setTimeout(() => setWhatsAppResult(null), 5000);
+    }
+  }, [enrichedData]);
+
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     setLoading(true);
     setError(null);
@@ -451,7 +573,8 @@ Seja objetivo, direto e prático. Priorize a segurança do paciente.`;
         const sit = findValueNearIndex(row, demSitIdx, val => val.trim().length > 0);
         const dataStr = demDataIdx !== -1 ? findValueNearIndex(row, demDataIdx, val => val.includes('/') || val.includes(':')) : '';
         
-        if (sol && sit && normalize(sit.toLowerCase()).includes('pend')) {
+        // Removed strict `pend` check, assume user exported the pending list correctly
+        if (sol) {
           pendingSolicitacoesMap.set(sol.trim(), dataStr || 'Data não informada');
         }
       }
@@ -472,13 +595,24 @@ Seja objetivo, direto e prático. Priorize a segurança do paciente.`;
         const sol = findValueNearIndex(row, itSolIdx, val => /^\d+$/.test(val.trim()));
         
         if (sol && pendingSolicitacoesMap.has(sol.trim())) {
-          const prodRaw = findValueNearIndex(row, itProdIdx, val => val.includes('-') && /^\d+\s*-/.test(val.trim()));
+          // Relaxed validation - any string starting with numbers
+          const prodRaw = findValueNearIndex(row, itProdIdx, val => /^\d+/.test(val.trim()));
           const qtRaw = findValueNearIndex(row, itQtIdx, val => /^\d+([.,]\d+)?$/.test(val.replace(/"/g, '').trim()));
 
           if (prodRaw && qtRaw) {
-            const parts = prodRaw.split('-');
-            const id = parts[0].trim();
-            const nome = parts.slice(1).join('-').trim() || prodRaw;
+            let id = '';
+            let nome = '';
+            if (prodRaw.includes('-')) {
+              const parts = prodRaw.split('-');
+              id = parts[0].trim();
+              nome = parts.slice(1).join('-').trim() || prodRaw;
+            } else {
+              const match = prodRaw.match(/^(\d+)(.*)/);
+              if (match) {
+                id = match[1].trim();
+                nome = match[2].trim() || prodRaw;
+              }
+            }
             
             const qt = parseFloat(qtRaw.replace(/"/g, '').replace(/\./g, '').replace(',', '.'));
             
@@ -566,6 +700,16 @@ Seja objetivo, direto e prático. Priorize a segurança do paciente.`;
         requestedProducts: Object.fromEntries(requestedProducts),
         stockMap: Object.fromEntries(stockMap)
       };
+
+      if (pendingSolicitacoesMap.size === 0) {
+         throw new Error("⚠️ Ocorreu um problema ao ler as Demandas. Nenhuma solicitação encontrada! Verifique se seu arquivo possui solicitações ou a palavra 'Solicitação'.");
+      }
+      if (requestedProducts.size === 0) {
+         throw new Error("⚠️ O cruzamento falhou no arquivo de Itens. Nenhum produto lido. Verifique as colunas de quantidade e produto.");
+      }
+      if (stockMap.size === 0) {
+         throw new Error("⚠️ O cruzamento falhou no Estoque. Não conseguimos ler saldos ou produtos validamente.");
+      }
 
       setRawSource(serializableRaw);
       
@@ -893,6 +1037,40 @@ Seja objetivo, direto e prático. Priorize a segurança do paciente.`;
                     )}
                   </div>
                 )}
+                {(ruptureCount > 0 || substituteCount > 0) && (
+                  <div className="relative">
+                    <button
+                      onClick={handleWhatsAppAlert}
+                      disabled={isSendingWhatsApp}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-bold transition-all shadow-sm disabled:opacity-60"
+                      title="Enviar alerta de ruptura via WhatsApp"
+                    >
+                      <span className="text-base">📱</span>
+                      {isSendingWhatsApp ? 'Enviando...' : 'WhatsApp'}
+                    </button>
+                    {whatsAppResult && (
+                      <div className={`absolute top-full mt-1 right-0 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap z-50 ${
+                        whatsAppResult.ok ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+                      }`}>
+                        {whatsAppResult.message}
+                      </div>
+                    )}
+                  </div>
+                )}
+                <button
+                  onClick={() => setShowSimulador(v => !v)}
+                  className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-bold transition-colors border ${showSimulador ? 'bg-violet-500 text-white border-violet-400' : 'bg-white/10 text-white border-white/20 hover:bg-white/20'}`}
+                >
+                  <SlidersHorizontal className="w-4 h-4" />
+                  Simulador
+                </button>
+                <button
+                  onClick={() => setShowConfigPanel(v => !v)}
+                  className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-bold transition-colors border ${showConfigPanel ? 'bg-amber-500 text-white border-amber-400' : 'bg-white/10 text-white border-white/20 hover:bg-white/20'}`}
+                >
+                  <Settings2 className="w-4 h-4" />
+                  Config
+                </button>
                 <button
                   onClick={exportToPDF}
                   className="flex items-center gap-1.5 px-4 py-2 bg-white text-indigo-700 rounded-lg text-sm font-bold hover:bg-indigo-50 transition-colors shadow-sm"
@@ -1167,6 +1345,176 @@ Seja objetivo, direto e prático. Priorize a segurança do paciente.`;
             </div>
           )}
 
+          {/* ── Painel de Configuração ── */}
+          <AnimatePresence>
+            {showConfigPanel && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="overflow-hidden"
+              >
+                <div className="bg-white rounded-2xl border border-amber-200 shadow-sm overflow-hidden">
+                  <div className="bg-gradient-to-r from-amber-500 to-orange-500 px-5 py-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Settings2 className="w-4 h-4 text-white" />
+                      <h3 className="text-white font-bold text-sm">Parâmetros de Ressuprimento</h3>
+                    </div>
+                    <button onClick={() => { setSupplyConfig(DEFAULT_SUPPLY_CONFIG); setScorePesos(DEFAULT_SCORE_PESOS); }}
+                      className="text-white/80 hover:text-white text-xs font-medium underline">
+                      Restaurar Padrão
+                    </button>
+                  </div>
+                  <div className="p-5 grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {(Object.keys(SUPPLY_CONFIG_LABELS) as (keyof SupplyConfig)[]).map(key => {
+                      const cfg = SUPPLY_CONFIG_LABELS[key];
+                      return (
+                        <div key={key} className="space-y-1.5">
+                          <label className="text-xs font-bold text-slate-600 flex items-center gap-1">
+                            {cfg.label}
+                            <span className="text-slate-400 font-normal">({cfg.sufixo})</span>
+                          </label>
+                          <input
+                            type="number"
+                            min={cfg.min} max={cfg.max} step={cfg.step}
+                            value={supplyConfig[key]}
+                            onChange={e => setSupplyConfig(prev => ({ ...prev, [key]: parseFloat(e.target.value) || cfg.min }))}
+                            className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-amber-400 focus:border-amber-400"
+                          />
+                          <p className="text-[10px] text-slate-400 leading-tight">{cfg.descricao}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="px-5 pb-4">
+                    <div className="border-t border-slate-100 pt-3">
+                      <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Pesos do Score de Prioridade</h4>
+                      <div className="grid grid-cols-4 gap-3">
+                        {(['risco', 'cobertura', 'custo', 'tendencia'] as (keyof ScorePesos)[]).map(k => (
+                          <div key={k} className="space-y-1">
+                            <label className="text-xs font-semibold text-slate-600 capitalize">{k}</label>
+                            <input
+                              type="range" min="0" max="1" step="0.05"
+                              value={scorePesos[k]}
+                              onChange={e => setScorePesos(prev => ({ ...prev, [k]: parseFloat(e.target.value) }))}
+                              className="w-full h-1.5 accent-amber-500"
+                            />
+                            <span className="text-[10px] text-slate-500 font-mono">{(scorePesos[k] * 100).toFixed(0)}%</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* ── Simulador de Cenários ── */}
+          <AnimatePresence>
+            {showSimulador && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="overflow-hidden"
+              >
+                <div className="bg-white rounded-2xl border border-violet-200 shadow-sm overflow-hidden">
+                  <div className="bg-gradient-to-r from-violet-500 to-purple-600 px-5 py-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <SlidersHorizontal className="w-4 h-4 text-white" />
+                      <h3 className="text-white font-bold text-sm">Simulador de Cenários — "E se...?"</h3>
+                    </div>
+                    <button onClick={() => { setSimConsumoVar(0); setSimAtrasoFornecedor(0); setSimHorizonte(7); }}
+                      className="text-white/80 hover:text-white text-xs font-medium underline">
+                      Resetar
+                    </button>
+                  </div>
+                  <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-slate-600 flex items-center justify-between">
+                        <span>Variação de Consumo</span>
+                        <span className={`font-mono text-sm ${simConsumoVar > 0 ? 'text-rose-600' : simConsumoVar < 0 ? 'text-emerald-600' : 'text-slate-500'}`}>
+                          {simConsumoVar > 0 ? '+' : ''}{simConsumoVar}%
+                        </span>
+                      </label>
+                      <input type="range" min="-50" max="100" step="5" value={simConsumoVar}
+                        onChange={e => setSimConsumoVar(parseInt(e.target.value))}
+                        className="w-full h-2 accent-violet-500" />
+                      <div className="flex justify-between text-[10px] text-slate-400">
+                        <span>-50%</span><span>0</span><span>+100%</span>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-slate-600 flex items-center justify-between">
+                        <span>Atraso Fornecedor</span>
+                        <span className="font-mono text-sm text-slate-700">+{simAtrasoFornecedor} dias</span>
+                      </label>
+                      <input type="range" min="0" max="30" step="1" value={simAtrasoFornecedor}
+                        onChange={e => setSimAtrasoFornecedor(parseInt(e.target.value))}
+                        className="w-full h-2 accent-violet-500" />
+                      <div className="flex justify-between text-[10px] text-slate-400">
+                        <span>0</span><span>15</span><span>30 dias</span>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-slate-600 flex items-center justify-between">
+                        <span>Horizonte de Análise</span>
+                        <span className="font-mono text-sm text-slate-700">{simHorizonte} dias</span>
+                      </label>
+                      <input type="range" min="7" max="90" step="1" value={simHorizonte}
+                        onChange={e => setSimHorizonte(parseInt(e.target.value))}
+                        className="w-full h-2 accent-violet-500" />
+                      <div className="flex justify-between text-[10px] text-slate-400">
+                        <span>7</span><span>30</span><span>90 dias</span>
+                      </div>
+                    </div>
+                  </div>
+                  {/* Resumo do Simulador */}
+                  {(simConsumoVar !== 0 || simAtrasoFornecedor > 0) && (
+                    <div className="px-5 pb-4">
+                      <div className="bg-violet-50 border border-violet-100 rounded-xl p-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+                        {(() => {
+                          const rupturasSim = enrichedData.filter(d => d._saldoSimulado < 0).length;
+                          const rupturasAtual = enrichedData.filter(d => d.Saldo_Projetado < 0).length;
+                          const delta = rupturasSim - rupturasAtual;
+                          const cobMediaSim = enrichedData.length > 0
+                            ? Math.round(enrichedData.reduce((acc, d) => acc + Math.min(d._coberturaSimulada, 999), 0) / enrichedData.length)
+                            : 0;
+                          const cobMediaAtual = enrichedData.length > 0
+                            ? Math.round(enrichedData.reduce((acc, d) => acc + Math.min(d._coberturaDias, 999), 0) / enrichedData.length)
+                            : 0;
+                          return (
+                            <>
+                              <div className="text-center">
+                                <p className="text-2xl font-black text-violet-700">{rupturasSim}</p>
+                                <p className="text-[10px] font-bold text-violet-500 uppercase">Rupturas Simuladas</p>
+                              </div>
+                              <div className="text-center">
+                                <p className={`text-2xl font-black ${delta > 0 ? 'text-rose-600' : delta < 0 ? 'text-emerald-600' : 'text-slate-500'}`}>
+                                  {delta > 0 ? '+' : ''}{delta}
+                                </p>
+                                <p className="text-[10px] font-bold text-violet-500 uppercase">Delta vs Atual</p>
+                              </div>
+                              <div className="text-center">
+                                <p className="text-2xl font-black text-violet-700">{cobMediaSim}<span className="text-lg">d</span></p>
+                                <p className="text-[10px] font-bold text-violet-500 uppercase">Cobertura Média Sim.</p>
+                              </div>
+                              <div className="text-center">
+                                <p className="text-2xl font-black text-slate-500">{cobMediaAtual}<span className="text-lg">d</span></p>
+                                <p className="text-[10px] font-bold text-violet-500 uppercase">Cobertura Média Atual</p>
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {/* Table */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden pointer-events-auto">
             <div className="overflow-x-auto">
@@ -1207,13 +1555,15 @@ Seja objetivo, direto e prático. Priorize a segurança do paciente.`;
                         Status <SortIcon col="Status" />
                       </div>
                     </th>
+                    <th className="p-4 text-center text-xs font-bold text-slate-300 uppercase tracking-widest">Score</th>
+                    <th className="p-4 text-center text-xs font-bold text-slate-300 uppercase tracking-widest">XYZ</th>
                     <th className="p-4 text-xs font-bold text-slate-300 uppercase tracking-widest">Ação / Sugestão</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {sortedFilteredData.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="p-12 text-center text-slate-500 bg-slate-50/50">
+                      <td colSpan={10} className="p-12 text-center text-slate-500 bg-slate-50/50">
                         <div className="flex flex-col items-center justify-center gap-3">
                           <Package className="w-12 h-12 text-slate-300" />
                           <p className="text-sm font-medium">Nenhum produto atende aos filtros atuais.</p>
@@ -1289,6 +1639,35 @@ Seja objetivo, direto e prático. Priorize a segurança do paciente.`;
                                 </span>
                               )}
                             </td>
+                            <td className="p-4 text-center">
+                              {(() => {
+                                const sc = item._score;
+                                const colors = SCORE_COLORS[sc.classificacao];
+                                return (
+                                  <div className={`inline-flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg border ${colors.bg} ${colors.border} ${colors.text}`}>
+                                    <span className="text-lg font-black leading-none">{sc.score}</span>
+                                    <span className="text-[9px] font-bold uppercase tracking-wider">{SCORE_LABELS[sc.classificacao]}</span>
+                                  </div>
+                                );
+                              })()}
+                            </td>
+                            <td className="p-4 text-center">
+                              <div className="flex flex-col items-center gap-1">
+                                <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-black border ${
+                                  item._classeXYZ === 'X' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                  item._classeXYZ === 'Y' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                                  'bg-rose-50 text-rose-700 border-rose-200'
+                                }`}>
+                                  {item._classeXYZ}
+                                </span>
+                                <span className="text-[9px] text-slate-400 font-medium flex items-center gap-0.5">
+                                  {item._tendencia === 'CRESCENTE' && <TrendingUp className="w-3 h-3 text-rose-500" />}
+                                  {item._tendencia === 'DECRESCENTE' && <TrendingDown className="w-3 h-3 text-emerald-500" />}
+                                  {item._tendencia === 'ESTAVEL' && <span className="text-slate-400">—</span>}
+                                  {item._tendencia === 'CRESCENTE' ? '↑' : item._tendencia === 'DECRESCENTE' ? '↓' : ''}
+                                </span>
+                              </div>
+                            </td>
                             <td className="p-4">
                               {item.Sugestao_Substituicao ? (
                                 <div className="flex flex-col gap-1 p-2 bg-amber-50 rounded-lg border border-amber-100/50">
@@ -1311,10 +1690,75 @@ Seja objetivo, direto e prático. Priorize a segurança do paciente.`;
                                 exit={{ opacity: 0, height: 0 }}
                                 className="bg-slate-50 border-t border-slate-200 overflow-hidden shadow-inner"
                               >
-                                <td colSpan={8} className="p-0">
+                                <td colSpan={10} className="p-0">
                                   <div className="p-6 md:pl-24 bg-[radial-gradient(ellipse_at_top_left,_var(--tw-gradient-stops))] from-slate-50 via-slate-100/50 to-slate-100">
                                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                      
+
+                                      {/* Score & Forecasting */}
+                                      <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                                        <div className="p-4 bg-gradient-to-r from-slate-50 to-indigo-50 border-b border-slate-200 flex items-center gap-2">
+                                          <Gauge className="w-4 h-4 text-indigo-500" />
+                                          <h4 className="text-sm font-bold text-slate-700">Inteligência de Supply</h4>
+                                        </div>
+                                        <div className="p-4 grid grid-cols-2 md:grid-cols-6 gap-3">
+                                          <div className="text-center p-2 bg-slate-50 rounded-lg">
+                                            <p className="text-xs font-bold text-slate-500">Score</p>
+                                            <p className={`text-2xl font-black ${SCORE_COLORS[item._score.classificacao].text}`}>{item._score.score}</p>
+                                            <p className="text-[10px] text-slate-400">{SCORE_LABELS[item._score.classificacao]}</p>
+                                          </div>
+                                          <div className="text-center p-2 bg-slate-50 rounded-lg">
+                                            <p className="text-xs font-bold text-slate-500">Classe XYZ</p>
+                                            <p className="text-2xl font-black text-slate-700">{item._classeXYZ}</p>
+                                            <p className="text-[10px] text-slate-400">CV: {item._cv.toFixed(2)}</p>
+                                          </div>
+                                          <div className="text-center p-2 bg-slate-50 rounded-lg">
+                                            <p className="text-xs font-bold text-slate-500">Média Ponderada</p>
+                                            <p className="text-2xl font-black text-slate-700">{item._mediaPonderada.toFixed(1)}</p>
+                                            <p className="text-[10px] text-slate-400">un/dia</p>
+                                          </div>
+                                          <div className="text-center p-2 bg-slate-50 rounded-lg">
+                                            <p className="text-xs font-bold text-slate-500">Cobertura</p>
+                                            <p className={`text-2xl font-black ${item._coberturaDias <= supplyConfig.coberturaCritica ? 'text-rose-600' : item._coberturaDias <= supplyConfig.coberturaAlerta ? 'text-amber-600' : 'text-emerald-600'}`}>
+                                              {Math.min(item._coberturaDias, 999).toFixed(0)}
+                                            </p>
+                                            <p className="text-[10px] text-slate-400">dias</p>
+                                          </div>
+                                          <div className="text-center p-2 bg-slate-50 rounded-lg">
+                                            <p className="text-xs font-bold text-slate-500">Estoque Segurança</p>
+                                            <p className="text-2xl font-black text-indigo-600">{item._ssSeguranca}</p>
+                                            <p className="text-[10px] text-slate-400">unidades</p>
+                                          </div>
+                                          <div className="text-center p-2 bg-slate-50 rounded-lg">
+                                            <p className="text-xs font-bold text-slate-500">Tendência</p>
+                                            <p className="text-lg font-black text-slate-700 flex items-center justify-center gap-1">
+                                              {item._tendencia === 'CRESCENTE' && <TrendingUp className="w-5 h-5 text-rose-500" />}
+                                              {item._tendencia === 'DECRESCENTE' && <TrendingDown className="w-5 h-5 text-emerald-500" />}
+                                              {item._tendencia === 'ESTAVEL' && <span className="text-slate-400">—</span>}
+                                              <span className="text-sm">{item._tendencia}</span>
+                                            </p>
+                                            <p className="text-[10px] text-slate-400">consumo</p>
+                                          </div>
+                                        </div>
+                                        {/* Score breakdown bar */}
+                                        <div className="px-4 pb-4">
+                                          <div className="flex items-center gap-2 text-[10px] text-slate-500">
+                                            <span>Composição do Score:</span>
+                                            <div className="flex-1 h-3 rounded-full overflow-hidden flex bg-slate-100">
+                                              <div className="bg-rose-400 h-full" style={{ width: `${item._score.componentes.risco * scorePesos.risco / 100}%` }} title={`Risco: ${item._score.componentes.risco}`} />
+                                              <div className="bg-amber-400 h-full" style={{ width: `${item._score.componentes.cobertura * scorePesos.cobertura / 100}%` }} title={`Cobertura: ${item._score.componentes.cobertura}`} />
+                                              <div className="bg-indigo-400 h-full" style={{ width: `${item._score.componentes.custo * scorePesos.custo / 100}%` }} title={`Custo: ${item._score.componentes.custo}`} />
+                                              <div className="bg-violet-400 h-full" style={{ width: `${item._score.componentes.tendencia * scorePesos.tendencia / 100}%` }} title={`Tendência: ${item._score.componentes.tendencia}`} />
+                                            </div>
+                                            <span className="flex items-center gap-2">
+                                              <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded bg-rose-400"></span>Risco</span>
+                                              <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded bg-amber-400"></span>Cobertura</span>
+                                              <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded bg-indigo-400"></span>Custo</span>
+                                              <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded bg-violet-400"></span>Tendência</span>
+                                            </span>
+                                          </div>
+                                        </div>
+                                      </div>
+
                                       {/* Tabela Demandas */}
                                       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
                                         <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">

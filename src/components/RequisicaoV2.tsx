@@ -116,7 +116,7 @@ function detectFile(text: string): 'conferencia' | 'consumo' | 'unknown' {
 }
 
 // ─── CATEGORY ────────────────────────────────────────────────────────────────
-type Category = 'Psicotrópicos' | 'Alta Vigilância' | 'Comprimidos' | 'Ampolas' | 'Frascos' | 'Materiais';
+type Category = 'Psicotrópicos' | 'Alta Vigilância' | 'Comprimidos' | 'Injetáveis' | 'Soroterapia' | 'Soluções' | 'Materiais';
 
 function getCategory(descricao: string, unidade: string): Category {
   const text = (descricao + ' ' + unidade).toUpperCase();
@@ -131,35 +131,44 @@ function getCategory(descricao: string, unidade: string): Category {
     return 'Alta Vigilância';
   }
 
-  // 3. Comprimidos / Cápsulas / Drágeas
-  if (/\bCOMP\b|COMPRIMIDO|CAPS\b|CÁPSULA|CAPSULA|\bDRG\b|DRÁGEA|DRAGEA|\bCP\b|\bCPR\b/.test(text)) {
+  // 3. Soroterapia — APENAS fluidos base de grande volume (50-1000ml)
+  //    Volumes em formato BR: 1.000ML. NÃO captura medicamentos em bolsa.
+  if (/SORO\s*FISIOL|SORO\s*GLICOS|CLOR.*SODIO\s*0,9|NACL\s*0,9|GLICOSE\s*5|RINGER|MANITOL|\bSF\s*0,9|\bSG\s*5|\bRL\b|AGUA\s*(DEST|P.*INJ|BIDEST)/.test(text)
+      && /\b(50|100|250|500|1\.?000)\s*ML\b/.test(text)) {
+    return 'Soroterapia';
+  }
+
+  // 4. Soluções (orais, tópicas, oftálmicas, nasais, suspensões, gotas, bisnagas)
+  //    Formas: FR SUSP, FR GTS, BG (bisnaga), TOP (tópico), OFTAL
+  if (/XAROPE|SUSPENS[ÃA]O|\bSUSP\b|\bGOTAS\b|\bGOTA\b|\bGTS\b|\bCREME\b|\bPOMADA\b|\bGEL\b|LO[ÇC][ÃA]O|COL[ÍI]RIO|\bOFTAL\b|\bSPRAY\b|\bENEMA\b|SUPOSIT[ÓO]RIO|\bTOP\b|\bBG\b|\bINAL\b|\bAER\b|\bRETAL\b|\bSOL\b|SOL(U[ÇC][ÃA]O)?\s*(ORAL|T[OÓ]PICA|OFT[ÁA]LM|NASAL)/.test(text)) {
+    return 'Soluções';
+  }
+
+  // 5. Comprimidos (sólidos orais + sachês)
+  if (/\bCOMP\b|COMPRIMIDO|\bCAPS\b|C[ÁA]PSULA|\bDRG\b|DR[ÁA]GEA|\bCP\b|\bCPR\b|SACH[ÊE]|ENVELOPE|\bENV\b|GRANULADO|P[ÓO]\s*ORAL/.test(text)) {
     return 'Comprimidos';
   }
 
-  // 4. Ampolas (injetáveis em ampola de vidro)
-  if (/\bAMP\b|AMPOLA/.test(text) && !/FRASCO|FR\./.test(text)) {
-    return 'Ampolas';
+  // 6. Injetáveis (ampolas + frascos + frascos-ampola + seringas + bolsas de medicamentos)
+  if (/\bAMP\b|AMPOLA|\bFR\b|FRASCO|FR[/.]?AMP|\bFCO\b|\bFA\b|SER.*PRE|CANETA|INJET[ÁA]VEL|\bINJ\b|LIOFILIZADO|BOLSA|\bBLC\b|\bBLF\b|INFUS[ÃA]O|\bEV\b|\bIM\b|\bSC\b/.test(text)) {
+    return 'Injetáveis';
   }
 
-  // 5. Frascos (frascos-ampola, soluções injetáveis em frasco, soros, bolsas)
-  if (/\bFR\b|FRASCO|FR\.AMP|FRASCO.AMP|\bFCO\b|BOLSA|SOLUÇÃO|SOLUCAO|\bSF\b|\bSG\b|\bSORO\b|\bINFUSÃO\b|INFUSAO|\bBLC\b|\bBLF\b|INJETÁVEL|INJETAVEL|\bINJ\b/.test(text)) {
-    return 'Frascos';
-  }
-
-  // 6. Materiais
+  // 7. Materiais (fallback)
   return 'Materiais';
 }
 
 const CATEGORY_CFG: Record<Category, { color: string; bg: string; border: string; emoji: string }> = {
   'Psicotrópicos':   { color: '#7c3aed', bg: '#f5f3ff', border: '#c4b5fd', emoji: '⚠️' },
   'Alta Vigilância': { color: '#dc2626', bg: '#fff1f2', border: '#fca5a5', emoji: '🔴' },
+  'Soroterapia':     { color: '#2563eb', bg: '#eff6ff', border: '#93c5fd', emoji: '🩸' },
+  'Injetáveis':      { color: '#9333ea', bg: '#faf5ff', border: '#d8b4fe', emoji: '💉' },
   'Comprimidos':     { color: '#0891b2', bg: '#ecfeff', border: '#a5f3fc', emoji: '💊' },
-  'Ampolas':         { color: '#9333ea', bg: '#faf5ff', border: '#d8b4fe', emoji: '💉' },
-  'Frascos':         { color: '#0d9488', bg: '#f0fdfa', border: '#99f6e4', emoji: '🧴' },
+  'Soluções':        { color: '#059669', bg: '#ecfdf5', border: '#6ee7b7', emoji: '🧪' },
   'Materiais':       { color: '#d97706', bg: '#fffbeb', border: '#fcd34d', emoji: '🩺' },
 };
 
-const CATEGORY_ORDER: Category[] = ['Psicotrópicos', 'Alta Vigilância', 'Comprimidos', 'Ampolas', 'Frascos', 'Materiais'];
+const CATEGORY_ORDER: Category[] = ['Psicotrópicos', 'Alta Vigilância', 'Soroterapia', 'Injetáveis', 'Comprimidos', 'Soluções', 'Materiais'];
 
 // ─── STATUS CONFIG ────────────────────────────────────────────────────────────
 const STATUS_CFG = {
