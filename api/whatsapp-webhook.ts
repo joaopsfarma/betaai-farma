@@ -62,7 +62,7 @@ async function kvGet<T>(key: string): Promise<T | null> {
       `${url}/rest/v1/bot_cache?key=eq.${encodeURIComponent(key)}&select=value`,
       {
         headers: { 'apikey': token, 'Authorization': `Bearer ${token}` },
-        signal: AbortSignal.timeout(3000),
+        signal: AbortSignal.timeout(8000),
       },
     );
     if (!res.ok) return null;
@@ -88,7 +88,7 @@ async function kvSet<T>(key: string, value: T): Promise<void> {
         'Prefer': 'resolution=merge-duplicates'
       },
       body: JSON.stringify([{ key, value }]),
-      signal: AbortSignal.timeout(3000),
+      signal: AbortSignal.timeout(8000),
     });
   } catch (e) {
     console.error('[WH] kvSet erro:', e);
