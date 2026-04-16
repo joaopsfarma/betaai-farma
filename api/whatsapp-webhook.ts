@@ -846,7 +846,7 @@ export default async function handler(req: Request): Promise<Response> {
   // Verifica menção por correspondência parcial do número ou LID (WhatsApp moderno usa @lid)
   const botNumber = process.env.BOT_NUMBER ?? '';
   const botLid    = process.env.BOT_LID ?? '';
-  // Se BOT_NUMBER não estiver configurado, aceita qualquer menção (@alguém no texto)
+
   const mentionMatch = mentionedJids.some(jid => {
     const jidClean = jid.replace(/\D/g, '');
     const numClean = botNumber.replace(/\D/g, '');
@@ -855,7 +855,13 @@ export default async function handler(req: Request): Promise<Response> {
       (botLid   && jid.includes(botLid))
     );
   });
-  const botMentioned = mentionMatch || mentionedJids.length > 0 || text.includes(`@${botNumber}`);
+
+  // Responde se o bot foi explicitamente mencionado.
+  // Evita interagir se outro membro do grupo for mencionado ao invés do próprio bot.
+  const checkFallback = (!botNumber && !botLid && mentionedJids.length > 0);
+  const checkText = botNumber ? text.includes(`@${botNumber}`) : false;
+
+  const botMentioned = mentionMatch || checkText || checkFallback;
   console.log('[WH] jid:', remoteJid, '| isGroup:', isGroup, '| mentioned:', botMentioned, '| text:', text.slice(0, 80), '| mentionedJids:', mentionedJids);
 
   // Em grupos: responde apenas quando mencionado
