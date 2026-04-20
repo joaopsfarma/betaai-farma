@@ -490,8 +490,12 @@ Seja objetivo, direto e prático. Priorize a segurança do paciente.`;
         body: JSON.stringify({ items }),
       });
 
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      const text = await res.text();
+      let json: Record<string, unknown> = {};
+      try { json = JSON.parse(text); } catch {
+        throw new Error(`API indisponível (HTTP ${res.status})`);
+      }
+      if (!res.ok) throw new Error((json.error as string) || `HTTP ${res.status}`);
       setWhatsAppResult({ ok: true, message: `Alerta enviado para ${json.sent} destino(s)` });
     } catch (err) {
       setWhatsAppResult({ ok: false, message: err instanceof Error ? err.message : 'Erro ao enviar' });
