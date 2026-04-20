@@ -116,6 +116,7 @@ export const TransferRequest: React.FC = () => {
   });
   const [rawItems, setRawItems] = useState<RawItem[]>([]);
   const [manualOverrides, setManualOverrides] = useState<Record<string, number>>({});
+  const [draftQtys, setDraftQtys] = useState<Record<string, string>>({});
   const [isProcessing, setIsProcessing] = useState(false);
 
   // --- Lógica de Upload ---
@@ -296,11 +297,17 @@ export const TransferRequest: React.FC = () => {
     });
   }, [rawItems, consumptionDays, targetDays, safetyMargin, manualOverrides]);
 
-  // Atualizar a quantidade do pedido manualmente
-  const updateOrderQty = (id: string, newQty: string) => {
-    const raw = Number(newQty) || 0;
+  // Atualiza rascunho durante digitação (sem arredondamento)
+  const handleQtyChange = (id: string, val: string) => {
+    setDraftQtys(prev => ({ ...prev, [id]: val }));
+  };
+
+  // Arredonda e salva ao sair do campo
+  const handleQtyBlur = (id: string, val: string) => {
+    const raw = Number(val) || 0;
     const rounded = raw > 0 ? Math.ceil(raw / 10) * 10 : 0;
     setManualOverrides(prev => ({ ...prev, [id]: rounded }));
+    setDraftQtys(prev => { const n = { ...prev }; delete n[id]; return n; });
   };
 
   // Exportar pedido para PDF
@@ -653,19 +660,21 @@ export const TransferRequest: React.FC = () => {
       
       if (!matchesSearch) return false;
 
-      const name = item.name.toUpperCase();
-      const unit = item.unit.toUpperCase();
+      // Normaliza acentos: SÓDIO → SODIO, CÁPSULA → CAPSULA, etc.
+      const _norm = (s: string) => s.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const name = _norm(item.name);
+      const unit = _norm(item.unit);
 
       // Lógica de Categorização
       const isDieta = name.includes("DIETA") || name.includes("NUTRIFICA") || name.includes("ENTERAL") || name.includes("PARENTERAL") || name.includes("SUPLEMENTO") || name.includes("MODULO ALIMENTAR");
-      
+
       const txt = name + ' ' + unit;
 
-      const isComprimido = /\bCOMP\b|COMPRIMIDO|\bCP\b|\bCPR\b|\bTAB\b|C[ÁA]PSULA|\bCAPS\b|DR[ÁA]GEA|\bDRG\b|SACH[ÊE]|ENVELOPE|\bENV\b|GRANULADO|P[ÓO]\s*ORAL/.test(txt);
+      const isComprimido = /\bCOMP\b|COMPRIMIDO|\bCP\b|\bCPR\b|\bTAB\b|C[AA]PSULA|\bCAPS\b|DR[AA]GEA|\bDRG\b|SACH[EE]|ENVELOPE|\bENV\b|GRANULADO|P[OO]\s*ORAL/.test(txt);
 
       // Soroterapia: APENAS fluidos base de grande volume (50-1000ml)
-      // Volumes em formato BR: 1.000ML, 500ML etc
-      const isSoroterapia = /SORO\s*FISIOL|SORO\s*GLICOS|CLOR.*SODIO\s*0,9|NACL\s*0,9|GLICOSE\s*5|RINGER|MANITOL|\bSF\s*0,9|\bSG\s*5|\bRL\b|AGUA\s*(DEST|P.*INJ|BIDEST)/.test(name)
+      // GLICOSE\s*(?:5(?!\d)|10(?!\d)) — captura 5% e 10% mas NÃO 50%
+      const isSoroterapia = /SORO\s*FISIOL|SORO\s*GLICOS|CLOR.*SODIO\s*0,9|NACL\s*0,9|GLICOSE\s*(?:5(?!\d)|10(?!\d))|RINGER|MANITOL|\bSF\s*0,9|\bSG\s*5|\bRL\b|AGUA\s*(DEST|P.*INJ|BIDEST)/.test(name)
         && /\b(50|100|250|500|1\.?000)\s*ML\b/.test(name);
 
       // Soluções: orais, tópicas, oftálmicas, nasais, suspensões, gotas, bisnagas, tubos
@@ -1032,11 +1041,14 @@ export const TransferRequest: React.FC = () => {
                       <td className="py-2 px-2 text-center border-l border-r border-slate-100 bg-white">
                         <input
                           type="number"
-                          value={item.orderQty}
-                          onChange={(e) => updateOrderQty(item.id, e.target.value)}
+                          value={draftQtys[item.id] !== undefined ? draftQtys[item.id] : item.orderQty}
+                          onChange={(e) => handleQtyChange(item.id, e.target.value)}
+                          onBlur={(e) => handleQtyBlur(item.id, e.target.value)}
+                          onFocus={(e) => e.target.select()}
                           className={`w-full text-center border rounded-lg py-1 font-bold outline-none transition-all text-sm
                             ${item.orderQty > 0 ? 'border-indigo-300 text-indigo-700 bg-indigo-50/50 focus:ring-2 focus:ring-indigo-200' : 'border-slate-200 text-slate-400 focus:border-slate-400'}`}
                           min="0"
+                          step="10"
                         />
                       </td>
 

@@ -119,7 +119,10 @@ function detectFile(text: string): 'conferencia' | 'consumo' | 'unknown' {
 type Category = 'Psicotrópicos' | 'Alta Vigilância' | 'Comprimidos' | 'Injetáveis' | 'Soroterapia' | 'Soluções' | 'Materiais';
 
 function getCategory(descricao: string, unidade: string): Category {
-  const text = (descricao + ' ' + unidade).toUpperCase();
+  const text = (descricao + ' ' + unidade)
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
 
   // 1. Psicotrópicos (Portaria 344/1998 - listas B1, B2, C1)
   if (/DIAZEPAM|CLONAZEPAM|ALPRAZOLAM|LORAZEPAM|MIDAZOLAM|BROMAZEPAM|CLORDIAZEPOX|NITRAZEPAM|FLUNITRAZEPAM|TRIAZOLAM|ZOLPIDEM|ZOPICLONA|FENOBARBITAL|CARBAMAZEPINA|FENITOINA|VALPROAT|AMITRIPTILINA|NORTRIPTILINA|IMIPRAMINA|CLOMIPRAMINA|HALOPERIDOL|CLORPROMAZINA|TIORIDAZINA|LEVOMEPROMAZINA|RISPERIDONA|OLANZAPINA|QUETIAPINA|CLOZAPINA|ARIPIPRAZOL|ZIPRASIDONA|LITIO|CARBONATO DE LITIO|BIPERIDENO|PROMETAZINA|MORFINA|CODEINA|FENTANIL|TRAMADOL|METADONA|OXICODONA|BUPRENORFINA|NALOXONA|PETIDINA|SUFENTANIL|REMIFENTANIL/.test(text)) {
@@ -133,7 +136,7 @@ function getCategory(descricao: string, unidade: string): Category {
 
   // 3. Soroterapia — APENAS fluidos base de grande volume (50-1000ml)
   //    Volumes em formato BR: 1.000ML. NÃO captura medicamentos em bolsa.
-  if (/SORO\s*FISIOL|SORO\s*GLICOS|CLOR.*SODIO\s*0,9|NACL\s*0,9|GLICOSE\s*5|RINGER|MANITOL|\bSF\s*0,9|\bSG\s*5|\bRL\b|AGUA\s*(DEST|P.*INJ|BIDEST)/.test(text)
+  if (/SORO\s*FISIOL|SORO\s*GLICOS|CLOR.*SODIO\s*0,9|NACL\s*0,9|GLICOSE\s*(?:5(?!\d)|10(?!\d))|RINGER|MANITOL|\bSF\s*0,9|\bSG\s*5|\bRL\b|AGUA\s*(DEST|P.*INJ|BIDEST)/.test(text)
       && /\b(50|100|250|500|1\.?000)\s*ML\b/.test(text)) {
     return 'Soroterapia';
   }

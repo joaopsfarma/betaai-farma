@@ -29,6 +29,7 @@ export interface NutricaoProduto {
   menorDias: number;
   menorValidade: string;
   status: 'URGENTE' | 'ATENCAO' | 'OK';
+  categoria: string;
 }
 
 // ── Utils ──────────────────────────────────────────────────────────────────────
@@ -90,6 +91,23 @@ function cleanStr(s: string): string {
 }
 
 // ── CSV Parser ─────────────────────────────────────────────────────────────────
+
+function categorizarProduto(nome: string): string {
+  const n = nome.toUpperCase();
+  if (n.includes('DIETA') || n.includes('ENTERAL') || n.includes('ISOSOURCE') || n.includes('NOVASOURCE') || n.includes('TROPHIC') || n.includes('OSMOLITE') || n.includes('PEPTAMEN') || n.includes('JEVITY') || n.includes('NUTRISON') || n.includes('PLUMYCARE') || n.includes('SONDA') || n.includes('SURE C')) {
+    return 'Dietas Enterais';
+  }
+  if (n.includes('SUPLEMENTO') || n.includes('ENSURE') || n.includes('NUTREN') || n.includes('FRESUBIN') || n.includes('CUBITAN') || n.includes('IMPACT') || n.includes('FORTINI') || n.includes('FORTIMEL') || n.includes('RESOURCE') || n.includes('SUSTAGEN') || n.includes('ORAL') || n.includes('GLUCERNA')) {
+    return 'Suplementos';
+  }
+  if (n.includes('INFANTIL') || n.includes('APTAMIL') || n.includes('NAN ') || n.includes('NANCOMFORT') || n.includes('ALFARE') || n.includes('NEOCATE') || n.includes('INFATRINI') || n.includes('PREGOMIN') || n.includes('LEITE') || n.includes('FORMULA') || n.includes('MATERNO') || n.includes('ALFAMINO') || n.includes('NINHO')) {
+    return 'Fórmulas Infantis';
+  }
+  if (n.includes('ESPESSANTE') || n.includes('THICKEN') || n.includes('FIBRA') || n.includes('FIBER') || n.includes('TCM') || n.includes('GLUTAMINA') || n.includes('WHEY') || n.includes('PROTEIN') || n.includes('MODULO') || n.includes('BIFIDO') || n.includes('PROBIOTICO') || n.includes('SIMBIOTICO') || n.includes('MALTODEXTRINA') || n.includes('CALORIA') || n.includes('CASEINATO')) {
+    return 'Módulos e Espessantes';
+  }
+  return 'Outros / Diversos';
+}
 
 function parseNutricaoCSV(file: File): Promise<NutricaoProduto[]> {
   return new Promise((resolve, reject) => {
@@ -186,6 +204,7 @@ function parseNutricaoCSV(file: File): Promise<NutricaoProduto[]> {
                   menorDias: 9999,
                   menorValidade: '',
                   status: 'OK',
+                  categoria: 'Outros / Diversos',
                 });
               } else {
                 // Same product ID after a repeated header → name may have been split
@@ -223,6 +242,7 @@ function parseNutricaoCSV(file: File): Promise<NutricaoProduto[]> {
             p.menorDias = sorted[0].diasParaVencer;
             p.menorValidade = sorted[0].validade;
             p.status = calcStatus(p.menorDias);
+            p.categoria = categorizarProduto(p.nome);
             // If estoqueAtual is 0, sum quantities from lotes as fallback
             if (p.estoqueAtual === 0) {
               p.estoqueAtual = p.lotes.reduce((s, l) => s + l.quantidade, 0);
@@ -391,6 +411,23 @@ export function PainelNutricao() {
       .filter(p => p.menorDias <= 60)
       .sort((a, b) => a.menorDias - b.menorDias),
     [dados]);
+
+  const groupProds = useCallback((prodsList: NutricaoProduto[]) => {
+    const groups = new Map<string, NutricaoProduto[]>();
+    prodsList.forEach(p => {
+      if (!groups.has(p.categoria)) groups.set(p.categoria, []);
+      groups.get(p.categoria)!.push(p);
+    });
+    return Array.from(groups.entries()).sort((a, b) => {
+      const order = ['Dietas Enterais', 'Suplementos', 'Fórmulas Infantis', 'Módulos e Espessantes', 'Outros / Diversos'];
+      const idxA = order.indexOf(a[0]);
+      const idxB = order.indexOf(b[0]);
+      return (idxA !== -1 ? idxA : 99) - (idxB !== -1 ? idxB : 99);
+    });
+  }, []);
+
+  const groupedData = useMemo(() => groupProds(displayData), [displayData, groupProds]);
+  const groupedAlertas = useMemo(() => groupProds(alertasData), [alertasData, groupProds]);
 
   const handleExportPDF = () => {
     exportNutricaoPDF(dados, kpis);
@@ -590,10 +627,19 @@ export function PainelNutricao() {
                       </tr>
                     </thead>
                     <tbody>
-                      {displayData.map((p, i) => {
-                        const expanded = expandedIds.has(p.produtoId);
-                        return (
-                          <React.Fragment key={p.produtoId}>
+                      {groupedData.flatMap(([catName, prods]) => {
+                        const catHeader = (
+                          <tr key={`cat-${catName}`} className="bg-slate-100/80 border-y border-slate-200">
+                            <td colSpan={7} className="px-4 py-2 font-bold text-emerald-800 uppercase text-xs tracking-widest bg-emerald-50/50">
+                              {catName} <span className="opacity-70 ml-1 font-semibold">({prods.length})</span>
+                            </td>
+                          </tr>
+                        );
+
+                        const productRows = prods.map((p, i) => {
+                          const expanded = expandedIds.has(p.produtoId);
+                          return (
+                            <React.Fragment key={p.produtoId}>
                             <motion.tr
                               initial={{ opacity: 0 }}
                               animate={{ opacity: 1 }}
@@ -683,8 +729,10 @@ export function PainelNutricao() {
                             </AnimatePresence>
                           </React.Fragment>
                         );
-                      })}
-                      {displayData.length === 0 && (
+                      });
+                      return [catHeader, ...productRows];
+                    })}
+                    {displayData.length === 0 && (
                         <tr>
                           <td colSpan={7} className="px-4 py-10 text-center text-slate-400">
                             Nenhum produto encontrado.
@@ -710,10 +758,15 @@ export function PainelNutricao() {
                   <p className="font-medium">Nenhum produto vencendo nos próximos 60 dias.</p>
                 </div>
               ) : (
-                alertasData.map((p, i) => (
-                  <motion.div
-                    key={p.produtoId}
-                    initial={{ opacity: 0, x: -20 }}
+                groupedAlertas.map(([catName, prods]) => (
+                  <div key={`alerta-cat-${catName}`} className="mb-6 space-y-3">
+                    <h3 className="font-bold text-slate-700 text-sm flex items-center gap-2 pb-1 border-b border-slate-200">
+                      {catName} <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{prods.length}</span>
+                    </h3>
+                    {prods.map((p, i) => (
+                      <motion.div
+                        key={p.produtoId}
+                        initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: i * 0.04 }}
                     className={`rounded-xl border p-4 ${
@@ -758,9 +811,11 @@ export function PainelNutricao() {
                         ))}
                     </div>
                   </motion.div>
-                ))
-              )}
-            </div>
+                ))}
+              </div>
+            ))
+          )}
+        </div>
           )}
         </>
       )}
