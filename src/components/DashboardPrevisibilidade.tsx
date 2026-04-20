@@ -84,7 +84,7 @@ export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> =
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [showOnlyRupture, setShowOnlyRupture] = useState(false);
+  const [showOnlyRupture, setShowOnlyRupture] = useState(true);
   const [windowHours, setWindowHours] = useState<0 | 48 | 72 | 96>(0);
   // Removido rawData local em favor do rawSource vindo do App.tsx
 
