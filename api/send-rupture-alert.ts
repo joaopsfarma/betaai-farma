@@ -45,8 +45,8 @@ function buildRuptureMessage(items: RuptureAlertItem[]): string {
     altos.forEach(item => {
       const deficit = Math.abs(item.saldoProjetado);
       msg += `• *${item.produtoNome}* (${item.produtoId})\n`;
-      msg += `  📦 Estoque: ${item.estoqueAtual} | Déficit: ${deficit} un\n`;
-      if (item.substituto) msg += `  🔄 ${item.substituto}\n`;
+      msg += `  📦 Estoque: ${item.estoqueAtual} | 📋 Solicitado: ${item.totalSolicitado}\n`;
+      msg += `  ⚠️ Déficit: ${deficit} un | Score: ${item.score}/100\n`;
       msg += '\n';
     });
   }

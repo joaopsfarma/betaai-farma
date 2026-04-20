@@ -464,7 +464,7 @@ Seja objetivo, direto e prático. Priorize a segurança do paciente.`;
   }, [windowedData, windowHours]);
 
   const handleWhatsAppAlert = useCallback(async () => {
-    const rupturas = enrichedData.filter(d => d.Status === 'Ruptura Predita' || d.Status === 'Falta, mas com Substituto');
+    const rupturas = enrichedData.filter(d => d.Status === 'Ruptura Predita');
     if (rupturas.length === 0) return;
 
     setIsSendingWhatsApp(true);
