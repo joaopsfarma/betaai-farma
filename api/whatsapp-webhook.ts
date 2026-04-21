@@ -176,7 +176,11 @@ function isDietaParenteral(r: TrackingRow): boolean {
 
 function formatItem(r: TrackingRow): string {
   const niv  = nivelSatelite(r.projecao);
-  const proj = r.projecao <= 0 ? '⛔ zerado' : `⏳ ${Math.round(r.projecao)}d`;
+  const proj = r.saldo <= 0
+    ? '⛔ zerado'
+    : r.projecao <= 0 || r.media <= 0
+      ? '∞ sem consumo'
+      : `⏳ ${Math.round(r.projecao)}d`;
   const tend = r.tendencia === 'alta' ? '↑' : r.tendencia === 'queda' ? '↓' : '→';
   const media = r.media > 0
     ? ` · ${r.media.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}/${r.unidade}`
