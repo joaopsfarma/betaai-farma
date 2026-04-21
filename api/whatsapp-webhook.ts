@@ -394,11 +394,16 @@ function detectarIntencao(texto: string): Intencao {
   // Farmácia específica — checa ANTES do limite de palavras
   if (detectarFarmacia(t) !== null || /farmacia|farmacias/.test(t)) return 'farmacia';
 
+  // Intenções temporais — detectadas mesmo em frases longas (ex: "vai faltar algo nas próximas 24h?")
+  if (/24\s?h|24\s?horas/.test(t) && /ruptur|falta|acabo|quase|vai|proximo|proxima/.test(t)) return 'ruptura_24h';
+  if (/48\s?h|48\s?horas/.test(t) && /ruptur|falta|acabo|quase|vai|proximo|proxima/.test(t)) return 'ruptura_48h';
+  if (/72\s?h|72\s?horas/.test(t) && /ruptur|falta|acabo|quase|vai|proximo|proxima/.test(t)) return 'ruptura_72h';
+
   // Frases longas (perguntas naturais) → Claude responde de forma conversacional
   if (palavras.length > 3) return 'ia';
 
   // Comandos curtos (≤3 palavras) — resposta direta sem IA
-  if (/24\s?h|24\s?horas/.test(t) && /ruptur|falta|acabo|quase/.test(t)) return 'ruptura_24h';
+  if (/24\s?h|24\s?horas/.test(t)) return 'ruptura_24h';
   if (/48\s?h|48\s?horas/.test(t)) return 'ruptura_48h';
   if (/72\s?h|72\s?horas/.test(t)) return 'ruptura_72h';
   if (/^zerado$|^sem.?estoque$|^ruptura.?total$/.test(t)) return 'zerado';
