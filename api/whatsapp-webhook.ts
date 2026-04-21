@@ -174,17 +174,15 @@ function isDietaParenteral(r: TrackingRow): boolean {
 
 // ─── Formata linha de um item ─────────────────────────────────────────────────
 
-function formatItem(r: TrackingRow, compact = false): string {
-  const niv   = nivelSatelite(r.projecao);
-  const proj  = r.projecao <= 0 ? '⛔ Sem estoque' : `${Math.round(r.projecao)}d`;
-  const media = r.media > 0 ? r.media.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) : '0';
-  const saldo = r.saldo.toLocaleString('pt-BR');
-  const tend  = r.tendencia === 'alta' ? '↑ Alta' : r.tendencia === 'queda' ? '↓ Queda' : '→ Estável';
+function formatItem(r: TrackingRow): string {
+  const niv  = nivelSatelite(r.projecao);
+  const proj = r.projecao <= 0 ? '⛔ zerado' : `⏳ ${Math.round(r.projecao)}d`;
+  const tend = r.tendencia === 'alta' ? '↑' : r.tendencia === 'queda' ? '↓' : '→';
+  const media = r.media > 0
+    ? ` · ${r.media.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}/${r.unidade}`
+    : '';
 
-  if (compact) {
-    return `• *${r.codigo}* – ${r.comercial}\n  Saldo: ${saldo} ${r.unidade} | Projeção: ${proj} | ${niv.emoji} ${niv.label} | ${tend}\n`;
-  }
-  return `• *${r.codigo}* – ${r.comercial}\n  Saldo: ${saldo} ${r.unidade}\n  Média/dia: ${media} ${r.unidade} | Projeção: ${proj} | ${niv.emoji} ${niv.label}\n  Tendência: ${tend}\n`;
+  return `• *${r.codigo}* – ${r.comercial}\n  ${r.saldo.toLocaleString('pt-BR')} ${r.unidade} · ${proj} · ${niv.emoji} ${niv.label}${media} ${tend}\n`;
 }
 
 // ─── Monta texto compacto do estoque para enviar à IA ────────────────────────
@@ -873,17 +871,17 @@ function buildReply(rows: TrackingRow[], intencao: Intencao): string {
     let msg = `📋 *RELATÓRIO COMPLETO — ${date}*\n\n`;
     if (rupturas.length) {
       msg += `🚨 *RUPTURA (0–1 dia)* — ${rupturas.length} itens\n`;
-      rupturas.forEach(r => { msg += formatItem(r, true); });
+      rupturas.forEach(r => { msg += formatItem(r); });
       msg += '\n';
     }
     if (criticos.length) {
       msg += `🔴 *CRÍTICO (2–7 dias)* — ${criticos.length} itens\n`;
-      criticos.forEach(r => { msg += formatItem(r, true); });
+      criticos.forEach(r => { msg += formatItem(r); });
       msg += '\n';
     }
     if (alertas.length) {
       msg += `🟡 *ALERTA (8–15 dias)* — ${alertas.length} itens\n`;
-      alertas.forEach(r => { msg += formatItem(r, true); });
+      alertas.forEach(r => { msg += formatItem(r); });
     }
     return msg;
   }
@@ -1143,7 +1141,7 @@ export default async function handler(req: Request): Promise<Response> {
       msg += `Verifique o código ou nome exato.\n\n`;
       if (urgentes.length) {
         msg += `📋 *Itens em risco/ruptura no momento:*\n`;
-        urgentes.forEach(r => { msg += formatItem(r, true); });
+        urgentes.forEach(r => { msg += formatItem(r); });
         msg += `\n_Use *tudo* para o relatório completo._`;
       }
       await sendReply(remoteJid, msg);
