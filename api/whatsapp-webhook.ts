@@ -182,11 +182,11 @@ function formatItem(r: TrackingRow): string {
       ? '∞ sem consumo'
       : `⏳ ${Math.round(r.projecao)}d`;
   const tend = r.tendencia === 'alta' ? '↑' : r.tendencia === 'queda' ? '↓' : '→';
-  const media = r.media > 0
-    ? ` · ${r.media.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}/${r.unidade}`
+  const cons = r.media > 0
+    ? ` · Cons: ${r.media.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}/${r.unidade}`
     : '';
 
-  return `• *${r.codigo}* – ${r.comercial}\n  ${r.saldo.toLocaleString('pt-BR')} ${r.unidade} · ${proj} · ${niv.emoji} ${niv.label}${media} ${tend}\n`;
+  return `• *${r.codigo}* – ${r.comercial}\n  Sld: ${r.saldo.toLocaleString('pt-BR')} ${r.unidade} · Proj: ${proj} · ${niv.emoji} ${niv.label}${cons} ${tend}\n`;
 }
 
 // ─── Monta texto compacto do estoque para enviar à IA ────────────────────────
