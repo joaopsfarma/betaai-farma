@@ -684,44 +684,56 @@ IMPORTANTE: Liste TODOS os itens relevantes. Termine com frase de impacto. Nunca
 // ─── Menu de ajuda ───────────────────────────────────────────────────────────
 
 function buildHelp(): string {
-  return `👋 Olá! Sou o *FarmaBot*, seu assistente de farmácia hospitalar.
+  return `👋 Olá! Sou o *FarmaBot*, assistente de farmácia hospitalar do FarmaIA.
 
-Pode me perguntar qualquer coisa — falo português normal. Para respostas rápidas, use os atalhos abaixo:
+Pode me perguntar em português normal ou usar os atalhos abaixo.
 
-📋 *Relatórios instantâneos*
-  • *zerado* — itens com estoque zerado agora
-  • *48h* / *72h* — alertas antecipados de ruptura
-  • *semana* — itens que zeram nos próximos 7 dias
+━━━━━━━━━━━━━━━━━━━━━
+📦 *RASTREIO DE FALTA*
+_Dados do CSV enviado pelo FarmaIA_
+
+🚨 *Situação agora*
+  • *ruptura* — itens que já zeraram ou zeram hoje
+  • *zerado* — só os com estoque = 0
+  • *24h* · *48h* · *72h* — o que vai zerar em até X horas
+
+📋 *Relatórios*
   • *crítico* — cobertura ≤7 dias
   • *alerta* — cobertura 8–15 dias
+  • *semana* — tudo que zera nos próximos 7 dias
   • *tudo* — relatório completo (rupturas + crítico + alerta)
 
-📈 *Análise de consumo*
-  • *subindo* — itens com consumo crescendo
-  • _@bot o que está aumentando?_ — mesmo resultado
+📈 *Consumo*
+  • *subindo* — itens com consumo acelerando (risco crescente)
+  • _@bot tendência do meropenem_ — como está o consumo de um item
 
 🛒 *Compras*
-  • *pedido* — sugestão de quanto pedir (críticos e alertas)
-  • _@bot quanto pedir de meropenem?_ — pedido de item específico
+  • *pedido* — quanto pedir de cada crítico/alerta (cobertura 30d)
+  • _@bot quanto pedir de dipirona?_ — pedido de item específico
+  • _@bot o que é mais urgente comprar?_ — prioridade por risco
 
-🏥 *Por farmácia ou produto*
-  • _@bot saldo CTI_ — situação da CTI
-  • _@bot meropenem nas farmácias_ — saldo por estoque
-  • _@bot críticos PS_ — críticos no Pronto Socorro
-  • _@bot remanejamento_ — resumo das transferências sugeridas
+🔍 *Produto específico*
+  • _@bot amoxicilina_ — saldo, projeção e tendência
+  • _@bot tem substituto para [produto]?_ — opções em ruptura
 
-🔄 *Remanejamento de estoque*
-  • *excesso* — estoques com saldo sobrando que podem ceder
-  • *alta* — transferências urgentes (receptor com <15 dias)
-  • _@bot o que posso transferir?_ — análise completa via IA
-  • _@bot quais críticos na CTI?_ — filtra por farmácia + status
+━━━━━━━━━━━━━━━━━━━━━
+🔄 *REMANEJAMENTO*
+_Dados do CSV da aba Remanejamento_
 
-🧠 *Perguntas livres*
+  • *remanejamento* — resumo geral das transferências sugeridas
+  • *excesso* — estoques com sobra que podem ceder
+  • *alta* — transferências urgentes (receptor crítico)
+  • _@bot saldo CTI_ — situação de uma farmácia específica
+  • _@bot o que posso transferir da Central?_ — análise via IA
+
+━━━━━━━━━━━━━━━━━━━━━
+🧠 *Perguntas livres* (via IA)
   • _@bot o que precisa de atenção agora?_
   • _@bot vai faltar alguma coisa essa semana?_
-  • _@bot quanto de amoxicilina ainda tem?_
+  • _@bot o que está com consumo acelerado?_
+  • _@bot monta a lista de pedido urgente_
 
-_Dica: se o rastreio foi atualizado hoje no FarmaIA, minhas respostas refletem a situação atual._`;
+_Dica: os dados refletem o último CSV enviado pelo FarmaIA._`;
 }
 
 // ─── Formata resposta de estoque (respostas rápidas por palavra-chave) ────────
