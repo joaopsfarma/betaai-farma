@@ -9,37 +9,74 @@ interface TrackingRow {
   unidade: string;
   saldo: number;
   projecao: number;
+  media?: number;
+  tendencia?: 'alta' | 'queda' | 'estavel';
   nivel: 'critico' | 'alerta' | 'atencao' | 'ok';
 }
 
-function buildMessage(rows: TrackingRow[]): string {
-  const criticos = rows.filter(r => r.nivel === 'critico');
-  const alertas  = rows.filter(r => r.nivel === 'alerta');
-  const date     = new Date().toLocaleDateString('pt-BR');
+const MAX_CRITICOS = 8;
+const MAX_ALERTAS  = 5;
 
-  let msg = `🚨 *RASTREIO DE FALTA — ${date}*\n`;
-  msg += `📊 Total monitorado: ${rows.length} produtos\n\n`;
+function tendEmoji(t?: string) {
+  if (t === 'alta')  return '↑';
+  if (t === 'queda') return '↓';
+  return '→';
+}
+
+function buildMessage(rows: TrackingRow[]): string {
+  const date = new Date().toLocaleDateString('pt-BR');
+  const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+  // Ordena por projeção crescente (zerados primeiro, depois menos dias)
+  const criticos = rows
+    .filter(r => r.nivel === 'critico')
+    .sort((a, b) => a.projecao - b.projecao);
+  const alertas = rows
+    .filter(r => r.nivel === 'alerta')
+    .sort((a, b) => a.projecao - b.projecao);
+
+  const zerados   = criticos.filter(r => r.projecao <= 0).length;
+  const atencao   = rows.filter(r => r.nivel === 'atencao').length;
+
+  let msg = `🚨 *RASTREIO DE FALTA — ${date} ${hora}*\n`;
+  msg += `📊 ${rows.length} monitorados`;
+  if (zerados)         msg += ` · ⛔ ${zerados} zerado${zerados > 1 ? 's' : ''}`;
+  if (criticos.length) msg += ` · 🔴 ${criticos.length} crítico${criticos.length > 1 ? 's' : ''}`;
+  if (alertas.length)  msg += ` · 🟡 ${alertas.length} alerta${alertas.length > 1 ? 's' : ''}`;
+  if (atencao)         msg += ` · 🔵 ${atencao} atenção`;
+  msg += '\n';
 
   if (criticos.length) {
-    msg += `🔴 *CRÍTICO (≤7 dias)* — ${criticos.length} itens\n`;
-    criticos.forEach(r => {
-      const proj = r.projecao <= 0 ? 'Sem estoque' : `${r.projecao.toFixed(0)}d`;
+    msg += `\n🔴 *CRÍTICO — ${criticos.length} iten${criticos.length > 1 ? 's' : ''} (≤7 dias)*\n`;
+    const exibir = criticos.slice(0, MAX_CRITICOS);
+    exibir.forEach(r => {
+      const proj  = r.projecao <= 0 ? '⛔ *SEM ESTOQUE*' : `⏳ *${Math.round(r.projecao)}d*`;
+      const media = r.media != null && r.media > 0
+        ? ` · med: ${r.media.toFixed(1)}/${r.unidade}`
+        : '';
+      const tend  = r.tendencia ? ` ${tendEmoji(r.tendencia)}` : '';
       msg += `• *${r.codigo}* – ${r.comercial}\n`;
-      msg += `  Saldo: ${r.saldo.toLocaleString('pt-BR')} ${r.unidade} | Projeção: ${proj}\n`;
+      msg += `  Saldo: ${r.saldo.toLocaleString('pt-BR')} ${r.unidade} | ${proj}${media}${tend}\n`;
     });
-    msg += '\n';
+    if (criticos.length > MAX_CRITICOS) {
+      msg += `_+ ${criticos.length - MAX_CRITICOS} outros críticos — pergunte *crítico* ao bot_\n`;
+    }
   }
 
   if (alertas.length) {
-    msg += `🟡 *ALERTA (8–15 dias)* — ${alertas.length} itens\n`;
-    alertas.forEach(r => {
-      msg += `• *${r.codigo}* – ${r.comercial}\n`;
-      msg += `  Saldo: ${r.saldo.toLocaleString('pt-BR')} ${r.unidade} | Projeção: ${r.projecao.toFixed(0)}d\n`;
+    msg += `\n🟡 *ALERTA — ${alertas.length} iten${alertas.length > 1 ? 's' : ''} (8–15 dias)*\n`;
+    const exibir = alertas.slice(0, MAX_ALERTAS);
+    exibir.forEach(r => {
+      const tend = r.tendencia ? ` ${tendEmoji(r.tendencia)}` : '';
+      msg += `• *${r.codigo}* – ${r.comercial} | ⏳ ${Math.round(r.projecao)}d${tend}\n`;
     });
+    if (alertas.length > MAX_ALERTAS) {
+      msg += `_+ ${alertas.length - MAX_ALERTAS} outros alertas — pergunte *alerta* ao bot_\n`;
+    }
   }
 
   if (!criticos.length && !alertas.length) {
-    msg += '✅ Nenhum item em nível Crítico ou Alerta no momento.';
+    msg += '\n✅ Nenhum item em nível Crítico ou Alerta no momento.';
   }
 
   return msg;
