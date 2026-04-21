@@ -1080,7 +1080,9 @@ export default async function handler(req: Request): Promise<Response> {
   const textoLimpo = text.replace(/@\S+/g, '').trim();
 
   // ─── Busca por produto específico (ex: "@bot amoxicilina") ───────────────
-  if (textoLimpo.length >= 3) {
+  // Pula busca de produto se já detectamos um comando conhecido (ruptura, critico, pedido, etc.)
+  const ehComandoConhecido = intencaoAntecipada !== 'ia' && intencaoAntecipada !== 'geral';
+  if (textoLimpo.length >= 3 && !ehComandoConhecido) {
     const termoBusca = textoLimpo.toLowerCase()
       .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
