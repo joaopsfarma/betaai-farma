@@ -52,16 +52,27 @@ async function kvSet(key: string, value: unknown): Promise<void> {
   const token = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !token) return;
 
-  await fetch(`${url}/rest/v1/bot_cache`, {
-    method: 'POST',
-    headers: {
-      'apikey': token,
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      'Prefer': 'resolution=merge-duplicates',
-    },
-    body: JSON.stringify([{ key, value }]),
-  });
+  try {
+    const res = await fetch(`${url}/rest/v1/bot_cache`, {
+      method: 'POST',
+      headers: {
+        'apikey': token,
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates',
+      },
+      body: JSON.stringify([{ key, value }]),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '');
+      console.error(`[SW] kvSet falhou — HTTP ${res.status} | key=${key} | ${errBody.slice(0, 300)}`);
+    } else {
+      console.log(`[SW] kvSet ok — key=${key}`);
+    }
+  } catch (e) {
+    console.error('[SW] kvSet erro (rede/timeout):', e);
+  }
 }
 
 export default async function handler(req: Request): Promise<Response> {

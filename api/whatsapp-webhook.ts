@@ -65,10 +65,16 @@ async function kvGet<T>(key: string): Promise<T | null> {
         signal: AbortSignal.timeout(8000),
       },
     );
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '');
+      console.error(`[WH] kvGet falhou — HTTP ${res.status} | key=${key} | ${errBody.slice(0, 200)}`);
+      return null;
+    }
     const data = await res.json() as { value: T }[];
+    console.log(`[WH] kvGet key=${key} | encontrado=${data.length > 0}`);
     return data[0]?.value ?? null;
-  } catch {
+  } catch (e) {
+    console.error('[WH] kvGet erro (rede/timeout):', key, e);
     return null;
   }
 }
@@ -926,12 +932,12 @@ export default async function handler(req: Request): Promise<Response> {
     return new Response('Bad request', { status: 400 });
   }
 
-  // Só processa novas mensagens (aceita maiúsculo, minúsculo, underscore ou ponto)
-  // Evolution API pode enviar: "messages.upsert", "MESSAGES_UPSERT", "messages_upsert"
+  // Só processa novas mensagens
+  // Evolution API pode enviar: "messages.upsert", "message.upsert", "MESSAGES_UPSERT", etc.
   const rawEvent = (payload.event ?? payload.type ?? payload.name ?? '').toString();
   const event = rawEvent.toLowerCase().replace(/_/g, '.');
   console.log('[WH] event:', rawEvent, '→', event, '| keys:', Object.keys(payload));
-  if (event !== 'messages.upsert') {
+  if (event !== 'messages.upsert' && event !== 'message.upsert') {
     return new Response('OK', { status: 200 });
   }
 
