@@ -154,12 +154,17 @@ function fuzzySubstringMatch(query: string, target: string): boolean {
 
 // ─── Classificação de satélites por dias de cobertura ────────────────────────
 
-function nivelSatelite(projecao: number): { label: string; emoji: string } {
-  if (projecao <= 0)  return { label: 'RUPTURA',       emoji: '⛔' };
-  if (projecao <= 3)  return { label: 'RISCO RUPTURA', emoji: '🚨' };
-  if (projecao <= 10) return { label: 'SAUDÁVEL',      emoji: '✅' };
-  if (projecao <= 20) return { label: 'EXCESSO',       emoji: '🟡' };
-  return                     { label: 'ALTO EXCESSO',  emoji: '🔵' };
+function nivelSatelite(r: TrackingRow): { label: string; emoji: string } {
+  if (r.saldo <= 0)                      return { label: 'RUPTURA',       emoji: '⛔' };
+  if (r.media <= 0 || r.projecao <= 0)   return { label: 'SEM CONSUMO',   emoji: '⚪' };
+  if (r.projecao <= 3)                   return { label: 'RISCO RUPTURA', emoji: '🚨' };
+  if (r.projecao <= 10)                  return { label: 'SAUDÁVEL',      emoji: '✅' };
+  if (r.projecao <= 20)                  return { label: 'EXCESSO',       emoji: '🟡' };
+  return                                        { label: 'ALTO EXCESSO',  emoji: '🔵' };
+}
+
+function isSemConsumo(r: TrackingRow): boolean {
+  return r.saldo > 0 && r.media <= 0;
 }
 
 // ─── Identifica dietas parenterais (excluídas de todas as respostas) ──────────
@@ -175,7 +180,7 @@ function isDietaParenteral(r: TrackingRow): boolean {
 // ─── Formata linha de um item ─────────────────────────────────────────────────
 
 function formatItem(r: TrackingRow): string {
-  const niv  = nivelSatelite(r.projecao);
+  const niv  = nivelSatelite(r);
   const proj = r.saldo <= 0
     ? '⛔ zerado'
     : r.projecao <= 0 || r.media <= 0
@@ -231,7 +236,7 @@ function resumoEstoqueParaIA(rows: TrackingRow[], diaLabels: string[] = []): str
       extra = `${acelStr} | hist:[${hist}]`;
     }
 
-    const niv = nivelSatelite(r.projecao);
+    const niv = nivelSatelite(r);
     return `[${niv.label}] ${r.codigo} ${r.comercial} | ${r.saldo}${r.unidade} | med:${r.media.toFixed(1)} | proj:${proj} | ${tend}${extra}`;
   });
 
@@ -749,16 +754,16 @@ function buildReply(rows: TrackingRow[], intencao: Intencao): string {
   const date = new Date().toLocaleDateString('pt-BR');
 
   if (intencao === 'ruptura' || intencao === 'ruptura_24h') {
-    const itens = rows.filter(r => r.projecao <= 1);
+    const itens = rows.filter(r => r.projecao <= 1 && !isSemConsumo(r));
     const tit = intencao === 'ruptura_24h' ? 'EM ATÉ 24h' : 'HOJE';
-    if (!itens.length) return `✅ *RUPTURAS ${tit} — ${date}*\nNenhum item com ruptura (projeção 0–1 dia).`;
+    if (!itens.length) return `✅ *RUPTURAS ${tit} — ${date}*\nNenhum item com ruptura real (projeção 0–1 dia).`;
     let msg = `🚨 *RUPTURAS ${tit} — ${date}*\n${itens.length} ${itens.length === 1 ? 'item' : 'itens'} com projeção de 0–1 dia\n\n`;
     itens.forEach(r => { msg += formatItem(r); });
     return msg;
   }
 
   if (intencao === 'ruptura_48h') {
-    const itens = rows.filter(r => r.projecao <= 2);
+    const itens = rows.filter(r => r.projecao <= 2 && !isSemConsumo(r));
     if (!itens.length) return `✅ *RUPTURAS EM ATÉ 48h — ${date}*\nNenhum item com projeção ≤2 dias.`;
     let msg = `🚨 *RUPTURAS EM ATÉ 48h — ${date}*\n${itens.length} ${itens.length === 1 ? 'item' : 'itens'} com projeção de 0–2 dias\n\n`;
     itens.forEach(r => { msg += formatItem(r); });
@@ -766,7 +771,7 @@ function buildReply(rows: TrackingRow[], intencao: Intencao): string {
   }
 
   if (intencao === 'ruptura_72h') {
-    const itens = rows.filter(r => r.projecao <= 3);
+    const itens = rows.filter(r => r.projecao <= 3 && !isSemConsumo(r));
     if (!itens.length) return `✅ *RUPTURAS EM ATÉ 72h — ${date}*\nNenhum item com projeção ≤3 dias.`;
     let msg = `🚨 *RUPTURAS EM ATÉ 72h — ${date}*\n${itens.length} ${itens.length === 1 ? 'item' : 'itens'} com projeção de 0–3 dias\n\n`;
     itens.forEach(r => { msg += formatItem(r); });
@@ -774,7 +779,7 @@ function buildReply(rows: TrackingRow[], intencao: Intencao): string {
   }
 
   if (intencao === 'critico') {
-    const itens = rows.filter(r => r.nivel === 'critico');
+    const itens = rows.filter(r => r.nivel === 'critico' && !isSemConsumo(r));
     if (!itens.length) return `✅ *CRÍTICOS — ${date}*\nNenhum item em nível Crítico no momento.`;
     let msg = `🔴 *CRÍTICOS (≤7 dias) — ${date}*\n${itens.length} ${itens.length === 1 ? 'item' : 'itens'}\n\n`;
     itens.forEach(r => { msg += formatItem(r); });
@@ -782,7 +787,7 @@ function buildReply(rows: TrackingRow[], intencao: Intencao): string {
   }
 
   if (intencao === 'alerta') {
-    const itens = rows.filter(r => r.nivel === 'alerta');
+    const itens = rows.filter(r => r.nivel === 'alerta' && !isSemConsumo(r));
     if (!itens.length) return `✅ *ALERTAS — ${date}*\nNenhum item em nível Alerta no momento.`;
     let msg = `🟡 *ALERTA (8–15 dias) — ${date}*\n${itens.length} ${itens.length === 1 ? 'item' : 'itens'}\n\n`;
     itens.forEach(r => { msg += formatItem(r); });
