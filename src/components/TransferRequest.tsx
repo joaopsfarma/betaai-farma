@@ -297,6 +297,14 @@ export const TransferRequest: React.FC = () => {
     });
   }, [rawItems, consumptionDays, targetDays, safetyMargin, manualOverrides]);
 
+  // Zera todas as quantidades do pedido
+  const handleZerarPedido = useCallback(() => {
+    const zeros: Record<string, number> = {};
+    rawItems.forEach(item => { zeros[item.id] = 0; });
+    setManualOverrides(zeros);
+    setDraftQtys({});
+  }, [rawItems]);
+
   // Atualiza rascunho durante digitação (sem arredondamento)
   const handleQtyChange = (id: string, val: string) => {
     setDraftQtys(prev => ({ ...prev, [id]: val }));
@@ -672,10 +680,12 @@ export const TransferRequest: React.FC = () => {
 
       const isComprimido = /\bCOMP\b|COMPRIMIDO|\bCP\b|\bCPR\b|\bTAB\b|C[AA]PSULA|\bCAPS\b|DR[AA]GEA|\bDRG\b|SACH[EE]|ENVELOPE|\bENV\b|GRANULADO|P[OO]\s*ORAL/.test(txt);
 
-      // Soroterapia: APENAS fluidos base de grande volume (50-1000ml)
+      // Soroterapia: fluidos base de grande volume (50-1000ml) + Água Destilada (qualquer volume)
       // GLICOSE\s*(?:5(?!\d)|10(?!\d)) — captura 5% e 10% mas NÃO 50%
-      const isSoroterapia = /SORO\s*FISIOL|SORO\s*GLICOS|CLOR.*SODIO\s*0,9|NACL\s*0,9|GLICOSE\s*(?:5(?!\d)|10(?!\d))|RINGER|MANITOL|\bSF\s*0,9|\bSG\s*5|\bRL\b|AGUA\s*(DEST|P.*INJ|BIDEST)/.test(name)
-        && /\b(50|100|250|500|1\.?000)\s*ML\b/.test(name);
+      const isSoroterapia = (
+        /SORO\s*FISIOL|SORO\s*GLICOS|CLOR.*SODIO\s*0,9|NACL\s*0,9|GLICOSE\s*(?:5(?!\d)|10(?!\d))|RINGER|MANITOL|\bSF\s*0,9|\bSG\s*5|\bRL\b/.test(name)
+        && /\b(50|100|250|500|1\.?000)\s*ML\b/.test(name)
+      ) || /AGUA\s*(DEST|P.*INJ|BIDEST)/.test(name);
 
       // Soluções: orais, tópicas, oftálmicas, nasais, suspensões, gotas, bisnagas, tubos
       // Formas: FR SUSP, FR GTS, BG (bisnaga), TB (tubo), TOP (tópico), OFTAL
@@ -1128,9 +1138,17 @@ export const TransferRequest: React.FC = () => {
                 Baixar Picking (CSV)
               </button>
 
-              <button 
+              <button
+                onClick={handleZerarPedido}
+                className="w-full py-3 bg-white border border-red-200 hover:bg-red-50 text-red-600 rounded-xl font-medium transition-all flex justify-center items-center gap-2"
+              >
+                <span className="text-base leading-none">✕</span>
+                Zerar Pedido
+              </button>
+
+              <button
                 onClick={() => { setRawItems([]); setManualOverrides({}); }}
-                className="w-full mt-3 py-3 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl font-medium transition-all"
+                className="w-full mt-1 py-3 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl font-medium transition-all"
               >
                 Refazer / Mudar Base
               </button>
