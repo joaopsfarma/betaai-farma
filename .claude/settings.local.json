@@ -1,4 +1,7 @@
 {
+  "env": {
+    "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "64000"
+  },
   "permissions": {
     "allow": [
       "Bash(node_modules/.bin/tsc --noEmit)",
@@ -22,7 +25,17 @@
       "Bash(git add:*)",
       "Bash(git commit -m ':*)",
       "Bash(git push:*)",
-      "Bash(node -e ':*)"
+      "Bash(node -e ':*)",
+      "Bash(git commit -m ' *)",
+      "Bash(gh run *)",
+      "Bash(xargs grep *)",
+      "Bash(node -e ' *)",
+      "Bash(find /c/Users/f03869815159/Desktop/Projeto/src/components -name \"*.tsx\" -exec grep -l \"dialog\\\\|modal\\\\|Modal\\\\|Dialog\" {} \\\\;)",
+      "Bash(cp \"C:\\\\Users\\\\f03869815159\\\\Downloads\\\\R_CONS_DIARIO \\(5\\).csv\" \"C:\\\\Users\\\\f03869815159\\\\Desktop\\\\Projeto\\\\public\\\\data\\\\r_cons_diario.csv\")",
+      "Bash(cp \"C:\\\\Users\\\\f03869815159\\\\Downloads\\\\R_CONF_LOTE \\(8\\).csv\" \"C:\\\\Users\\\\f03869815159\\\\Desktop\\\\Projeto\\\\public\\\\data\\\\r_conf_lote.csv\")",
+      "Bash(python -c ' *)",
+      "Skill(update-config)",
+      "Skill(update-config:*)"
     ]
   }
 }
