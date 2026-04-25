@@ -521,8 +521,33 @@ export const Dashboard: React.FC<DashboardProps> = ({ data }) => {
     }
   };
 
+  const exportCSV = React.useCallback(() => {
+    if (!processedData.length) return;
+    const header = ['ID', 'Produto', 'Unidade', 'Consumo Diário', 'Saldo Físico', 'Cobertura(dias)', 'Status', 'Categoria'];
+    const rows = processedData.map(p => [
+      p.id,
+      p.name,
+      p.unit,
+      p.dailyConsumption.toFixed(2),
+      String(p.physicalStock),
+      p.coverageDays >= 999 ? 'Sem consumo' : p.coverageDays.toFixed(1),
+      p.status,
+      p.category ?? '',
+    ]);
+    const csv = [header, ...rows]
+      .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `insights_farma_${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [processedData]);
+
   return (
-    <motion.div 
+    <motion.div
       variants={containerVariants}
       initial="hidden"
       animate="visible"
@@ -544,7 +569,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ data }) => {
           <p className="text-slate-500 mt-1">Dicas estratégicas e indicadores avançados para manejo de estoque.</p>
         </div>
         <div className="flex items-center gap-3">
-          {/* ... status ... */}
+          <button
+            onClick={exportCSV}
+            disabled={!processedData.length}
+            className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-xl text-sm font-bold transition-colors shadow-sm"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            Exportar CSV
+          </button>
         </div>
       </div>
 

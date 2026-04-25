@@ -371,6 +371,39 @@ Forneça 5 pontos de ação priorizados por urgência. Seja direto e prático. U
     return rows;
   }, [data, search, filterNivel, filterTend, sortBy, colFilters]);
 
+  // ── CSV Export ───────────────────────────────────────────────────────────
+  const exportCSV = useCallback(() => {
+    if (!filtered.length || !data) return;
+    const rowsToExport = selectedRows.size > 0
+      ? filtered.filter(r => selectedRows.has(r.codigo))
+      : filtered;
+    if (!rowsToExport.length) return;
+
+    const header = ['Código', 'Produto', 'Unidade', ...data.diaLabels, 'Média/dia', 'Saldo', 'Projeção(dias)', 'Tendência', 'Status'];
+    const rows = rowsToExport.map(r => [
+      r.codigo,
+      r.comercial,
+      r.unidade,
+      ...r.dias.map(String),
+      r.media.toFixed(1),
+      String(r.saldo),
+      r.projecao <= 0 ? '0' : r.projecao.toFixed(0),
+      r.tendencia === 'alta' ? 'Alta' : r.tendencia === 'queda' ? 'Queda' : 'Estável',
+      NIVEL_CONFIG[r.nivel].label,
+    ]);
+
+    const csv = [header, ...rows]
+      .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `rastreio_falta_${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [filtered, data, selectedRows]);
+
   // ── PDF Export ───────────────────────────────────────────────────────────
   const exportPDF = useCallback(() => {
     if (!filtered.length || !stats || !data) return;
@@ -710,6 +743,11 @@ Forneça 5 pontos de ação priorizados por urgência. Seja direto e prático. U
             className="flex items-center gap-1.5 text-xs text-white bg-green-600 hover:bg-green-700 transition-colors rounded-lg px-3 py-1.5 font-bold shadow-sm">
             <MessageCircle className="w-3.5 h-3.5" />
             Enviar WhatsApp
+          </button>
+          <button onClick={exportCSV}
+            className="flex items-center gap-1.5 text-xs text-white bg-emerald-600 hover:bg-emerald-700 transition-colors rounded-lg px-3 py-1.5 font-bold shadow-sm">
+            <Download className="w-3.5 h-3.5" />
+            Exportar CSV
           </button>
           <button onClick={exportPDF}
             className="flex items-center gap-1.5 text-xs text-white bg-rose-600 hover:bg-rose-700 transition-colors rounded-lg px-3 py-1.5 font-bold shadow-sm">

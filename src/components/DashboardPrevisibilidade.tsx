@@ -771,6 +771,35 @@ Seja objetivo, direto e prático. Priorize a segurança do paciente.`;
 
   // As declarações duplicadas foram removidas daqui para cima.
 
+  const exportCSV = () => {
+    const dataToExport = selectedItems.size > 0
+      ? sortedFilteredData.filter(item => selectedItems.has(item.Produto_ID))
+      : sortedFilteredData;
+    if (!dataToExport.length) return;
+
+    const header = ['ID', 'Produto', 'Estoque Atual', 'Total Solicitado', 'Saldo Projetado', 'Status', 'Substituto'];
+    const rows = dataToExport.map(item => [
+      item.Produto_ID,
+      item.Produto_Nome,
+      String(item.Estoque_Atual),
+      String(item.Total_Solicitado),
+      String(item.Saldo_Projetado),
+      item.Status,
+      (item as any).Sugestao_Substituicao?.nome ?? '',
+    ]);
+
+    const csv = [header, ...rows]
+      .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `previsibilidade_${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const exportToPDF = () => {
     const dataToExport = selectedItems.size > 0
       ? sortedFilteredData.filter(item => selectedItems.has(item.Produto_ID))
@@ -1111,6 +1140,13 @@ Seja objetivo, direto e prático. Priorize a segurança do paciente.`;
                 >
                   <Settings2 className="w-4 h-4" />
                   Config
+                </button>
+                <button
+                  onClick={exportCSV}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-emerald-500 text-white rounded-lg text-sm font-bold hover:bg-emerald-600 transition-colors shadow-sm"
+                >
+                  <Download className="w-4 h-4" />
+                  Exportar CSV
                 </button>
                 <button
                   onClick={exportToPDF}
