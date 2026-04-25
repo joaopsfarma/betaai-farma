@@ -408,91 +408,6 @@ export default function AbastecimentoFarmaceutico({ onNavigateToTV }: Abastecime
     return { kpis, filteredData: result, fornecedores, fornecedorStats };
   }, [data, nfData, searchTerm, activeFilter, colFilters]);
 
-  // ── Persistência para Painel TV ──
-  useEffect(() => {
-    if (!data || !kpis.total) return;
-    const payload = {
-      savedAt: new Date().toISOString(),
-      kpis: {
-        emFalta: kpis.emFalta || 0,
-        atrasados: kpis.atrasados || 0,
-        altoCusto: kpis.altoCusto || 0,
-        coberturaCritica: kpis.coberturaCritica || 0,
-        comDependencia: kpis.comDependencia || 0,
-        coberturaMedia: kpis.coberturaMedia || 0,
-        taxaRuptura: kpis.taxaRuptura || 0,
-        taxaConformidade: kpis.taxaConformidade || 0,
-        total: kpis.total || 0,
-      },
-      items: data.map(item => ({
-        codItem: item['Cod Item'] || '',
-        descItem: item['Desc Item'] || '',
-        fornec: item['Fornec'] || '',
-        emFalta: item['Em Falta'] === 'Sim' || item['Ruptura'] === 'Sim' || item['Status'] === 'Em Falta',
-        ruptura: item['Ruptura'] === 'Sim',
-        diasAtraso: parseInt(item['Dias Atraso']) || 0,
-        cobertura: item['Cobertura'] ? parseFloat(item['Cobertura'].replace(',', '.')) : 999,
-        estoqDisp: parseInt(item['Estoq Disp']) || 0,
-        estoqTot: parseInt(item['Estoq Tot']) || 0,
-        qtdPend: parseInt(item['Qtd Pend']) || 0,
-        atrasado: (parseInt(item['Dias Atraso']) || 0) > 0 || item['Atrasado'] === 'Sim',
-        ocNum: item['OC - Núm'] || '',
-        ocEntrega: item['Nova Data Ent'] || item['OC - Entrega'] || '',
-        nfNum: item['NF - Núm'] || '',
-        valorTotal: item['Valor total (R$)'] || '',
-        vlUnit: item['Vl. Unit. (R$)'] || '',
-        altoCusto: item['Item de Alto Custo (R$)'] === 'Sim',
-        importado: item['Importado'] === 'Sim',
-        dependencia: item['Dependência'] || '',
-        curvABC: item['Curva ABC'] || '',
-      })),
-      suppliers: fornecedores,
-    };
-    try {
-      localStorage.setItem('abastecimento_tv_data', JSON.stringify(payload));
-    } catch (e) {
-      console.warn('[AbastecimentoFarmaceutico] localStorage write failed', e);
-    }
-  }, [data, kpis, fornecedores]);
-
-  // ── Lista Crítica do Planejamento ──
-  const lcStats = useMemo(() => {
-    if (!lcData || lcData.length === 0) return null;
-
-    let cobZero = 0, scEmergencial = 0, ocReposicao = 0, monitorar = 0;
-    const causaCount: Record<string, number> = {};
-    const setorCount: Record<string, number> = {};
-
-    lcData.forEach(item => {
-      const cob = parseInt(item['Cob Disp'] || item['Cob Disp'] || '0') || 0;
-      if (cob === 0) cobZero++;
-
-      const acao = (item['Ação'] || '').trim();
-      if (acao.includes('SC EMERGENCIAL') || acao.includes('SC Emergencial')) scEmergencial++;
-      else if (acao.includes('OC de reposição') || acao.includes('OC de Reposição')) ocReposicao++;
-      else if (acao.includes('Monitorar')) monitorar++;
-
-      const causa = (item['Causa'] || 'Outros').trim();
-      causaCount[causa] = (causaCount[causa] || 0) + 1;
-
-      const setor = (item['Setor responsavel'] || item['Setor responsável'] || 'N/A').trim();
-      setorCount[setor] = (setorCount[setor] || 0) + 1;
-    });
-
-    // Ordena itens por urgência: cobZero primeiro, depois menor cobertura
-    const sortedItems = [...lcData].sort((a, b) => {
-      const ca = parseInt(a['Cob Disp'] || '0') || 0;
-      const cb = parseInt(b['Cob Disp'] || '0') || 0;
-      return ca - cb;
-    });
-
-    const dataLC = lcData[0]?.['Data LC']
-      ? new Date(lcData[0]['Data LC']).toLocaleDateString('pt-BR')
-      : null;
-
-    return { total: lcData.length, cobZero, scEmergencial, ocReposicao, monitorar, causaCount, setorCount, sortedItems, dataLC };
-  }, [lcData]);
-
   // ── Posição de Estoque ──
   const stockStats = useMemo(() => {
     if (!stockData || stockData.length === 0) return null;
@@ -566,6 +481,99 @@ export default function AbastecimentoFarmaceutico({ onNavigateToTV }: Abastecime
       abcCount, abcValue, subClasseMap, sortedByValue: sorted,
     };
   }, [stockData]);
+
+  // ── Persistência para Painel TV ──
+  useEffect(() => {
+    if (!data || !kpis.total) return;
+    const payload = {
+      savedAt: new Date().toISOString(),
+      kpis: {
+        emFalta: kpis.emFalta || 0,
+        atrasados: kpis.atrasados || 0,
+        altoCusto: kpis.altoCusto || 0,
+        coberturaCritica: kpis.coberturaCritica || 0,
+        comDependencia: kpis.comDependencia || 0,
+        coberturaMedia: kpis.coberturaMedia || 0,
+        taxaRuptura: kpis.taxaRuptura || 0,
+        taxaConformidade: kpis.taxaConformidade || 0,
+        total: kpis.total || 0,
+      },
+      items: data.map(item => ({
+        codItem: item['Cod Item'] || '',
+        descItem: item['Desc Item'] || '',
+        fornec: item['Fornec'] || '',
+        emFalta: item['Em Falta'] === 'Sim' || item['Ruptura'] === 'Sim' || item['Status'] === 'Em Falta',
+        ruptura: item['Ruptura'] === 'Sim',
+        diasAtraso: parseInt(item['Dias Atraso']) || 0,
+        cobertura: item['Cobertura'] ? parseFloat(item['Cobertura'].replace(',', '.')) : 999,
+        estoqDisp: parseInt(item['Estoq Disp']) || 0,
+        estoqTot: parseInt(item['Estoq Tot']) || 0,
+        qtdPend: parseInt(item['Qtd Pend']) || 0,
+        atrasado: (parseInt(item['Dias Atraso']) || 0) > 0 || item['Atrasado'] === 'Sim',
+        ocNum: item['OC - Núm'] || '',
+        ocEntrega: item['Nova Data Ent'] || item['OC - Entrega'] || '',
+        nfNum: item['NF - Núm'] || '',
+        valorTotal: item['Valor total (R$)'] || '',
+        vlUnit: item['Vl. Unit. (R$)'] || '',
+        altoCusto: item['Item de Alto Custo (R$)'] === 'Sim',
+        importado: item['Importado'] === 'Sim',
+        dependencia: item['Dependência'] || '',
+        curvABC: item['Curva ABC'] || '',
+      })),
+      suppliers: fornecedores,
+      abcSummary: stockStats ? {
+        A: stockStats.abcCount.A,
+        B: stockStats.abcCount.B,
+        C: stockStats.abcCount.C,
+        valA: stockStats.abcValue.A,
+        valB: stockStats.abcValue.B,
+        valC: stockStats.abcValue.C,
+      } : undefined,
+    };
+    try {
+      localStorage.setItem('abastecimento_tv_data', JSON.stringify(payload));
+    } catch (e) {
+      console.warn('[AbastecimentoFarmaceutico] localStorage write failed', e);
+    }
+  }, [data, kpis, fornecedores, stockStats]);
+
+  // ── Lista Crítica do Planejamento ──
+  const lcStats = useMemo(() => {
+    if (!lcData || lcData.length === 0) return null;
+
+    let cobZero = 0, scEmergencial = 0, ocReposicao = 0, monitorar = 0;
+    const causaCount: Record<string, number> = {};
+    const setorCount: Record<string, number> = {};
+
+    lcData.forEach(item => {
+      const cob = parseInt(item['Cob Disp'] || item['Cob Disp'] || '0') || 0;
+      if (cob === 0) cobZero++;
+
+      const acao = (item['Ação'] || '').trim();
+      if (acao.includes('SC EMERGENCIAL') || acao.includes('SC Emergencial')) scEmergencial++;
+      else if (acao.includes('OC de reposição') || acao.includes('OC de Reposição')) ocReposicao++;
+      else if (acao.includes('Monitorar')) monitorar++;
+
+      const causa = (item['Causa'] || 'Outros').trim();
+      causaCount[causa] = (causaCount[causa] || 0) + 1;
+
+      const setor = (item['Setor responsavel'] || item['Setor responsável'] || 'N/A').trim();
+      setorCount[setor] = (setorCount[setor] || 0) + 1;
+    });
+
+    // Ordena itens por urgência: cobZero primeiro, depois menor cobertura
+    const sortedItems = [...lcData].sort((a, b) => {
+      const ca = parseInt(a['Cob Disp'] || '0') || 0;
+      const cb = parseInt(b['Cob Disp'] || '0') || 0;
+      return ca - cb;
+    });
+
+    const dataLC = lcData[0]?.['Data LC']
+      ? new Date(lcData[0]['Data LC']).toLocaleDateString('pt-BR')
+      : null;
+
+    return { total: lcData.length, cobZero, scEmergencial, ocReposicao, monitorar, causaCount, setorCount, sortedItems, dataLC };
+  }, [lcData]);
 
   const sortedData = useMemo(() => {
     let sortableItems = [...filteredData];

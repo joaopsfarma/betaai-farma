@@ -3,30 +3,22 @@ import { Menu, X, Pill, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide
 import { motion, AnimatePresence } from 'motion/react';
 
 export type TabId =
+  | 'home'
   | 'analytics'
   | 'transfer'
   | 'vba'
-  | 'dispensary'
   | 'genesis'
   | 'previsibilidade'
   | 'equivalencia'
   | 'dispensaryProject'
-  | 'pedido24h'
-  | 'rastreio'
   | 'productivity'
-  | 'painel_caf'
-  | 'indicadores_caf'
   | 'conciliacao'
-  | 'analise_dispensacao'
   | 'analise_dispensacao_v2'
-  | 'inteligencia_devolucoes'
   | 'criticidade'
   | 'checagem_devolucao'
   | 'analise_dispensarios_v2'
   | 'rastreio_falta'
-  | 'requisicao_v2'
   | 'cancelamento_v2'
-  | 'previsibilidade_v2'
   | 'painel_caf_v2'
   | 'indicadores_logisticos'
   | 'gerador_documentos'
@@ -38,16 +30,13 @@ export type TabId =
   | 'perdas_inventario'
   | 'analise_operacional'
   | 'remanejamento'
-  | 'indicadores_logisticos_v2'
   | 'daily_tracking'
   | 'painel_tv_ressuprimento'
   | 'painel_nutricao'
   | 'abastecimento-farmaceutico'
   | 'painel_tv_abastecimento'
   | 'sinalizador'
-  | 'curva_abcxyz'
-  | 'cobertura_multi_unidade'
-  | 'historico_consumo';
+  | 'painel_farma_tv';
 
 export interface NavItem {
   id: TabId;
@@ -79,6 +68,7 @@ interface SidebarProps {
   navGroups: NavGroup[];
   isCollapsed: boolean;
   setIsCollapsed: (v: boolean) => void;
+  onLogoClick?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -89,6 +79,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   navGroups,
   isCollapsed,
   setIsCollapsed,
+  onLogoClick,
 }) => {
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => {
     const initial = navGroups.find(g => g.items.some(i => i.id === activeTab));
@@ -215,7 +206,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         `}
       >
         <div className="p-4 border-b border-violet-100 hidden md:flex items-center justify-between bg-gradient-to-br from-emerald-50 to-violet-50">
-          <div className="flex items-center gap-3">
+          <button
+            onClick={onLogoClick}
+            className="flex items-center gap-3 hover:opacity-80 transition-opacity"
+            title="Ir para a Home"
+          >
             <div className="bg-gradient-to-br from-emerald-500 to-violet-600 p-2.5 rounded-xl shadow-md shadow-violet-200">
               <Pill className="w-6 h-6 text-white" />
             </div>
@@ -223,7 +218,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <h1 className="text-xl font-bold bg-gradient-to-r from-emerald-600 to-violet-700 bg-clip-text text-transparent leading-tight">FarmaIA</h1>
               <p className="text-[10px] font-semibold text-violet-400 uppercase tracking-wider mt-1">Sistema Farmacêutico</p>
             </div>
-          </div>
+          </button>
           <button
             onClick={() => setIsCollapsed(true)}
             title="Recolher menu"

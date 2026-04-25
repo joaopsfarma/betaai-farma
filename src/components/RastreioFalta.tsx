@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import type { RastreioPayload } from '../types/painelFarmaTV';
 import {
   Upload, AlertTriangle, Package, TrendingUp, TrendingDown,
   CheckCircle, XCircle, Search, RefreshCw, Minus, Download, MessageCircle, Brain
@@ -289,6 +290,46 @@ Forneça 5 pontos de ação priorizados por urgência. Seja direto e prático. U
 
     return { critico, alerta, atencao, ok, tendAlta, tendQueda, top20consumo, top10risco, pieData };
   }, [data]);
+
+  // ── Bridge: escreve payload no localStorage para o Painel TV ────────────────
+  useEffect(() => {
+    if (!data?.rows.length || !stats) return;
+    const payload: RastreioPayload = {
+      savedAt: new Date().toISOString(),
+      total: data.rows.length,
+      critico: stats.critico,
+      alerta: stats.alerta,
+      atencao: stats.atencao,
+      ok: stats.ok,
+      tendAlta: stats.tendAlta,
+      tendQueda: stats.tendQueda,
+      top10: data.rows
+        .filter(r => r.nivel === 'critico' || r.nivel === 'alerta')
+        .sort((a, b) => a.projecao - b.projecao)
+        .slice(0, 10)
+        .map(r => ({
+          codigo: r.codigo,
+          comercial: r.comercial,
+          projecao: r.projecao,
+          nivel: r.nivel,
+          media: r.media,
+          saldo: r.saldo,
+        })),
+      top20: data.rows
+        .sort((a, b) => a.projecao - b.projecao)
+        .slice(0, 20)
+        .map(r => ({
+          codigo: r.codigo,
+          comercial: r.comercial,
+          projecao: r.projecao,
+          nivel: r.nivel,
+          media: r.media,
+          saldo: r.saldo,
+        })),
+      diaLabels: data.diaLabels,
+    };
+    try { localStorage.setItem('farma_tv_rastreio', JSON.stringify(payload)); } catch { /* quota */ }
+  }, [data, stats]);
 
   // ── Filtered table ────────────────────────────────────────────────────────
   const filtered = useMemo(() => {

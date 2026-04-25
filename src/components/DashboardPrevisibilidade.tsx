@@ -1,4 +1,5 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import type { PrevisibilidadePayload } from '../types/painelFarmaTV';
 import { useDropzone } from 'react-dropzone';
 import Papa from 'papaparse';
 import { AlertTriangle, CheckCircle, UploadCloud, Search, Filter, Package, AlertOctagon, FileText, XCircle, ChevronDown, ChevronUp, Download, RefreshCw, Database, Activity, Target, ShieldAlert, Zap, ArrowUpDown, ArrowUp, ArrowDown, TrendingDown, Brain, Settings2, BarChart3, TrendingUp, Gauge, SlidersHorizontal } from 'lucide-react';
@@ -247,6 +248,42 @@ export const DashboardPrevisibilidade: React.FC<DashboardPrevisibilidadeProps> =
   const substituteCount = activeData.filter(d => d.Status === 'Falta, mas com Substituto').length;
   const totalRupturas = ruptureCount + substituteCount;
   const coverageRate = totalRupturas > 0 ? Math.round((substituteCount / totalRupturas) * 100) : 0;
+
+  // ── Bridge: escreve payload no localStorage para o Painel TV ────────────────
+  useEffect(() => {
+    if (!activeData.length) return;
+    const payload: PrevisibilidadePayload = {
+      savedAt: new Date().toISOString(),
+      total: uniqueProductsCount,
+      rupturaPredita: totalRupturas,
+      semSubstituto: ruptureCount,
+      comSubstituto: substituteCount,
+      parcial: 0,
+      suficiente: activeData.filter(d => d.Status === 'Suficiente').length,
+      top20Risk: activeData
+        .filter(d => d.Status === 'Ruptura Predita' || d.Status === 'Falta, mas com Substituto')
+        .sort((a, b) => a.Saldo_Projetado - b.Saldo_Projetado)
+        .slice(0, 20)
+        .map(d => ({
+          id: d.Produto_ID,
+          nome: d.Produto_Nome,
+          cobertura: d.Status === 'Ruptura Predita' ? 'sem_estoque' : 'parcial',
+          coberturaEquiv: d.Status === 'Falta, mas com Substituto',
+          saldo: d.Estoque_Atual,
+          qtdSolicitada: d.Total_Solicitado,
+        })),
+      substituteList: activeData
+        .filter(d => d.Status === 'Falta, mas com Substituto')
+        .slice(0, 20)
+        .map(d => ({
+          id: d.Produto_ID,
+          nome: d.Produto_Nome,
+          saldo: d.Estoque_Atual,
+          qtdSolicitada: d.Total_Solicitado,
+        })),
+    };
+    try { localStorage.setItem('farma_tv_previsibilidade', JSON.stringify(payload)); } catch { /* quota */ }
+  }, [activeData, uniqueProductsCount, totalRupturas, ruptureCount, substituteCount]);
 
   const toggleRow = (id: string) => {
     const newExpanded = new Set(expandedRows);

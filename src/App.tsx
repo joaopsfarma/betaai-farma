@@ -14,37 +14,25 @@ import { TransferRequest } from './components/TransferRequest';
 import { VBACodeDisplay } from './components/VBACodeDisplay';
 import { CsvUploader } from './components/CsvUploader';
 import { ValidityUploader } from './components/ValidityUploader';
-import { LayoutDashboard, FileSpreadsheet, Code, Pill, Database, Filter, AlertCircle, PieChart, Download, ListTodo, Activity, ClipboardList, Menu, X, ChevronRight, Clock, Ban, Package, LineChart, Calculator, BarChart2, ShieldAlert, AlertTriangle, ShoppingCart, XCircle, ShieldCheck, TrendingDown, MonitorPlay, ArrowLeftRight, Utensils } from 'lucide-react';
+import { LayoutDashboard, FileSpreadsheet, Code, Pill, Database, Filter, AlertCircle, PieChart, Download, Activity, ClipboardList, Menu, X, ChevronRight, Clock, Ban, Package, Calculator, BarChart2, ShieldAlert, AlertTriangle, ShoppingCart, XCircle, ShieldCheck, TrendingDown, MonitorPlay, ArrowLeftRight, Utensils } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Dashboard } from './components/Dashboard';
-import { FollowUp } from './components/FollowUp';
-import { FollowUpUploader } from './components/FollowUpUploader';
 import { Product, UnitType, ProductCategory, AlertStatus, FollowUpItem } from './types';
 import { MOCK_FOLLOW_UP } from './data/mockFollowUp';
-import { DispensaryAnalysis } from './components/DispensaryAnalysis';
 import { AnalysePendencies } from './components/AnalysePendencies';
 import { DashboardPrevisibilidade, PredictabilityData } from './components/DashboardPrevisibilidade';
 import { DashboardEquivalencia } from './components/DashboardEquivalencia';
 import { DispensaryProject } from './components/DispensaryProject';
 import { DailyTracking } from './components/DailyTracking';
 import { ConciliacaoEmprestimo } from './components/ConciliacaoEmprestimo';
-import { DashboardRastreio } from './components/DashboardRastreio';
 import { ProductivityTab } from './components/ProductivityTab';
-import { PainelCAF } from './components/PainelCAF';
 import { PainelCAFV2 } from './components/PainelCAFV2';
-import { IndicadoresCAF } from './components/IndicadoresCAF';
-import { AnaliseDispensacao } from './components/AnaliseDispensacao';
 import { AnaliseDispensacaoV2 } from './components/AnaliseDispensacaoV2';
-import { InteligenciaDevolucoes } from './components/InteligenciaDevolucoes';
 import { Criticidade } from './components/Criticidade';
 import { CheckagemDevolucao } from './components/CheckagemDevolucao';
 import { AnaliseDispensariosV2 } from './components/AnaliseDispensariosV2';
 import { RastreioFalta } from './components/RastreioFalta';
-import { RequisicaoV2 } from './components/RequisicaoV2';
 import { CancelamentoV2 } from './components/CancelamentoV2';
-import { PrevisibilidadeV2 } from './components/PrevisibilidadeV2';
-import { IndicadoresLogisticos } from './components/IndicadoresLogisticos';
-import { IndicadoresLogisticosV2 } from './components/IndicadoresLogisticosV2';
 import { GeradorDocumentos } from './components/GeradorDocumentos';
 import { SupplierEvaluationCAF } from './components/SupplierEvaluationCAF';
 import { Ressuprimento } from './components/Ressuprimento';
@@ -58,9 +46,8 @@ import AbastecimentoFarmaceutico from './components/AbastecimentoFarmaceutico';
 import { Sinalizador } from './components/Sinalizador';
 import { PainelTVAbastecimento } from './components/PainelTVAbastecimento';
 import { AnaliseOperacional } from './components/AnaliseOperacional';
-import { CurvaABCXYZ } from './components/CurvaABCXYZ';
-import { CoberturaMultiUnidade } from './components/CoberturaMultiUnidade';
-import { HistoricoConsumo } from './components/HistoricoConsumo';
+import PainelFarmaTV from './components/PainelFarmaTV';
+import { HomeScreen } from './components/HomeScreen';
 import { MobileHeader } from './components/layout/MobileHeader';
 import { Sidebar, NavItem, NavGroup, TabId } from './components/layout/Sidebar';
 import { exportInventoryToPDF } from './utils/pdfExport';
@@ -73,11 +60,11 @@ import { TutorialModal, TutorialHelpButton } from './components/TutorialModal';
 function App() {
   const { user, loading: authLoading } = useAuth();
   const [showApp, setShowApp] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<TabId>('analise_dispensacao');
+  const [activeTab, setActiveTab] = useState<TabId>('home');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [inventoryData, setInventoryData] = usePersistentState<Product[]>('logistica_farma_inventory', MOCK_INVENTORY);
-  const [followUpData, setFollowUpData] = usePersistentState<FollowUpItem[]>('logistica_farma_followup', MOCK_FOLLOW_UP);
+  const [followUpData] = usePersistentState<FollowUpItem[]>('logistica_farma_followup', MOCK_FOLLOW_UP);
   const [selectedCategory, setSelectedCategory] = useState<ProductCategory | 'Todos'>('Todos');
   const [selectedStatus, setSelectedStatus] = useState<AlertStatus | 'Todos'>('Todos');
   const [equivalenceMap, setEquivalenceMap] = usePersistentState<Record<string, string[]>>('logistica_farma_equivalence_map_v3', EQUIVALENCE_MAP);
@@ -97,7 +84,8 @@ function App() {
   React.useEffect(() => {
     setIsSidebarCollapsed(
       activeTab === 'abastecimento-farmaceutico' ||
-      activeTab === 'painel_tv_abastecimento'
+      activeTab === 'painel_tv_abastecimento' ||
+      activeTab === 'painel_farma_tv'
     );
   }, [activeTab]);
 
@@ -162,19 +150,6 @@ function App() {
     }));
   };
 
-  const handleFollowUpLoaded = (data: FollowUpItem[], isMerge: boolean = false) => {
-    if (isMerge) {
-      setFollowUpData(prev => {
-        // Remove duplicates by ID natively
-        const newIds = new Set(data.map(item => item.id));
-        const filteredPrev = prev.filter(item => !newIds.has(item.id));
-        return [...filteredPrev, ...data];
-      });
-    } else {
-      setFollowUpData(data);
-    }
-  };
-
   const handleUpdateStock = (id: string, unit: string, newStock: number) => {
     setInventoryData(prev => prev.map(item => {
       if (item.id === id && item.unit === unit) {
@@ -210,13 +185,9 @@ function App() {
       label: 'Análises & Indicadores',
       icon: <BarChart2 className="w-4 h-4" />,
       items: [
-        { id: 'analise_dispensacao',       label: 'Análise Dispensação',       icon: <BarChart2 className="w-5 h-5" />,       classes: V },
         { id: 'analise_dispensacao_v2',    label: 'Análise Dispensação V2',    icon: <BarChart2 className="w-5 h-5" />,       classes: G },
-        { id: 'dispensary',                label: 'Análise Dispensários',      icon: <Activity className="w-5 h-5" />,        classes: G },
         { id: 'analise_dispensarios_v2',   label: 'Análise Dispensários V2',   icon: <Activity className="w-5 h-5" />,        classes: V },
         { id: 'analise_operacional',       label: 'Análise Operacional',        icon: <Activity className="w-5 h-5" />,        classes: A },
-        { id: 'indicadores_caf',           label: 'Indicadores CAF',           icon: <LineChart className="w-5 h-5" />,       classes: V },
-        { id: 'indicadores_logisticos_v2', label: 'Indicadores Logísticos V2', icon: <BarChart2 className="w-5 h-5" />,       classes: G },
         { id: 'analytics',                 label: 'Insights do Farma',         icon: <PieChart className="w-5 h-5" />,        classes: G },
       ],
     },
@@ -226,19 +197,14 @@ function App() {
       icon: <ShoppingCart className="w-4 h-4" />,
       items: [
         { id: 'transfer',              label: 'Requisição',       icon: <FileSpreadsheet className="w-5 h-5" />, badge: stats.order, classes: G },
-        { id: 'requisicao_v2',         label: 'Requisição V2',    icon: <ShoppingCart className="w-5 h-5" />,   classes: V },
         { id: 'ressuprimento',         label: 'Ressuprimento',    icon: <ShoppingCart className="w-5 h-5" />,   classes: V },
         { id: 'painel_tv_ressuprimento',label: 'Painel TV Ressup.',icon: <MonitorPlay className="w-5 h-5" />,   classes: V },
         { id: 'supply',                label: 'Supply',           icon: <Package className="w-5 h-5" />,        classes: G },
         { id: 'abastecimento-farmaceutico', label: 'Visão de Abastecimento', icon: <Package className="w-5 h-5" />, classes: G },
-        { id: 'painel_tv_abastecimento', label: 'Painel TV Abastecimento', icon: <MonitorPlay className="w-5 h-5" />, classes: A },
+        { id: 'painel_tv_abastecimento', label: 'Painel TV Integrado', icon: <MonitorPlay className="w-5 h-5" />, classes: A },
         { id: 'sinalizador', label: 'Sinalizador', icon: <AlertTriangle className="w-5 h-5" />, classes: A },
-        { id: 'painel_caf',            label: 'Painel CAF',       icon: <Package className="w-5 h-5" />,        classes: V },
         { id: 'painel_caf_v2',         label: 'Painel CAF V2',    icon: <BarChart2 className="w-5 h-5" />,      classes: G },
         { id: 'remanejamento',         label: 'Remanejamento',    icon: <ArrowLeftRight className="w-5 h-5" />, classes: A },
-        { id: 'curva_abcxyz',          label: 'Curva ABC/XYZ',    icon: <BarChart2 className="w-5 h-5" />,      classes: G },
-        { id: 'cobertura_multi_unidade', label: 'Multi-Unidade',  icon: <Package className="w-5 h-5" />,        classes: G },
-        { id: 'historico_consumo',     label: 'Histórico Consumo',icon: <LineChart className="w-5 h-5" />,      classes: V },
       ],
     },
     {
@@ -247,12 +213,10 @@ function App() {
       icon: <Ban className="w-4 h-4" />,
       items: [
         { id: 'multidose',          label: 'Multidose',            icon: <Activity className="w-5 h-5" />,      classes: V },
-        { id: 'rastreio',           label: 'Rastreio Cancelamento', icon: <Ban className="w-5 h-5" />,          classes: V },
         { id: 'rastreio_falta',     label: 'Rastreio de Falta',     icon: <AlertTriangle className="w-5 h-5" />,classes: G },
         { id: 'cancelamento_v2',    label: 'Cancelamento V2',       icon: <XCircle className="w-5 h-5" />,      classes: G },
         { id: 'daily_tracking',     label: 'Tracking Diário SV',    icon: <Activity className="w-5 h-5" />,     classes: V },
         { id: 'previsibilidade',    label: 'Previsibilidade',       icon: <AlertCircle className="w-5 h-5" />,  classes: V },
-        { id: 'previsibilidade_v2', label: 'Previsibilidade V2',    icon: <LineChart className="w-5 h-5" />,    classes: G },
       ],
     },
     {
@@ -261,7 +225,6 @@ function App() {
       icon: <ClipboardList className="w-4 h-4" />,
       items: [
         { id: 'checagem_devolucao',      label: 'Checagem e Devolução',    icon: <ClipboardList className="w-5 h-5" />,   classes: V },
-        { id: 'inteligencia_devolucoes', label: 'Inteligência Devoluções', icon: <FileSpreadsheet className="w-5 h-5" />, classes: V },
       ],
     },
     {
@@ -280,6 +243,7 @@ function App() {
       label: 'Gestão & Fornecedores',
       icon: <ShieldCheck className="w-4 h-4" />,
       items: [
+        { id: 'painel_farma_tv',        label: 'Painel TV do Farma',    icon: <MonitorPlay className="w-5 h-5" />, classes: G },
         { id: 'avaliacao_fornecedores', label: 'Avaliação Fornec.',      icon: <ShieldCheck className="w-5 h-5" />, classes: V },
         { id: 'conciliacao',            label: 'Conciliação Empréstimo', icon: <Calculator className="w-5 h-5" />, classes: V },
       ],
@@ -326,6 +290,7 @@ function App() {
         navGroups={navGroups}
         isCollapsed={isSidebarCollapsed}
         setIsCollapsed={setIsSidebarCollapsed}
+        onLogoClick={() => setActiveTab('home')}
       />
 
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 md:py-10">
@@ -338,6 +303,14 @@ function App() {
             transition={{ duration: 0.3, ease: "easeOut" }}
             className="w-full"
           >
+        {activeTab === 'home' && (
+          <HomeScreen
+            navGroups={navGroups}
+            setActiveTab={setActiveTab}
+            userEmail={user?.email}
+          />
+        )}
+
         {activeTab === 'sinalizador' && (
           <div className="max-w-7xl mx-auto">
             <Sinalizador />
@@ -363,11 +336,6 @@ function App() {
           </div>
         )}
 
-        {activeTab === 'dispensary' && (
-          <div className="max-w-6xl mx-auto">
-             <DispensaryAnalysis />
-          </div>
-        )}
 
 
         {activeTab === 'genesis' && (
@@ -397,11 +365,6 @@ function App() {
           </div>
         )}
 
-        {activeTab === 'rastreio' && (
-          <div className="w-full">
-            <DashboardRastreio />
-          </div>
-        )}
 
         {activeTab === 'productivity' && (
           <div className="w-full">
@@ -422,11 +385,6 @@ function App() {
           </div>
         )}
 
-        {activeTab === 'painel_caf' && (
-          <div className="max-w-full mx-auto">
-            <PainelCAF />
-          </div>
-        )}
 
         {activeTab === 'painel_caf_v2' && (
           <div className="max-w-full mx-auto">
@@ -434,11 +392,6 @@ function App() {
           </div>
         )}
 
-        {activeTab === 'indicadores_caf' && (
-          <div className="max-w-full mx-auto">
-            <IndicadoresCAF />
-          </div>
-        )}
 
 
         {activeTab === 'vba' && (
@@ -452,19 +405,9 @@ function App() {
             <ConciliacaoEmprestimo />
           </div>
         )}
-            {activeTab === 'analise_dispensacao' && (
-          <div className="max-w-7xl mx-auto">
-            <AnaliseDispensacao />
-          </div>
-        )}
         {activeTab === 'analise_dispensacao_v2' && (
           <div className="max-w-7xl mx-auto">
             <AnaliseDispensacaoV2 />
-          </div>
-        )}
-        {activeTab === 'inteligencia_devolucoes' && (
-          <div className="max-w-7xl mx-auto">
-            <InteligenciaDevolucoes />
           </div>
         )}
         {activeTab === 'criticidade' && (
@@ -487,24 +430,9 @@ function App() {
             <RastreioFalta />
           </div>
         )}
-        {activeTab === 'requisicao_v2' && (
-          <div className="max-w-7xl mx-auto">
-            <RequisicaoV2 />
-          </div>
-        )}
         {activeTab === 'cancelamento_v2' && (
           <div className="max-w-7xl mx-auto">
             <CancelamentoV2 />
-          </div>
-        )}
-        {activeTab === 'previsibilidade_v2' && (
-          <div className="max-w-7xl mx-auto">
-            <PrevisibilidadeV2 equivalenceMap={equivalenceMap} />
-          </div>
-        )}
-        {activeTab === 'indicadores_logisticos_v2' && (
-          <div className="max-w-7xl mx-auto">
-            <IndicadoresLogisticosV2 />
           </div>
         )}
         {activeTab === 'gerador_documentos' && (
@@ -537,15 +465,6 @@ function App() {
             <Supply />
           </div>
         )}
-        {activeTab === 'curva_abcxyz' && (
-          <CurvaABCXYZ />
-        )}
-        {activeTab === 'cobertura_multi_unidade' && (
-          <CoberturaMultiUnidade />
-        )}
-        {activeTab === 'historico_consumo' && (
-          <HistoricoConsumo />
-        )}
         {activeTab === 'multidose' && (
           <div className="max-w-[1400px] mx-auto">
             <Multidose />
@@ -573,7 +492,12 @@ function App() {
         )}
         {activeTab === 'painel_tv_abastecimento' && (
           <div className="w-full -mx-4 sm:-mx-6 lg:-mx-8 -mt-8 md:-mt-10">
-            <PainelTVAbastecimento onBack={() => setActiveTab('abastecimento-farmaceutico')} />
+            <PainelTVAbastecimento onBack={() => setActiveTab('abastecimento-farmaceutico')} followUpData={followUpData} />
+          </div>
+        )}
+        {activeTab === 'painel_farma_tv' && (
+          <div className="w-full -mx-4 sm:-mx-6 lg:-mx-8 -mt-8 md:-mt-10">
+            <PainelFarmaTV onBack={() => setActiveTab('analise_dispensacao_v2')} />
           </div>
         )}
       </motion.div>

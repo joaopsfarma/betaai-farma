@@ -1,17 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { ProcessedProduct } from '../types';
-import { 
+import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   PieChart, Pie, Cell, AreaChart, Area, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
   LineChart, Line, ComposedChart
 } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  AlertTriangle, 
-  CheckCircle2, 
-  Package, 
-  TrendingDown, 
-  Clock, 
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Package,
+  TrendingDown,
+  Clock,
   Activity,
   ArrowUpRight,
   ArrowDownRight,
@@ -24,13 +24,36 @@ import {
   Gauge,
   ShieldCheck,
   AlertCircle,
-  UploadCloud,
   FileSpreadsheet,
-  CheckSquare
+  CheckSquare,
+  Database,
+  Wifi,
+  WifiOff,
+  UploadCloud
 } from 'lucide-react';
 import Papa from 'papaparse';
 import { PanelGuide } from './common/PanelGuide';
 import { Target, BarChart3 } from 'lucide-react';
+import type { InsightsPayload } from '../types/painelFarmaTV';
+
+// ── localStorage keys ─────────────────────────────────────────────────────────
+const LS_KEY_CONSUMO  = 'farma_insights_consumo_raw';
+const LS_KEY_LOTES    = 'farma_insights_lotes_raw';
+const LS_KEY_TV       = 'farma_tv_insights';
+
+// ── Helper: carrega do localStorage somente se formato for objeto correto ─────
+function loadFromLS(key: string): any[] {
+  try {
+    const s = localStorage.getItem(key);
+    if (!s) return [];
+    const parsed = JSON.parse(s);
+    if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === 'object' && !Array.isArray(parsed[0])) {
+      return parsed;
+    }
+    localStorage.removeItem(key); // Formato antigo — descarta
+    return [];
+  } catch { return []; }
+}
 
 interface DashboardProps {
   data: ProcessedProduct[];
@@ -52,24 +75,143 @@ const CHART_COLORS = [COLORS.primary, COLORS.success, COLORS.warning, COLORS.dan
 export const Dashboard: React.FC<DashboardProps> = ({ data }) => {
   const [paretoCount, setParetoCount] = useState<number>(10);
 
-  // Novos Estados para CSVs importados localmente
-  const [consumoRaw, setConsumoRaw] = useState<any[]>([]);
-  const [lotesRaw, setLotesRaw] = useState<any[]>([]);
-  const [consumoStatus, setConsumoStatus] = useState<string>('Nenhum');
-  const [lotesStatus, setLotesStatus] = useState<string>('Nenhum');
+  // ── Estados dos CSVs (inicializa do localStorage se formato for objeto correto) ─
+  const [consumoRaw, setConsumoRaw] = useState<any[]>(() => loadFromLS(LS_KEY_CONSUMO));
+  const [lotesRaw,   setLotesRaw]   = useState<any[]>(() => loadFromLS(LS_KEY_LOTES));
+  const [consumoStatus, setConsumoStatus] = useState<string>(() =>
+    loadFromLS(LS_KEY_CONSUMO).length > 0 ? 'Salvo na memória' : 'Aguardando arquivo...'
+  );
+  const [lotesStatus, setLotesStatus] = useState<string>(() =>
+    loadFromLS(LS_KEY_LOTES).length > 0 ? 'Salvo na memória' : 'Aguardando arquivo...'
+  );
 
-  const parseCSVLocal = (file: File | undefined, setter: React.Dispatch<any>, statusSetter: React.Dispatch<string>) => {
-    if (!file) return;
-    statusSetter('Carregando...');
-    Papa.parse(file, {
-      skipEmptyLines: true,
-      complete: (res) => {
-        setter(res.data);
-        statusSetter(`Carregado (${res.data.length})`);
-      },
-      error: () => statusSetter('Erro')
-    });
+  // ── Helpers de parsing (reutilizados no import manual) ───────────────────────
+  const parseLine = (line: string): string[] => {
+    const result: string[] = [];
+    let cur = '', inQ = false;
+    for (const ch of line) {
+      if (ch === '"') { inQ = !inQ; }
+      else if (ch === ',' && !inQ) { result.push(cur.trim()); cur = ''; }
+      else { cur += ch; }
+    }
+    result.push(cur.trim());
+    return result;
   };
+  const parseBRNum = (s: string) => parseFloat((s || '').replace('.', '').replace(',', '.')) || 0;
+
+  // ── Import manual: Consumo Diário ─────────────────────────────────────────────
+  const handleConsumoFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setConsumoStatus('Processando...');
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const text = ev.target?.result as string;
+      const rows = text.split('\n').map(l => l.replace(/\r/g, '').trim()).filter(Boolean);
+      const parsed: Record<string, string>[] = [];
+      for (const line of rows) {
+        const c = parseLine(line);
+        const idVal = (c[0] || '').trim();
+        if (!idVal || isNaN(Number(idVal))) continue;
+        parsed.push({
+          id:       idVal,
+          produto:  (c[1] || '').trim(),
+          unidade:  (c[2] || '').trim(),
+          consumo:  String(parseBRNum(c[10] || '0')),
+          saldo:    String(parseBRNum(c[11] || '0')),
+          projecao: String(parseBRNum(c[13] || '0')),
+        });
+      }
+      setConsumoRaw(parsed);
+      setConsumoStatus(`${file.name} (${parsed.length} registros)`);
+      try { localStorage.setItem(LS_KEY_CONSUMO, JSON.stringify(parsed)); } catch { /* quota */ }
+    };
+    reader.readAsText(file, 'windows-1252');
+  };
+
+  // ── Import manual: Conferência Lotes ─────────────────────────────────────────
+  const handleLotesFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setLotesStatus('Processando...');
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const text = ev.target?.result as string;
+      const rows = text.split('\n').map(l => l.replace(/\r/g, '').trim()).filter(Boolean);
+      const parsed: Record<string, string>[] = [];
+      for (const line of rows) {
+        const c = parseLine(line);
+        const idVal = (c[1] || '').trim();
+        if (!idVal || isNaN(Number(idVal))) continue;
+        const validade = (c[10] || '').trim();
+        if (!validade || !validade.includes('/')) continue;
+        parsed.push({
+          id:         idVal,
+          produto:    (c[2] || '').trim(),
+          unidade:    (c[4] || '').trim(),
+          validade:   validade,
+          quantidade: String(parseBRNum(c[18] || '0')),
+          lote:       (c[8] || '').trim(),
+        });
+      }
+      setLotesRaw(parsed);
+      setLotesStatus(`${file.name} (${parsed.length} registros)`);
+      try { localStorage.setItem(LS_KEY_LOTES, JSON.stringify(parsed)); } catch { /* quota */ }
+    };
+    reader.readAsText(file, 'windows-1252');
+  };
+
+  // ── Auto-fetch dos CSVs na montagem (caso localStorage esteja vazio) ─────────
+  useEffect(() => {
+    const fetchLatin1 = (url: string): Promise<string> =>
+      fetch(url)
+        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); })
+        .then(buf => new TextDecoder('windows-1252').decode(buf));
+
+    if (loadFromLS(LS_KEY_CONSUMO).length === 0) {
+      fetchLatin1('/data/r_cons_diario.csv').then(text => {
+        const rows = text.split('\n').map(l => l.replace(/\r/g, '').trim()).filter(Boolean);
+        const parsed: Record<string, string>[] = [];
+        for (const line of rows) {
+          const c = parseLine(line);
+          const idVal = (c[0] || '').trim();
+          if (!idVal || isNaN(Number(idVal))) continue;
+          parsed.push({
+            id: idVal, produto: (c[1] || '').trim(), unidade: (c[2] || '').trim(),
+            consumo: String(parseBRNum(c[10] || '0')), saldo: String(parseBRNum(c[11] || '0')),
+            projecao: String(parseBRNum(c[13] || '0')),
+          });
+        }
+        setConsumoRaw(parsed);
+        setConsumoStatus(`Carregado (${parsed.length} registros)`);
+        try { localStorage.setItem(LS_KEY_CONSUMO, JSON.stringify(parsed)); } catch { /* quota */ }
+      }).catch(() => setConsumoStatus('Aguardando arquivo...'));
+    }
+
+    if (loadFromLS(LS_KEY_LOTES).length === 0) {
+      fetchLatin1('/data/r_conf_lote.csv').then(text => {
+        const rows = text.split('\n').map(l => l.replace(/\r/g, '').trim()).filter(Boolean);
+        const parsed: Record<string, string>[] = [];
+        for (const line of rows) {
+          const c = parseLine(line);
+          const idVal = (c[1] || '').trim();
+          if (!idVal || isNaN(Number(idVal))) continue;
+          const validade = (c[10] || '').trim();
+          if (!validade || !validade.includes('/')) continue;
+          parsed.push({
+            id: idVal, produto: (c[2] || '').trim(), unidade: (c[4] || '').trim(),
+            validade, quantidade: String(parseBRNum(c[18] || '0')), lote: (c[8] || '').trim(),
+          });
+        }
+        setLotesRaw(parsed);
+        setLotesStatus(`Carregado (${parsed.length} registros)`);
+        try { localStorage.setItem(LS_KEY_LOTES, JSON.stringify(parsed)); } catch { /* quota */ }
+      }).catch(() => setLotesStatus('Aguardando arquivo...'));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // KPIs Novos baseados em CSV Local
   const dynamicKpis = React.useMemo(() => {
@@ -77,11 +219,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ data }) => {
     let pendenciasLote = 0;
 
     if (consumoRaw.length > 0) {
-      linhasConsumo = consumoRaw.length - 1; // Desconta cabeçalho
+      linhasConsumo = consumoRaw.length; // Já vem sem cabeçalho
     }
 
     if (lotesRaw.length > 0) {
-      pendenciasLote = lotesRaw.length - 1; 
+      pendenciasLote = lotesRaw.length; // Já vem sem cabeçalho
     }
 
     return { linhasConsumo, pendenciasLote };
@@ -268,6 +410,48 @@ export const Dashboard: React.FC<DashboardProps> = ({ data }) => {
       .slice(0, 6);
   }, [processedData]);
 
+  // ── Bridge: escreve payload no localStorage para o Painel TV ────────────────
+  useEffect(() => {
+    if (!processedData.length) return;
+
+    // Calcular distribuição ABC (acumulado de consumo)
+    const sorted = [...processedData].sort((a, b) => b.dailyConsumption - a.dailyConsumption);
+    const totalCons = sorted.reduce((s, p) => s + p.dailyConsumption, 0);
+    let cumul = 0;
+    let curvaA = 0, curvaB = 0, curvaC = 0;
+    sorted.forEach(p => {
+      cumul += p.dailyConsumption;
+      const pct = totalCons > 0 ? cumul / totalCons : 0;
+      if (pct <= 0.8) curvaA++;
+      else if (pct <= 0.95) curvaB++;
+      else curvaC++;
+    });
+
+    const payload: InsightsPayload = {
+      savedAt: new Date().toISOString(),
+      stats: { ...stats },
+      paretoData: paretoData.slice(0, 15),
+      securityAlerts: securityStockAlerts.slice(0, 20).map(p => ({
+        id: p.id,
+        name: p.name,
+        coverageDays: p.coverageDays,
+        dailyConsumption: p.dailyConsumption,
+        status: p.status,
+      })),
+      abcDistribution: { curvaA, curvaB, curvaC },
+      transferOpportunities: transferOpportunities.slice(0, 8).map(p => ({
+        id: p.id,
+        name: p.name,
+        physicalStock: p.physicalStock,
+        coverageDays: p.coverageDays,
+        dailyConsumption: p.dailyConsumption,
+      })),
+      expiryItems: expiryHeatmap.slice(0, 30),
+    };
+
+    try { localStorage.setItem(LS_KEY_TV, JSON.stringify(payload)); } catch { /* quota */ }
+  }, [processedData, paretoData, securityStockAlerts, stats]);
+
   // 6. Oportunidades de Transferência (Excesso de Estoque relativo ao Consumo/Conferência)
   const transferOpportunities = React.useMemo(() => {
     // Definimos a lista base: Se tivermos agrupamento de lotes (Arquivo Roxo), ele tem precedência no Saldo Fisico.
@@ -384,54 +568,62 @@ export const Dashboard: React.FC<DashboardProps> = ({ data }) => {
         ]}
       />
 
-      {/* Seção de Importação Avançada Local */}
+      {/* ── Banner de Status dos Dados ───────────────────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4 relative overflow-hidden group">
-          <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:scale-110 transition-transform duration-500">
-             <FileSpreadsheet className="w-16 h-16 text-blue-600" />
+        {/* Card: Consumo Real */}
+        <div className={`bg-white p-5 rounded-2xl shadow-sm border flex items-center gap-4 relative overflow-hidden transition-colors ${consumoRaw.length > 0 ? 'border-emerald-200' : 'border-slate-200'}`}>
+          <div className="absolute top-0 right-0 p-4 opacity-[0.04]">
+            <FileSpreadsheet className="w-16 h-16 text-blue-600" />
           </div>
-          <div className="flex items-center gap-3 relative z-10 w-full">
-            <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
-              <UploadCloud className="w-5 h-5" />
-            </div>
-            <div>
-              <h4 className="font-bold text-slate-800 text-sm">Upload Base: Consumo Real</h4>
-              <p className="text-xs text-slate-500">Otimiza os KPIs de Giro e Pareto</p>
-            </div>
+          <div className={`p-3 rounded-xl shrink-0 ${consumoRaw.length > 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-50 text-slate-400'}`}>
+            <FileSpreadsheet className="w-5 h-5" />
           </div>
-          <label className="relative z-10 w-full sm:w-auto mt-2 sm:mt-0 cursor-pointer">
-            <input 
-              type="file" accept=".csv" className="hidden" 
-              onChange={(e) => parseCSVLocal(e.target.files?.[0], setConsumoRaw, setConsumoStatus)} 
-            />
-            <div className={`px-4 py-2.5 rounded-xl text-xs font-bold border whitespace-nowrap text-center transition-all ${consumoRaw.length > 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-white hover:border-blue-300 hover:text-blue-600'}`}>
-              {consumoRaw.length > 0 ? `✓ ${consumoStatus}` : 'Selecionar CSV'}
-            </div>
-          </label>
+          <div className="flex-1 min-w-0 relative z-10">
+            <h4 className="font-bold text-slate-800 text-sm">Consumo Real <span className="font-normal text-slate-400 text-xs">(r_cons_diario.csv)</span></h4>
+            <p className="text-xs text-slate-400 truncate">{consumoStatus}</p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0 relative z-10">
+            {consumoRaw.length > 0 && (
+              <button
+                onClick={() => { setConsumoRaw([]); setConsumoStatus('Aguardando arquivo...'); localStorage.removeItem(LS_KEY_CONSUMO); }}
+                className="text-[10px] font-bold text-slate-400 hover:text-red-500 px-2 py-1 rounded-lg hover:bg-red-50 transition-colors"
+                title="Limpar dados"
+              >✕</button>
+            )}
+            <label className={`flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 rounded-xl cursor-pointer transition-colors ${consumoRaw.length > 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}>
+              <UploadCloud className="w-3.5 h-3.5" />
+              {consumoRaw.length > 0 ? 'Reenviar' : 'Importar'}
+              <input type="file" accept=".csv" onChange={handleConsumoFile} className="hidden" />
+            </label>
+          </div>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4 relative overflow-hidden group">
-          <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:scale-110 transition-transform duration-500">
-             <CheckSquare className="w-16 h-16 text-indigo-600" />
+        {/* Card: Conferência Lotes */}
+        <div className={`bg-white p-5 rounded-2xl shadow-sm border flex items-center gap-4 relative overflow-hidden transition-colors ${lotesRaw.length > 0 ? 'border-emerald-200' : 'border-slate-200'}`}>
+          <div className="absolute top-0 right-0 p-4 opacity-[0.04]">
+            <CheckSquare className="w-16 h-16 text-indigo-600" />
           </div>
-          <div className="flex items-center gap-3 relative z-10 w-full">
-            <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl">
-              <CheckSquare className="w-5 h-5" />
-            </div>
-            <div>
-              <h4 className="font-bold text-slate-800 text-sm">Upload Base: Conferência Lotes</h4>
-              <p className="text-xs text-slate-500">Alimenta painel de Divergências</p>
-            </div>
+          <div className={`p-3 rounded-xl shrink-0 ${lotesRaw.length > 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-50 text-slate-400'}`}>
+            <CheckSquare className="w-5 h-5" />
           </div>
-          <label className="relative z-10 w-full sm:w-auto mt-2 sm:mt-0 cursor-pointer">
-            <input 
-              type="file" accept=".csv" className="hidden" 
-              onChange={(e) => parseCSVLocal(e.target.files?.[0], setLotesRaw, setLotesStatus)} 
-            />
-            <div className={`px-4 py-2.5 rounded-xl text-xs font-bold border whitespace-nowrap text-center transition-all ${lotesRaw.length > 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-white hover:border-indigo-300 hover:text-indigo-600'}`}>
-              {lotesRaw.length > 0 ? `✓ ${lotesStatus}` : 'Selecionar CSV'}
-            </div>
-          </label>
+          <div className="flex-1 min-w-0 relative z-10">
+            <h4 className="font-bold text-slate-800 text-sm">Conferência Lotes <span className="font-normal text-slate-400 text-xs">(r_conf_lote.csv)</span></h4>
+            <p className="text-xs text-slate-400 truncate">{lotesStatus}</p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0 relative z-10">
+            {lotesRaw.length > 0 && (
+              <button
+                onClick={() => { setLotesRaw([]); setLotesStatus('Aguardando arquivo...'); localStorage.removeItem(LS_KEY_LOTES); }}
+                className="text-[10px] font-bold text-slate-400 hover:text-red-500 px-2 py-1 rounded-lg hover:bg-red-50 transition-colors"
+                title="Limpar dados"
+              >✕</button>
+            )}
+            <label className={`flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 rounded-xl cursor-pointer transition-colors ${lotesRaw.length > 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}>
+              <UploadCloud className="w-3.5 h-3.5" />
+              {lotesRaw.length > 0 ? 'Reenviar' : 'Importar'}
+              <input type="file" accept=".csv" onChange={handleLotesFile} className="hidden" />
+            </label>
+          </div>
         </div>
       </div>
 

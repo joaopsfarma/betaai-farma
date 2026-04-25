@@ -3,9 +3,10 @@ import {
   Tv2, Play, Pause, Volume2, VolumeX, Maximize2, Minimize2,
   Clock, PackageX, AlertCircle, ShieldCheck, Users,
   TrendingDown, ChevronLeft, ChevronRight, Activity, Monitor,
-  ArrowLeft, Zap, AlertTriangle, DollarSign, BarChart2,
+  ArrowLeft, Zap, AlertTriangle, DollarSign, BarChart2, ListChecks, Truck,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { FollowUpItem } from '../types';
 
 // ── Tipos ──────────────────────────────────────────────────────────────────
 
@@ -54,14 +55,20 @@ interface TVSupplier {
   pontualidade: number;
 }
 
+interface ABCSummary {
+  A: number; B: number; C: number;
+  valA: number; valB: number; valC: number;
+}
+
 interface AbastecimentoTVData {
   savedAt: string;
   kpis: TVKpis;
   items: TVItem[];
   suppliers: TVSupplier[];
+  abcSummary?: ABCSummary;
 }
 
-type SlideType = 'dashboard' | 'rupturas' | 'cobertura_critica' | 'atrasados' | 'fornecedores';
+type SlideType = 'dashboard' | 'rupturas' | 'cobertura_critica' | 'atrasados' | 'fornecedores' | 'curva_abc' | 'followup';
 
 interface Slide {
   type: SlideType;
@@ -85,6 +92,7 @@ const toTitleCase = (str: string) =>
 
 interface PainelTVAbastecimentoProps {
   onBack?: () => void;
+  followUpData?: FollowUpItem[];
 }
 
 // ── Sub-componente: Contador animado ───────────────────────────────────────
@@ -109,10 +117,18 @@ function AnimatedCount({ target, duration = 800 }: { target: number; duration?: 
 
 // ── Sub-componente: Dashboard ──────────────────────────────────────────────
 
-function DashboardSlide({ kpis, healthStatus, savedAt }: {
+interface FollowUpKpis {
+  total: number;
+  atrasados: number;
+  atrasoMedio: number;
+  topAtrasados: FollowUpItem[];
+}
+
+function DashboardSlide({ kpis, healthStatus, savedAt, followUpKpis }: {
   kpis: TVKpis;
   healthStatus: 'CRÍTICO' | 'ALERTA' | 'OK';
   savedAt: string;
+  followUpKpis?: FollowUpKpis | null;
 }) {
   const savedDate = new Date(savedAt).toLocaleString('pt-BR');
 
@@ -195,7 +211,7 @@ function DashboardSlide({ kpis, healthStatus, savedAt }: {
       </div>
 
       {/* Métricas complementares */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className={`grid gap-4 ${followUpKpis ? 'grid-cols-3 lg:grid-cols-6' : 'grid-cols-3'}`}>
         <div className="bg-slate-800/60 rounded-xl border border-slate-700/50 p-4 text-center">
           <div className="text-xs text-slate-400 uppercase tracking-wider mb-1">Taxa de Ruptura</div>
           <div className={`text-3xl font-black ${kpis.taxaRuptura > 2 ? 'text-red-400' : 'text-emerald-400'}`}>
@@ -217,6 +233,31 @@ function DashboardSlide({ kpis, healthStatus, savedAt }: {
           </div>
           <div className="text-[10px] text-slate-500 mt-1">Atualizado: {savedDate}</div>
         </div>
+        {followUpKpis && (
+          <>
+            <div className="bg-slate-800/60 rounded-xl border border-slate-700/50 p-4 text-center">
+              <div className="text-xs text-slate-400 uppercase tracking-wider mb-1">OCs Follow Up</div>
+              <div className="text-3xl font-black text-violet-400">{followUpKpis.total}</div>
+              <div className="text-[10px] text-slate-500 mt-1">Ordens em acompanhamento</div>
+            </div>
+            <div className="bg-slate-800/60 rounded-xl border border-slate-700/50 p-4 text-center">
+              <div className="text-xs text-slate-400 uppercase tracking-wider mb-1">OCs Atrasadas</div>
+              <div className={`text-3xl font-black ${followUpKpis.atrasados > 0 ? 'text-red-400 animate-pulse' : 'text-emerald-400'}`}>
+                {followUpKpis.atrasados}
+              </div>
+              <div className="text-[10px] text-slate-500 mt-1">
+                {followUpKpis.total > 0 ? `${((followUpKpis.atrasados / followUpKpis.total) * 100).toFixed(0)}% do total` : '—'}
+              </div>
+            </div>
+            <div className="bg-slate-800/60 rounded-xl border border-slate-700/50 p-4 text-center">
+              <div className="text-xs text-slate-400 uppercase tracking-wider mb-1">Atraso Médio</div>
+              <div className={`text-3xl font-black ${followUpKpis.atrasoMedio > 7 ? 'text-red-400' : followUpKpis.atrasoMedio > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                {followUpKpis.atrasoMedio}<span className="text-lg"> d</span>
+              </div>
+              <div className="text-[10px] text-slate-500 mt-1">Dias de atraso médio</div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -365,9 +406,201 @@ function SupplierSlide({ suppliers }: { suppliers: TVSupplier[] }) {
   );
 }
 
+// ── Sub-componente: Curva ABC ──────────────────────────────────────────────
+
+function CurvaABCSlide({ abc, savedAt }: { abc: ABCSummary; savedAt: string }) {
+  const total = abc.A + abc.B + abc.C;
+  const valTotal = abc.valA + abc.valB + abc.valC;
+  const savedDate = new Date(savedAt).toLocaleString('pt-BR');
+
+  const classes = [
+    {
+      label: 'A',
+      count: abc.A,
+      value: abc.valA,
+      desc: 'Alto impacto financeiro',
+      meta: '~80% do valor total',
+      bg: 'bg-red-500/15',
+      border: 'border-red-500/40',
+      badge: 'bg-red-500/20 text-red-300 border-red-500/40',
+      text: 'text-red-400',
+    },
+    {
+      label: 'B',
+      count: abc.B,
+      value: abc.valB,
+      desc: 'Impacto intermediário',
+      meta: '~15% do valor total',
+      bg: 'bg-amber-500/15',
+      border: 'border-amber-500/40',
+      badge: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
+      text: 'text-amber-400',
+    },
+    {
+      label: 'C',
+      count: abc.C,
+      value: abc.valC,
+      desc: 'Baixo impacto financeiro',
+      meta: '~5% do valor total',
+      bg: 'bg-slate-700/40',
+      border: 'border-slate-600/40',
+      badge: 'bg-slate-700/40 text-slate-300 border-slate-600/40',
+      text: 'text-slate-300',
+    },
+  ];
+
+  return (
+    <div className="flex flex-col gap-6 h-full">
+      <div className="flex items-center justify-between">
+        <p className="text-slate-400 text-sm font-medium">
+          Classificação ABC por valor — {total} itens analisados
+        </p>
+        <p className="text-slate-600 text-xs">Ref.: {savedDate}</p>
+      </div>
+
+      {/* Cards ABC */}
+      <div className="grid grid-cols-3 gap-6 flex-1">
+        {classes.map((c) => {
+          const pctCount = total > 0 ? ((c.count / total) * 100).toFixed(1) : '0.0';
+          const pctVal   = valTotal > 0 ? ((c.value / valTotal) * 100).toFixed(1) : '0.0';
+          return (
+            <motion.div
+              key={c.label}
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4, ease: 'easeOut' }}
+              className={`rounded-2xl border ${c.bg} ${c.border} p-6 flex flex-col gap-4`}
+            >
+              {/* Badge classe */}
+              <div className="flex items-center justify-between">
+                <span className={`text-5xl font-black ${c.text}`}>{c.label}</span>
+                <span className={`px-3 py-1 rounded-xl border text-sm font-bold ${c.badge}`}>
+                  {pctCount}% itens
+                </span>
+              </div>
+
+              {/* Contagem */}
+              <div>
+                <div className={`text-6xl font-black ${c.text}`}>{c.count}</div>
+                <div className="text-slate-500 text-sm mt-1">itens</div>
+              </div>
+
+              {/* Valor */}
+              <div className="bg-slate-800/60 rounded-xl p-3 border border-slate-700/40">
+                <div className="text-xs text-slate-500 uppercase tracking-wider mb-1">Valor Total</div>
+                <div className={`text-xl font-black ${c.text}`}>
+                  R$ {c.value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+                <div className="text-xs text-slate-500 mt-0.5">{pctVal}% do valor total</div>
+              </div>
+
+              <div className="text-xs text-slate-500 border-t border-slate-700/40 pt-2">
+                <p className="font-semibold text-slate-400">{c.desc}</p>
+                <p>{c.meta}</p>
+              </div>
+            </motion.div>
+          );
+        })}
+      </div>
+
+      {/* Barra de distribuição visual */}
+      {valTotal > 0 && (
+        <div>
+          <div className="text-xs text-slate-500 uppercase tracking-wider mb-2">Distribuição por Valor</div>
+          <div className="h-4 rounded-full overflow-hidden flex">
+            <div className="bg-red-500/70 h-full transition-all" style={{ width: `${(abc.valA / valTotal) * 100}%` }} title={`A: ${((abc.valA / valTotal) * 100).toFixed(1)}%`} />
+            <div className="bg-amber-500/70 h-full transition-all" style={{ width: `${(abc.valB / valTotal) * 100}%` }} title={`B: ${((abc.valB / valTotal) * 100).toFixed(1)}%`} />
+            <div className="bg-slate-500/70 h-full transition-all" style={{ width: `${(abc.valC / valTotal) * 100}%` }} title={`C: ${((abc.valC / valTotal) * 100).toFixed(1)}%`} />
+          </div>
+          <div className="flex justify-between text-[10px] text-slate-500 mt-1">
+            <span>Classe A · {((abc.valA / valTotal) * 100).toFixed(1)}%</span>
+            <span>Classe B · {((abc.valB / valTotal) * 100).toFixed(1)}%</span>
+            <span>Classe C · {((abc.valC / valTotal) * 100).toFixed(1)}%</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Sub-componente: Follow Up ─────────────────────────────────────────────
+
+function FollowUpSlide({ items, pageIndex, totalPages }: {
+  items: FollowUpItem[];
+  pageIndex: number;
+  totalPages: number;
+}) {
+  const page = items.slice(pageIndex * ITEMS_PER_SLIDE, (pageIndex + 1) * ITEMS_PER_SLIDE);
+
+  return (
+    <div className="flex flex-col gap-3 h-full">
+      <p className="text-slate-400 text-sm font-medium">
+        {items.length} ordem{items.length !== 1 ? 'ns' : ''} de compra em atraso — Acompanhamento Follow Up
+        {totalPages > 1 && <span className="ml-2 text-slate-600">· Pág. {pageIndex + 1}/{totalPages}</span>}
+      </p>
+      <div className="flex flex-col gap-2 flex-1">
+        {page.map((item, idx) => {
+          const isCritical = item.delayDays > 7;
+          return (
+            <motion.div
+              key={`${item.ocNumber}-${item.itemCode}-${idx}`}
+              initial={{ opacity: 0, x: 40 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -40 }}
+              transition={{ duration: 0.3, delay: idx * 0.04, ease: 'easeOut' }}
+              className={`flex items-center gap-4 rounded-xl border px-4 py-3 ${
+                isCritical
+                  ? 'bg-red-500/10 border-red-500/40 border-l-4 border-l-red-500'
+                  : 'bg-amber-500/8 border-amber-500/30 border-l-4 border-l-amber-500'
+              }`}
+            >
+              {/* Dias de atraso */}
+              <div className={`flex-shrink-0 w-16 text-center ${isCritical ? 'text-red-400' : 'text-amber-400'}`}>
+                <div className={`text-2xl font-black ${isCritical ? 'animate-pulse' : ''}`}>{item.delayDays}</div>
+                <div className="text-[10px] font-semibold uppercase tracking-wide opacity-80">dias</div>
+              </div>
+
+              {/* Informações do item */}
+              <div className="flex-1 min-w-0">
+                <p className="text-white font-bold text-sm leading-snug truncate">{item.itemName}</p>
+                <p className="text-slate-400 text-xs mt-0.5 truncate">
+                  OC {item.ocNumber} · {item.supplier}
+                </p>
+              </div>
+
+              {/* Qtd pendente */}
+              <div className="flex-shrink-0 text-right">
+                <div className="text-slate-300 text-sm font-semibold">{item.pendingQty}</div>
+                <div className="text-[10px] text-slate-500">qtd pend.</div>
+              </div>
+
+              {/* Data de entrega */}
+              {item.deliveryDate && (
+                <div className="flex-shrink-0 text-right">
+                  <div className="text-xs text-slate-500">Previsão</div>
+                  <div className="text-xs text-slate-400 font-semibold">{item.deliveryDate}</div>
+                </div>
+              )}
+
+              {/* Badge status */}
+              <div className={`flex-shrink-0 px-2.5 py-1 rounded-lg border text-xs font-bold ${
+                isCritical
+                  ? 'bg-red-500/20 text-red-300 border-red-500/40'
+                  : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+              }`}>
+                {isCritical ? 'CRÍTICO' : 'ATRASADO'}
+              </div>
+            </motion.div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Componente Principal ───────────────────────────────────────────────────
 
-export function PainelTVAbastecimento({ onBack }: PainelTVAbastecimentoProps) {
+export function PainelTVAbastecimento({ onBack, followUpData }: PainelTVAbastecimentoProps) {
   const [tvData, setTvData] = useState<AbastecimentoTVData | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isSoundEnabled, setIsSoundEnabled] = useState(false);
@@ -472,6 +705,19 @@ export function PainelTVAbastecimento({ onBack }: PainelTVAbastecimentoProps) {
     osc.stop(ctx.currentTime + 0.5);
   }, [getOrCreateAudioCtx]);
 
+  // ── Follow Up KPIs ──
+  const followUpKpis = useMemo<FollowUpKpis | null>(() => {
+    if (!followUpData?.length) return null;
+    const atrasados = followUpData.filter(i => i.status === 'Atrasado');
+    const totalAtraso = atrasados.reduce((s, i) => s + i.delayDays, 0);
+    return {
+      total: followUpData.length,
+      atrasados: atrasados.length,
+      atrasoMedio: atrasados.length ? Math.round(totalAtraso / atrasados.length) : 0,
+      topAtrasados: [...atrasados].sort((a, b) => b.delayDays - a.delayDays),
+    };
+  }, [followUpData]);
+
   // ── Slides ──
   const slides = useMemo<Slide[]>(() => {
     if (!tvData) return [];
@@ -501,8 +747,19 @@ export function PainelTVAbastecimento({ onBack }: PainelTVAbastecimentoProps) {
       result.push({ type: 'fornecedores', pageIndex: 0, totalPages: 1 });
     }
 
+    // Slide Curva ABC (apenas se dados disponíveis)
+    if (tvData.abcSummary && (tvData.abcSummary.A + tvData.abcSummary.B + tvData.abcSummary.C) > 0) {
+      result.push({ type: 'curva_abc', pageIndex: 0, totalPages: 1 });
+    }
+
+    // Slides Follow Up (apenas se houver OCs atrasadas)
+    if (followUpKpis && followUpKpis.atrasados > 0) {
+      const pages = Math.ceil(followUpKpis.topAtrasados.length / ITEMS_PER_SLIDE);
+      for (let p = 0; p < pages; p++) result.push({ type: 'followup', pageIndex: p, totalPages: pages });
+    }
+
     return result;
-  }, [tvData]);
+  }, [tvData, followUpKpis]);
 
   // ── Status de saúde global ──
   const healthStatus = useMemo<'CRÍTICO' | 'ALERTA' | 'OK'>(() => {
@@ -530,7 +787,7 @@ export function PainelTVAbastecimento({ onBack }: PainelTVAbastecimentoProps) {
     prevSlideTypeRef.current = current.type;
 
     if (current.type === 'rupturas') playCriticoAlert();
-    else if (current.type === 'cobertura_critica' || current.type === 'atrasados') playAlertaChime();
+    else if (current.type === 'cobertura_critica' || current.type === 'atrasados' || current.type === 'followup') playAlertaChime();
     else if (current.type === 'dashboard' && healthStatus !== 'OK') playSoftPulse();
   }, [slideIndex, isPlaying, isSoundEnabled, slides, healthStatus, playCriticoAlert, playAlertaChime, playSoftPulse]);
 
@@ -595,6 +852,22 @@ export function PainelTVAbastecimento({ onBack }: PainelTVAbastecimentoProps) {
         progressColor: 'from-violet-600 to-violet-400',
         theme: 'blue' as const,
       },
+      curva_abc: {
+        title: 'CURVA ABC — CLASSIFICAÇÃO',
+        icon: BarChart2,
+        iconColor: 'text-emerald-400',
+        iconPulse: false,
+        progressColor: 'from-emerald-600 to-teal-400',
+        theme: 'blue' as const,
+      },
+      followup: {
+        title: 'FOLLOW UP — OCs ATRASADAS',
+        icon: Truck,
+        iconColor: 'text-rose-400',
+        iconPulse: true,
+        progressColor: 'from-rose-600 to-rose-400',
+        theme: 'red' as const,
+      },
     };
 
     return { ...configs[current.type], slide: current };
@@ -647,6 +920,7 @@ export function PainelTVAbastecimento({ onBack }: PainelTVAbastecimentoProps) {
       { label: 'cob. crítica', value: tvData.kpis.coberturaCritica, color: 'bg-orange-500/20 text-orange-300 border-orange-500/40' },
       { label: 'atrasados', value: tvData.kpis.atrasados, color: 'bg-amber-500/20 text-amber-300 border-amber-500/40' },
       { label: 'total itens', value: tvData.kpis.total, color: 'bg-blue-500/20 text-blue-300 border-blue-500/40' },
+      ...(followUpKpis ? [{ label: 'OCs atrasadas', value: followUpKpis.atrasados, color: 'bg-rose-500/20 text-rose-300 border-rose-500/40' }] : []),
     ];
 
     return (
@@ -655,8 +929,8 @@ export function PainelTVAbastecimento({ onBack }: PainelTVAbastecimentoProps) {
           <div className="w-24 h-24 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-blue-900/50">
             <Monitor className="w-12 h-12 text-white" />
           </div>
-          <h1 className="text-3xl font-black text-white mb-1">Painel TV</h1>
-          <p className="text-blue-300 font-semibold mb-2">Visão de Abastecimento Farmacêutico</p>
+          <h1 className="text-3xl font-black text-white mb-1">Painel TV Integrado</h1>
+          <p className="text-blue-300 font-semibold mb-2">Abastecimento Farmacêutico & Follow Up</p>
           <p className="text-slate-500 text-xs mb-8">Dados salvos em: {savedDate}</p>
 
           <div className="grid grid-cols-2 gap-3 mb-8">
@@ -731,7 +1005,7 @@ export function PainelTVAbastecimento({ onBack }: PainelTVAbastecimentoProps) {
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2 text-slate-500 text-xs">
             <Monitor className="w-3.5 h-3.5" />
-            <span>Painel TV · Abastecimento Farmacêutico</span>
+            <span>Painel TV Integrado · Abastecimento & Follow Up</span>
           </div>
           <div className="flex items-center gap-2 text-slate-400 text-sm font-mono">
             <Clock className="w-4 h-4" />
@@ -827,7 +1101,7 @@ export function PainelTVAbastecimento({ onBack }: PainelTVAbastecimentoProps) {
             className="h-full"
           >
             {currentSlide.type === 'dashboard' && (
-              <DashboardSlide kpis={tvData!.kpis} healthStatus={healthStatus} savedAt={tvData!.savedAt} />
+              <DashboardSlide kpis={tvData!.kpis} healthStatus={healthStatus} savedAt={tvData!.savedAt} followUpKpis={followUpKpis} />
             )}
             {currentSlide.type === 'rupturas' && (
               <ItemListSlide
@@ -852,6 +1126,16 @@ export function PainelTVAbastecimento({ onBack }: PainelTVAbastecimentoProps) {
             )}
             {currentSlide.type === 'fornecedores' && (
               <SupplierSlide suppliers={tvData!.suppliers} />
+            )}
+            {currentSlide.type === 'curva_abc' && tvData!.abcSummary && (
+              <CurvaABCSlide abc={tvData!.abcSummary} savedAt={tvData!.savedAt} />
+            )}
+            {currentSlide.type === 'followup' && followUpKpis && (
+              <FollowUpSlide
+                items={followUpKpis.topAtrasados}
+                pageIndex={currentSlide.pageIndex}
+                totalPages={currentSlide.totalPages}
+              />
             )}
           </motion.div>
         </AnimatePresence>
