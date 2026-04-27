@@ -96,7 +96,7 @@ interface InventoryItem {
   equivalentStock?: number;
 }
 
-const MAV_REGEX = /INSULINA|HEPARINA|VARFARINA|WARFARINA|ENOXAPARINA|FONDAPARINUX|APIXABANA|ELIQUIS|RIVAROXABANA|XARELTO|VYNAXA|EDOXABANA|LIXIANA|CLORETO\s*(?:DE\s*)?POTASSIO|KCL|FOSFATO POTASSIO|SULFATO\s*(?:DE\s*)?MAGNESIO|CLORETO\s*(?:DE\s*)?SODIO.*20%|NACL.*20%|GLUCONATO\s*(?:DE\s*)?CALCIO|CLORETO\s*(?:DE\s*)?CALCIO|BICARBONATO DE SODIO|NOREPINEFRINA|NORADRENALINA|EPINEFRINA|ADRENALINA|DOPAMINA|DOBUTAMINA|VASOPRESSINA|NITROPRUSSIATO|AMIODARONA|DIGOXINA|LIDOCAINA|SUCCINILCOLINA|PANCURONIO|ROCURONIO|VECURONIO|ATRACURIO|GADOTERICO|GADOBUTROL|IOBITRIDOL|IOPROMIDA|GADOXETATO|DOTAREM|GADOVIST|ULTRAVIST|PRIMOVIST|BARIOGEL|SULFATO BARIO|GLYCOPHOS|GLICEROFOSFATO|GLICOSE.*50%/;
+const MAV_REGEX = /INSULINA|HEPARINA|VARFARINA|WARFARINA|ENOXAPARINA|FONDAPARINUX|APIXABANA|ELIQUIS|RIVAROXABANA|XARELTO|VYNAXA|EDOXABANA|LIXIANA|CLORETO\s*(?:DE\s*)?POTASSIO|KCL|FOSFATO POTASSIO|SULFATO\s*(?:DE\s*)?MAGNESIO|CLORETO\s*(?:DE\s*)?SODIO.*20%|NACL.*20%|GLUCONATO\s*(?:DE\s*)?CALCIO|CLORETO\s*(?:DE\s*)?CALCIO|BICARBONATO DE SODIO|NOREPINEFRINA|NORADRENALINA|EPINEFRINA|ADRENALINA|DOPAMINA|DOBUTAMINA|VASOPRESSINA|NITROPRUSSIATO|AMIODARONA|DIGOXINA|LIDOCAINA|SUCCINILCOLINA|PANCURONIO|ROCURONIO|VECURONIO|ATRACURIO|METOPROLOL|GADOTERICO|GADOBUTROL|IOBITRIDOL|IOPROMIDA|GADOXETATO|DOTAREM|GADOVIST|ULTRAVIST|PRIMOVIST|BARIOGEL|SULFATO BARIO|GLYCOPHOS|GLICEROFOSFATO|GLICOSE.*50%/;
 
 function isItemAltaVigilancia(name: string): boolean {
   const n = name.toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -681,25 +681,35 @@ export const TransferRequest: React.FC = () => {
       const unit = _norm(item.unit);
 
       // Lógica de Categorização
-      const isDieta = name.includes("DIETA") || name.includes("NUTRIFICA") || name.includes("ENTERAL") || name.includes("PARENTERAL") || name.includes("SUPLEMENTO") || name.includes("MODULO ALIMENTAR");
-
       const txt = name + ' ' + unit;
+
+      const matKeywords = [
+        "SERINGA", "AGULHA", "SONDA", "COMPRESSA", "FRALDA", "EXTENSOR",
+        "CURATIVO", "COLETORA", "PROTETOR", "CLAMP", "GUIA", "DISPOSITIVO",
+        "IMPLANON", "CLOREXEDINA", "CLOREXIDINA", "GAZE", "LUVA", "EQUIPO", "CATETER",
+        "ESPARADRAPO", "ALCOOL", "MASCARA", "TOUCA", "AVENTAL", "TUBO",
+        "DRENO", "ELETRODO", "FITA", "PAPEL", "COLETOR", "ALGODAO", "GAZ", "FIXADOR", "POSIFLUSH"
+      ];
+      const isExplicitMat = matKeywords.some(k => name.includes(k) || unit.includes(k));
+
+      // Materiais explícitos (ex: EQUIPO PARENTERAL) não devem ser classificados como dieta
+      const isDieta = !isExplicitMat && (name.includes("DIETA") || name.includes("NUTRIFICA") || name.includes("ENTERAL") || name.includes("PARENTERAL") || name.includes("SUPLEMENTO") || name.includes("MODULO ALIMENTAR"));
 
       const isComprimido = /\bCOMP\b|COMPRIMIDO|\bCP\b|\bCPR\b|\bTAB\b|C[AA]PSULA|\bCAPS\b|DR[AA]GEA|\bDRG\b|SACH[EE]|ENVELOPE|\bENV\b|GRANULADO|P[OO]\s*ORAL/.test(txt);
 
       const isAltaVigilancia = isItemAltaVigilancia(item.name);
 
-      // Soroterapia: fluidos base de grande volume (50-1000ml) + Água Destilada (qualquer volume)
+      // Soroterapia: fluidos base de grande volume (50-1000ml) + Água Destilada + NaCl 0,9% em ampola (10ml)
       // GLICOSE\s*(?:5(?!\d)|10(?!\d)) — captura 5% e 10% mas NÃO 50%
       const isSoroterapia = (
         /SORO\s*FISIOL|SORO\s*GLICOS|CLOR.*SODIO\s*0,9|NACL\s*0,9|GLICOSE\s*(?:5(?!\d)|10(?!\d))|RINGER|MANITOL|\bSF\s*0,9|\bSG\s*5|\bRL\b/.test(name)
         && /\b(50|100|250|500|1\.?000)\s*ML\b/.test(name)
-      ) || /AGUA\s*(DEST|P.*INJ|BIDEST)/.test(name);
+      ) || /AGUA\s*(DEST|P.*INJ|BIDEST)/.test(name)
+        || (/CLORETO\s*SODIO\s*9\s*MG/.test(name) && /10\s*ML/.test(name));
 
       // Soluções: orais, tópicas, oftálmicas, nasais, suspensões, gotas, bisnagas, tubos
-      // Formas: FR SUSP, FR GTS, BG (bisnaga), TB (tubo), TOP (tópico), OFTAL
-      // Soluções: orais, tópicas, oftálmicas, inalatórias, retais, aerossóis
-      const isSolucao = /XAROPE|SUSPENS[ÃA]O|\bSUSP\b|\bGOTAS\b|\bGOTA\b|\bGTS\b|\bCREME\b|\bPOMADA\b|\bGEL\b|LO[ÇC][ÃA]O|COL[ÍI]RIO|\bOFTAL\b|\bSPRAY\b|\bENEMA\b|SUPOSIT[ÓO]RIO|\bTOP\b|\bBG\b|\bINAL\b|\bAER\b|\bRETAL\b|\bSOL\b|SOL(U[ÇC][ÃA]O)?\s*(ORAL|T[OÓ]PICA|OFT[ÁA]LM|NASAL)/.test(txt);
+      // Comprimidos (CAPS GEL = cápsula gelatinosa) não devem ser classificados como solução
+      const isSolucao = !isComprimido && /XAROPE|SUSPENS[ÃA]O|\bSUSP\b|\bGOTAS\b|\bGOTA\b|\bGTS\b|\bCREME\b|\bPOMADA\b|\bGEL\b|LO[ÇC][ÃA]O|COL[ÍI]RIO|\bOFTAL\b|\bSPRAY\b|\bENEMA\b|SUPOSIT[ÓO]RIO|\bTOP\b|\bBG\b|\bINAL\b|\bAER\b|\bRETAL\b|\bSOL\b|SOL(U[ÇC][ÃA]O)?\s*(ORAL|T[OÓ]PICA|OFT[ÁA]LM|NASAL)/.test(txt);
 
       // Injetáveis: ampolas + frascos + frascos-ampola + seringas + bolsas de medicamentos
       // Exclui o que já foi classificado como soroterapia ou solução
@@ -709,15 +719,6 @@ export const TransferRequest: React.FC = () => {
 
       // Compat: isFrasco mantido para lógica de isMed abaixo
       const isFrasco = isInjetavel || isSoroterapia || isSolucao;
-
-      const matKeywords = [
-        "SERINGA", "AGULHA", "SONDA", "COMPRESSA", "FRALDA", "EXTENSOR", 
-        "CURATIVO", "COLETORA", "PROTETOR", "CLAMP", "GUIA", "DISPOSITIVO", 
-        "IMPLANON", "CLOREXEDINA", "GAZE", "LUVA", "EQUIPO", "CATETER", 
-        "ESPARADRAPO", "ALCOOL", "MASCARA", "TOUCA", "AVENTAL", "TUBO", 
-        "DRENO", "ELETRODO", "FITA", "PAPEL", "COLETOR", "ALGODAO", "GAZ", "FIXADOR", "POSIFLUSH"
-      ];
-      const isExplicitMat = matKeywords.some(k => name.includes(k) || unit.includes(k));
 
       const medKeywords = ["MG", "MCG", "G/", "ML", "UI", "MEQ", "CAPS", "DRAGEA"];
       const isMed = !isDieta && !isExplicitMat && (isComprimido || isFrasco || medKeywords.some(k => name.includes(k) || unit.includes(k)));
