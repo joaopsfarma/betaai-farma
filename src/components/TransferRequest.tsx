@@ -96,13 +96,20 @@ interface InventoryItem {
   equivalentStock?: number;
 }
 
+const MAV_REGEX = /INSULINA|HEPARINA|VARFARINA|WARFARINA|ENOXAPARINA|FONDAPARINUX|APIXABANA|ELIQUIS|RIVAROXABANA|XARELTO|VYNAXA|EDOXABANA|LIXIANA|CLORETO\s*(?:DE\s*)?POTASSIO|KCL|FOSFATO POTASSIO|SULFATO\s*(?:DE\s*)?MAGNESIO|CLORETO\s*(?:DE\s*)?SODIO.*20%|NACL.*20%|GLUCONATO\s*(?:DE\s*)?CALCIO|CLORETO\s*(?:DE\s*)?CALCIO|BICARBONATO DE SODIO|NOREPINEFRINA|NORADRENALINA|EPINEFRINA|ADRENALINA|DOPAMINA|DOBUTAMINA|VASOPRESSINA|NITROPRUSSIATO|AMIODARONA|DIGOXINA|LIDOCAINA|SUCCINILCOLINA|PANCURONIO|ROCURONIO|VECURONIO|ATRACURIO|GADOTERICO|GADOBUTROL|IOBITRIDOL|IOPROMIDA|GADOXETATO|DOTAREM|GADOVIST|ULTRAVIST|PRIMOVIST|BARIOGEL|SULFATO BARIO|GLYCOPHOS|GLICEROFOSFATO|GLICOSE.*50%/;
+
+function isItemAltaVigilancia(name: string): boolean {
+  const n = name.toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  return MAV_REGEX.test(n);
+}
+
 export const TransferRequest: React.FC = () => {
   const [targetDays, setTargetDays] = useState(7);
   const [consumptionDays, setConsumptionDays] = useState(5);
   const [safetyMargin, setSafetyMargin] = useState(20);
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<'all' | 'medicamento' | 'material' | 'dieta'>('all');
-  const [subCategoryFilter, setSubCategoryFilter] = useState<'all' | 'comprimido' | 'injetavel' | 'soroterapia' | 'solucao'>('all');
+  const [subCategoryFilter, setSubCategoryFilter] = useState<'all' | 'comprimido' | 'injetavel' | 'soroterapia' | 'solucao' | 'altavigilancia'>('all');
   const [filesData, setFilesData] = useState<{
     consumo: string | null;
     movi: string | null;
@@ -680,6 +687,8 @@ export const TransferRequest: React.FC = () => {
 
       const isComprimido = /\bCOMP\b|COMPRIMIDO|\bCP\b|\bCPR\b|\bTAB\b|C[AA]PSULA|\bCAPS\b|DR[AA]GEA|\bDRG\b|SACH[EE]|ENVELOPE|\bENV\b|GRANULADO|P[OO]\s*ORAL/.test(txt);
 
+      const isAltaVigilancia = isItemAltaVigilancia(item.name);
+
       // Soroterapia: fluidos base de grande volume (50-1000ml) + Água Destilada (qualquer volume)
       // GLICOSE\s*(?:5(?!\d)|10(?!\d)) — captura 5% e 10% mas NÃO 50%
       const isSoroterapia = (
@@ -723,6 +732,7 @@ export const TransferRequest: React.FC = () => {
         if (subCategoryFilter === 'injetavel' && !isInjetavel) return false;
         if (subCategoryFilter === 'soroterapia' && !isSoroterapia) return false;
         if (subCategoryFilter === 'solucao' && !isSolucao) return false;
+        if (subCategoryFilter === 'altavigilancia' && !isAltaVigilancia) return false;
       } else if (categoryFilter === 'material') {
         if (!isMat) return false;
       }
@@ -989,6 +999,12 @@ export const TransferRequest: React.FC = () => {
                     >
                       🧪 Soluções
                     </button>
+                    <button
+                      onClick={() => setSubCategoryFilter('altavigilancia')}
+                      className={`px-2 py-1 text-[10px] font-bold uppercase rounded-md transition-all ${subCategoryFilter === 'altavigilancia' ? 'bg-red-600 text-white' : 'text-red-600 hover:bg-red-50'}`}
+                    >
+                      🔴 Alta Vigilância
+                    </button>
                   </div>
                 )}
               </div>
@@ -1022,7 +1038,12 @@ export const TransferRequest: React.FC = () => {
                     <tr key={item.id} className="hover:bg-indigo-50/30 transition-colors group">
                       <td className="py-2 px-2">
                         <div className="font-medium text-slate-800 text-sm leading-tight mb-0.5 truncate" title={item.name}>{item.name}</div>
-                        <div className="text-[10px] text-slate-400 font-mono">#{item.id} · {item.unit}</div>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[10px] text-slate-400 font-mono">#{item.id} · {item.unit}</span>
+                          {isItemAltaVigilancia(item.name) && (
+                            <span className="text-[9px] font-bold text-red-600 bg-red-50 border border-red-200 px-1 rounded">🔴 ALTA VIG.</span>
+                          )}
+                        </div>
                       </td>
 
                       <td className="py-2 px-2 text-right bg-slate-50/30">
