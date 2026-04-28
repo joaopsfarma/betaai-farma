@@ -35,7 +35,9 @@
       "Bash(cp \"C:\\\\Users\\\\f03869815159\\\\Downloads\\\\R_CONF_LOTE \\(8\\).csv\" \"C:\\\\Users\\\\f03869815159\\\\Desktop\\\\Projeto\\\\public\\\\data\\\\r_conf_lote.csv\")",
       "Bash(python -c ' *)",
       "Skill(update-config)",
-      "Skill(update-config:*)"
+      "Skill(update-config:*)",
+      "Bash(node -e \"const s = '/[\\\\\\\\u0300-\\\\\\\\u036f]/g'; console.log\\(s\\)\")",
+      "Bash(node_modules/.bin/tsc --noEmit --skipLibCheck)"
     ]
   }
 }
