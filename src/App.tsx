@@ -200,8 +200,7 @@ function App() {
         { id: 'ressuprimento',         label: 'Ressuprimento',    icon: <ShoppingCart className="w-5 h-5" />,   classes: V },
         { id: 'painel_tv_ressuprimento',label: 'Painel TV Ressup.',icon: <MonitorPlay className="w-5 h-5" />,   classes: V },
         { id: 'supply',                label: 'Supply',           icon: <Package className="w-5 h-5" />,        classes: G },
-        { id: 'abastecimento-farmaceutico', label: 'Visão de Abastecimento', icon: <Package className="w-5 h-5" />, classes: G },
-        { id: 'painel_tv_abastecimento', label: 'Painel TV Integrado', icon: <MonitorPlay className="w-5 h-5" />, classes: A },
+        { id: 'abastecimento-farmaceutico', label: 'Follow Up', icon: <Package className="w-5 h-5" />, classes: G },
         { id: 'sinalizador', label: 'Sinalizador', icon: <AlertTriangle className="w-5 h-5" />, classes: A },
         { id: 'painel_caf_v2',         label: 'Painel CAF V2',    icon: <BarChart2 className="w-5 h-5" />,      classes: G },
         { id: 'remanejamento',         label: 'Remanejamento',    icon: <ArrowLeftRight className="w-5 h-5" />, classes: A },
@@ -243,7 +242,6 @@ function App() {
       label: 'Gestão & Fornecedores',
       icon: <ShieldCheck className="w-4 h-4" />,
       items: [
-        { id: 'painel_farma_tv',        label: 'Painel TV do Farma',    icon: <MonitorPlay className="w-5 h-5" />, classes: G },
         { id: 'avaliacao_fornecedores', label: 'Avaliação Fornec.',      icon: <ShieldCheck className="w-5 h-5" />, classes: V },
         { id: 'conciliacao',            label: 'Conciliação Empréstimo', icon: <Calculator className="w-5 h-5" />, classes: V },
       ],
