@@ -1574,13 +1574,6 @@ export const exportOCTabPDF = ({ items, filterLabel }: {
 
 // ─── Nutrição Export ──────────────────────────────────────────────────────────
 
-interface NutricaoPDFLote {
-  lote: string;
-  validade: string;
-  diasParaVencer: number;
-  quantidade: number;
-}
-
 interface NutricaoPDFRow {
   produtoId: string;
   nome: string;
@@ -1589,13 +1582,13 @@ interface NutricaoPDFRow {
   menorDias: number;
   menorValidade: string;
   status: 'URGENTE' | 'ATENCAO' | 'OK';
-  lotes: NutricaoPDFLote[];
+  categoria: string;
+  lotes?: unknown[];
 }
 
 interface NutricaoKPIs {
   total: number;
-  urgente: number;
-  atencao: number;
+  urgente30: number;
   estoqueTotal: number;
 }
 
@@ -1614,51 +1607,44 @@ export const exportNutricaoPDF = (
   );
 
   currentY = drawKPICards(doc, [
-    { label: 'Total de Produtos', value: kpis.total.toString(), color: PDF_COLORS.teal },
-    { label: 'Vencendo <=30 dias', value: kpis.urgente.toString(), color: PDF_COLORS.red },
-    { label: 'Vencendo <=60 dias', value: kpis.atencao.toString(), color: PDF_COLORS.amber },
-    { label: 'Estoque Total', value: kpis.estoqueTotal.toLocaleString('pt-BR'), color: PDF_COLORS.slate },
+    { label: 'Total de Produtos',      value: kpis.total.toString(),                    color: PDF_COLORS.teal },
+    { label: 'Vencendo em <= 30 dias', value: kpis.urgente30.toString(),                color: PDF_COLORS.red },
+    { label: 'Estoque Total (un.)',    value: kpis.estoqueTotal.toLocaleString('pt-BR'), color: PDF_COLORS.slate },
   ], currentY);
 
   // Sanitize non-ASCII chars that helvetica can't render
   const ascii = (s: string) =>
-    s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7E]/g, ' ').replace(/\s+/g, ' ').trim();
+    (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^ -~]/g, ' ').replace(/\s+/g, ' ').trim();
 
-  // Split into two groups
-  const urgentes = [...produtos]
-    .filter(p => p.menorDias <= 60)
-    .sort((a, b) => a.menorDias - b.menorDias);
-
-  const demais = [...produtos]
-    .filter(p => p.menorDias > 60)
+  // Proximos a vencer <= 30 dias - ordenado por descricao
+  const proxVencer = [...produtos]
+    .filter(p => p.menorDias <= 30)
     .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 
-  const STATUS_COLORS_NUT: Record<string, [number, number, number]> = {
-    URGENTE: [220, 38, 38],
-    'ATEN\u00C7\u00C3O': [202, 138, 4],
-    OK: [22, 163, 74],
-  };
+  // Demais - ordenado por descricao
+  const demais = [...produtos]
+    .filter(p => p.menorDias > 30)
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+
+  const TABLE_HEAD = [['Descricao', 'Categoria', 'Un.', 'Estoque', 'Validade', 'Dias', 'Situacao']];
 
   const buildRows = (rows: NutricaoPDFRow[]) =>
     rows.map(p => [
       ascii(p.nome),
-      p.produtoId,
+      ascii(p.categoria || ''),
       p.unidade,
       p.estoqueAtual.toLocaleString('pt-BR'),
-      p.menorValidade || '\u2014',
+      p.menorValidade || '-',
       p.menorDias <= 0 ? 'Vencido' : `${p.menorDias}d`,
-      p.status === 'ATENCAO' ? 'ATEN\u00C7\u00C3O' : p.status,
-      p.lotes.map(l => `${l.lote} (${l.validade} · ${l.quantidade.toLocaleString('pt-BR')}un)`).join('\n'),
+      p.menorDias <= 0 ? 'VENCIDO' : p.menorDias <= 10 ? 'CRITICO' : p.menorDias <= 20 ? 'URGENTE' : p.menorDias <= 30 ? 'ATENCAO' : 'OK',
     ]);
-
-  const TABLE_HEAD = [['Produto', 'Cod.', 'Un.', 'Estoque', 'Validade', 'Dias', 'Status', 'Lotes']];
 
   const sharedTableOptions = {
     theme: 'grid' as const,
     margin: { left: 12, right: 12, bottom: 20 },
     styles: {
-      fontSize: 7,
-      cellPadding: 2.5,
+      fontSize: 7.5,
+      cellPadding: 3,
       valign: 'middle' as const,
       overflow: 'linebreak' as const,
     },
@@ -1667,74 +1653,87 @@ export const exportNutricaoPDF = (
       textColor: [255, 255, 255] as [number, number, number],
       fontStyle: 'bold' as const,
       halign: 'center' as const,
+      fontSize: 8,
     },
+    alternateRowStyles: { fillColor: [248, 250, 252] as [number, number, number] },
     columnStyles: {
-      0: { cellWidth: 75, fontStyle: 'bold' as const, textColor: [30, 41, 59] as [number, number, number] },
-      1: { cellWidth: 14, halign: 'center' as const },
-      2: { cellWidth: 16, halign: 'center' as const },
-      3: { cellWidth: 16, halign: 'right' as const },
-      4: { cellWidth: 20, halign: 'center' as const },
-      5: { cellWidth: 12, halign: 'center' as const, fontStyle: 'bold' as const },
-      6: { cellWidth: 16, halign: 'center' as const, fontStyle: 'bold' as const },
-      7: { cellWidth: 'auto' as const },
+      0: { cellWidth: 85, fontStyle: 'bold' as const, textColor: [15, 23, 42] as [number, number, number] },
+      1: { cellWidth: 38 },
+      2: { cellWidth: 14, halign: 'center' as const },
+      3: { cellWidth: 18, halign: 'right' as const },
+      4: { cellWidth: 22, halign: 'center' as const },
+      5: { cellWidth: 14, halign: 'center' as const, fontStyle: 'bold' as const },
+      6: { cellWidth: 'auto' as const, halign: 'center' as const, fontStyle: 'bold' as const },
     },
     didParseCell(data: any) {
-      if (data.section === 'body' && data.column.index === 6) {
-        const c = STATUS_COLORS_NUT[data.cell.raw as string];
-        if (c) data.cell.styles.textColor = c;
+      if (data.section !== 'body') return;
+      if (data.column.index === 5) {
+        const raw = String(data.cell.raw);
+        const dias = parseInt(raw, 10);
+        if (raw === 'Vencido' || dias <= 0) data.cell.styles.textColor = [185, 28, 28];
+        else if (dias <= 10) data.cell.styles.textColor = [185, 28, 28];
+        else if (dias <= 20) data.cell.styles.textColor = [194, 65, 12];
+        else if (dias <= 30) data.cell.styles.textColor = [161, 98, 7];
+        else data.cell.styles.textColor = [21, 128, 61];
       }
-      if (data.section === 'body' && data.column.index === 5) {
-        const raw = data.cell.raw as string;
-        if (raw === 'Vencido' || raw.includes('d')) {
-          const dias = parseInt(raw, 10);
-          if (raw === 'Vencido' || dias <= 30) data.cell.styles.textColor = [220, 38, 38];
-          else if (dias <= 60) data.cell.styles.textColor = [202, 138, 4];
-          else data.cell.styles.textColor = [22, 163, 74];
+      if (data.column.index === 6) {
+        const raw = String(data.cell.raw);
+        if (raw === 'VENCIDO' || raw === 'CRITICO') {
+          data.cell.styles.textColor = [185, 28, 28];
+          data.cell.styles.fillColor = [254, 226, 226];
+        } else if (raw === 'URGENTE') {
+          data.cell.styles.textColor = [194, 65, 12];
+          data.cell.styles.fillColor = [255, 237, 213];
+        } else if (raw === 'ATENCAO') {
+          data.cell.styles.textColor = [161, 98, 7];
+          data.cell.styles.fillColor = [254, 243, 199];
+        } else if (raw === 'OK') {
+          data.cell.styles.textColor = [21, 128, 61];
+          data.cell.styles.fillColor = [220, 252, 231];
         }
       }
     },
   };
 
-  // ── Seção 1: Vencimentos Próximos (página 1) ─────────────────────────────
-  if (urgentes.length > 0) {
-    currentY += 3;
-    doc.setFontSize(9);
+  // Secao 1: Proximos a Vencer <= 30 dias
+  if (proxVencer.length > 0) {
+    currentY += 4;
+    doc.setFontSize(9.5);
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(220, 38, 38);
-    doc.text(`Vencimentos Proximos — URGENTE / ATENCAO (${urgentes.length} produto${urgentes.length !== 1 ? 's' : ''})`, 12, currentY);
+    doc.setTextColor(185, 28, 28);
+    doc.text(`Proximos a Vencer - ate 30 dias (${proxVencer.length} produto${proxVencer.length !== 1 ? 's' : ''})`, 12, currentY);
 
     autoTable(doc, {
       startY: currentY + 5,
       head: TABLE_HEAD,
-      body: buildRows(urgentes),
+      body: buildRows(proxVencer),
       ...sharedTableOptions,
-      alternateRowStyles: { fillColor: [255, 247, 247] },
+      alternateRowStyles: { fillColor: [255, 247, 247] as [number, number, number] },
     });
   }
 
-  // ── Seção 2: Demais Dietas ────────────────────────────────────────────────
+  // Secao 2: Demais Produtos
   if (demais.length > 0) {
-    if (urgentes.length > 0) {
+    if (proxVencer.length > 0) {
       doc.addPage();
       currentY = 20;
     } else {
-      currentY += 3;
+      currentY += 4;
     }
 
-    doc.setFontSize(9);
+    doc.setFontSize(9.5);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(color[0], color[1], color[2]);
-    doc.text(`Demais Dietas — OK (${demais.length} produto${demais.length !== 1 ? 's' : ''})`, 12, currentY);
+    doc.text(`Demais Produtos - OK (${demais.length} produto${demais.length !== 1 ? 's' : ''})`, 12, currentY);
 
     autoTable(doc, {
       startY: currentY + 5,
       head: TABLE_HEAD,
       body: buildRows(demais),
       ...sharedTableOptions,
-      alternateRowStyles: { fillColor: [248, 250, 252] },
     });
   }
 
   drawPDFFooters(doc, color);
-  doc.save('painel-nutricao.pdf');
+  doc.save(`painel-nutricao-${new Date().toISOString().slice(0, 10)}.pdf`);
 };
