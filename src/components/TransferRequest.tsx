@@ -150,6 +150,7 @@ export const TransferRequest: React.FC = () => {
   const [manualAddId, setManualAddId] = useState('');
   const [manualAddQty, setManualAddQty] = useState(10);
   const [manualAddSearch, setManualAddSearch] = useState('');
+  const [estoqueDestino, setEstoqueDestino] = useState('332 - Farmácia Central');
 
   // --- Lógica de Upload ---
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, type: keyof typeof filesData) => {
@@ -777,6 +778,7 @@ export const TransferRequest: React.FC = () => {
   <div class="header-right">
     <div>Data: <strong>${date}</strong></div>
     <div>Meta ${targetDays} dias &nbsp;·&nbsp; Segurança ${safetyMargin}% &nbsp;·&nbsp; Consumo ${consumptionDays} dias</div>
+    <div>Solicitante: <strong>${estoqueDestino}</strong></div>
   </div>
 </div>
 
@@ -1132,13 +1134,30 @@ export const TransferRequest: React.FC = () => {
 
           <div className="flex flex-col">
             <label className="text-[10px] font-semibold text-slate-500 uppercase">Segurança (%)</label>
-            <input 
-              type="number" 
+            <input
+              type="number"
               value={safetyMargin}
               onChange={(e) => setSafetyMargin(Number(e.target.value))}
               className="w-16 mt-1 bg-white border border-slate-300 rounded px-2 py-1 text-sm font-medium focus:ring-2 focus:ring-indigo-500 outline-none text-center"
               min="0"
             />
+          </div>
+
+          <div className="w-px h-8 bg-slate-300 hidden md:block"></div>
+
+          <div className="flex flex-col">
+            <label className="text-[10px] font-semibold text-slate-500 uppercase">Estoque Solicitante</label>
+            <select
+              value={estoqueDestino}
+              onChange={(e) => setEstoqueDestino(e.target.value)}
+              className="mt-1 bg-white border border-slate-300 rounded px-2 py-1 text-sm font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
+            >
+              <option value="332 - Farmácia Central">332 - Farmácia Central</option>
+              <option value="333 - Farmácia CC">333 - Farmácia CC</option>
+              <option value="334 - Farmácia UTI">334 - Farmácia UTI</option>
+              <option value="336 - Farmácia PS">336 - Farmácia PS</option>
+              <option value="337 - Farmácia Psico/MAV">337 - Farmácia Psico/MAV</option>
+            </select>
           </div>
         </div>
       </div>
