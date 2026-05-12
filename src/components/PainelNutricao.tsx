@@ -2,8 +2,7 @@ import React, { useState, useMemo, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Utensils, Upload, CheckCircle, AlertTriangle, Download,
-  ChevronDown, ChevronUp, Search, X, RefreshCw, Package,
-  Clock, ShieldAlert,
+  Search, X, RefreshCw, Clock, ShieldAlert, Package,
 } from 'lucide-react';
 import Papa from 'papaparse';
 import { usePersistentState } from '../hooks/usePersistentState';
@@ -64,11 +63,9 @@ function parseNum(s: string): number {
   return parseFloat(c) || 0;
 }
 
-// Remove non-ASCII chars that jsPDF can't render (e.g. non-breaking space encoded as à)
 function cleanStr(s: string): string {
   return s
-    .replace(/[\u00c0-\u00ff]/g, c => {
-      // Map common Latin-1 supplement to ASCII equivalents
+    .replace(/[À-ÿ]/g, c => {
       const map: Record<string, string> = {
         'à':'a','á':'a','â':'a','ã':'a','ä':'a','å':'a',
         'è':'e','é':'e','ê':'e','ë':'e',
@@ -85,7 +82,7 @@ function cleanStr(s: string): string {
       };
       return map[c] ?? ' ';
     })
-    .replace(/[^\x20-\x7E]/g, ' ')   // replace remaining non-printable ASCII
+    .replace(/[^\x20-\x7E]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -117,10 +114,6 @@ function parseNutricaoCSV(file: File): Promise<NutricaoProduto[]> {
       complete(results) {
         try {
           const rows = results.data as string[][];
-
-          // Find header row by scanning first 15 rows
-          // The CSV has merged cells in Excel, so headers are at col N but
-          // actual data is at col N+1 (except "Produto" which covers 3 merged cols)
           let headerIdx = -1;
           let colProdId = -1, colNome = -1, colUnidade = -1;
           let colEstoque = -1, colLote = -1, colValidade = -1;
@@ -134,8 +127,6 @@ function parseNutricaoCSV(file: File): Promise<NutricaoProduto[]> {
               headerIdx = i;
               row.forEach((cell, idx) => {
                 const v = (cell || '').trim();
-                // Data is always at headerCol+1 due to merged cells in Excel CSV export
-                // "Produto" header covers cols 0,1,2 → produtoId at col 1, nome at col 2
                 if (/^produto$/i.test(v) && colProdId === -1) { colProdId = idx + 1; colNome = idx + 2; }
                 else if (/unidade/i.test(v) && colUnidade === -1) colUnidade = idx + 1;
                 else if (/estoque\s*atual/i.test(v) && colEstoque === -1) colEstoque = idx + 1;
@@ -160,9 +151,6 @@ function parseNutricaoCSV(file: File): Promise<NutricaoProduto[]> {
             const row = rows[i];
             if (!row || row.every(c => !(c || '').trim())) continue;
 
-            // Detect repeated header rows (e.g. every ~37 rows in this CSV).
-            // The repeat headers can have different structure (one fewer separator col),
-            // so we re-scan and update column indices on each occurrence.
             const rowHasLote = row.some(c => /^lote$/i.test((c || '').trim()));
             const rowHasVal  = row.some(c => /^validade$/i.test((c || '').trim()));
             if (rowHasLote && rowHasVal) {
@@ -176,7 +164,7 @@ function parseNutricaoCSV(file: File): Promise<NutricaoProduto[]> {
                 else if (/^est\./i.test(v))        colEst     = idx + 1;
                 else if (/^quantidade$/i.test(v))  colQtd     = idx + 1;
               });
-              continue; // skip the header row itself
+              continue;
             }
 
             const rawId = colProdId !== -1 ? (row[colProdId] || '').trim() : '';
@@ -207,7 +195,6 @@ function parseNutricaoCSV(file: File): Promise<NutricaoProduto[]> {
                   categoria: 'Outros / Diversos',
                 });
               } else {
-                // Same product ID after a repeated header → name may have been split
                 const existing = map.get(rawId)!;
                 const cleaned = cleanStr(rawNome);
                 if (cleaned && !existing.nome.includes(cleaned)) {
@@ -234,7 +221,6 @@ function parseNutricaoCSV(file: File): Promise<NutricaoProduto[]> {
             }
           }
 
-          // Post-process: compute menorDias, menorValidade, status
           const produtos: NutricaoProduto[] = [];
           map.forEach(p => {
             if (p.lotes.length === 0) return;
@@ -243,14 +229,13 @@ function parseNutricaoCSV(file: File): Promise<NutricaoProduto[]> {
             p.menorValidade = sorted[0].validade;
             p.status = calcStatus(p.menorDias);
             p.categoria = categorizarProduto(p.nome);
-            // If estoqueAtual is 0, sum quantities from lotes as fallback
             if (p.estoqueAtual === 0) {
               p.estoqueAtual = p.lotes.reduce((s, l) => s + l.quantidade, 0);
             }
             produtos.push(p);
           });
 
-          // Sort alphabetically
+          // Sort alphabetically by name
           produtos.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
           resolve(produtos);
         } catch (err) {
@@ -264,63 +249,97 @@ function parseNutricaoCSV(file: File): Promise<NutricaoProduto[]> {
   });
 }
 
-// ── Status Badge ───────────────────────────────────────────────────────────────
+// ── Urgency bar ────────────────────────────────────────────────────────────────
 
-function StatusBadge({ status }: { status: NutricaoProduto['status'] }) {
-  if (status === 'URGENTE') {
-    return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-700 border border-red-200">
-        <ShieldAlert className="w-3 h-3" /> URGENTE
-      </span>
-    );
-  }
-  if (status === 'ATENCAO') {
-    return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-700 border border-amber-200">
-        <AlertTriangle className="w-3 h-3" /> ATENÇÃO
-      </span>
-    );
-  }
+function UrgencyBar({ dias }: { dias: number }) {
+  const pct = dias <= 0 ? 100 : Math.min(100, Math.round((dias / 30) * 100));
+  const color = dias <= 0 ? 'bg-red-600' : dias <= 10 ? 'bg-red-500' : dias <= 20 ? 'bg-orange-500' : 'bg-amber-400';
   return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">
-      <CheckCircle className="w-3 h-3" /> OK
-    </span>
+    <div className="w-full h-1.5 rounded-full bg-slate-200 mt-2">
+      <div className={`h-1.5 rounded-full ${color} transition-all`} style={{ width: `${pct}%` }} />
+    </div>
   );
-}
-
-function DiasCell({ dias }: { dias: number }) {
-  if (dias <= 0) return <span className="font-bold text-red-600">Vencido</span>;
-  if (dias <= 30) return <span className="font-bold text-red-600">{dias}d</span>;
-  if (dias <= 60) return <span className="font-bold text-amber-600">{dias}d</span>;
-  return <span className="text-emerald-700">{dias}d</span>;
 }
 
 // ── KPI Card ───────────────────────────────────────────────────────────────────
 
-function KPICard({
-  label, value, sub, color,
-}: {
+function KPICard({ label, value, sub, color, icon }: {
   label: string; value: string | number; sub?: string;
   color: 'emerald' | 'red' | 'amber' | 'slate';
+  icon?: React.ReactNode;
 }) {
   const colors = {
-    emerald: 'bg-emerald-50 border-emerald-200 text-emerald-700',
-    red: 'bg-red-50 border-red-200 text-red-700',
-    amber: 'bg-amber-50 border-amber-200 text-amber-700',
-    slate: 'bg-slate-50 border-slate-200 text-slate-700',
+    emerald: 'bg-emerald-50 border-emerald-200',
+    red:     'bg-red-50 border-red-200',
+    amber:   'bg-amber-50 border-amber-200',
+    slate:   'bg-slate-50 border-slate-200',
   };
   const valColors = {
     emerald: 'text-emerald-800',
-    red: 'text-red-800',
-    amber: 'text-amber-800',
-    slate: 'text-slate-800',
+    red:     'text-red-700',
+    amber:   'text-amber-700',
+    slate:   'text-slate-800',
   };
   return (
-    <div className={`rounded-xl border p-4 ${colors[color]}`}>
-      <p className="text-xs font-medium uppercase tracking-wide opacity-70">{label}</p>
-      <p className={`text-2xl font-bold mt-1 ${valColors[color]}`}>{value}</p>
-      {sub && <p className="text-xs opacity-60 mt-0.5">{sub}</p>}
+    <div className={`rounded-2xl border p-5 ${colors[color]} flex items-start gap-4`}>
+      {icon && <div className="mt-0.5 opacity-70">{icon}</div>}
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+        <p className={`text-3xl font-black mt-1 ${valColors[color]}`}>{value}</p>
+        {sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}
+      </div>
     </div>
+  );
+}
+
+// ── Alert Card (30 dias) ───────────────────────────────────────────────────────
+
+function AlertCard({ p, i }: { p: NutricaoProduto; i: number }) {
+  const isVencido = p.menorDias <= 0;
+  const diasLabel = isVencido ? 'VENCIDO' : `${p.menorDias}d`;
+  const bgClass   = isVencido || p.menorDias <= 10
+    ? 'bg-red-50 border-red-300'
+    : p.menorDias <= 20
+      ? 'bg-orange-50 border-orange-300'
+      : 'bg-amber-50 border-amber-200';
+  const diasClass = isVencido || p.menorDias <= 10
+    ? 'text-red-700 bg-red-100'
+    : p.menorDias <= 20
+      ? 'text-orange-700 bg-orange-100'
+      : 'text-amber-700 bg-amber-100';
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: i * 0.04 }}
+      className={`rounded-2xl border p-4 flex items-center gap-4 ${bgClass}`}
+    >
+      {/* Countdown */}
+      <div className={`shrink-0 w-16 h-16 rounded-xl flex flex-col items-center justify-center font-black text-lg leading-none ${diasClass}`}>
+        <span>{diasLabel}</span>
+        {!isVencido && <span className="text-[10px] font-semibold opacity-70 mt-0.5">dias</span>}
+      </div>
+
+      {/* Info */}
+      <div className="flex-1 min-w-0">
+        <p className="font-bold text-slate-900 leading-snug truncate">{p.nome}</p>
+        <p className="text-xs text-slate-500 mt-0.5">
+          Validade: <span className="font-semibold">{p.menorValidade || '—'}</span>
+          &nbsp;·&nbsp; Estoque: <span className="font-semibold">{p.estoqueAtual.toLocaleString('pt-BR')} {p.unidade}</span>
+        </p>
+        <UrgencyBar dias={p.menorDias} />
+      </div>
+
+      {/* Badge */}
+      <div className="shrink-0">
+        <span className={`text-xs font-bold px-2 py-1 rounded-full ${
+          isVencido ? 'bg-red-700 text-white' : diasClass
+        }`}>
+          {p.categoria.split(' ')[0]}
+        </span>
+      </div>
+    </motion.div>
   );
 }
 
@@ -332,11 +351,7 @@ export function PainelNutricao() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'TODOS' | 'URGENTE' | 'ATENCAO' | 'OK'>('TODOS');
-  const [sortField, setSortField] = useState<'nome' | 'menorDias' | 'estoqueAtual'>('nome');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
-  const [activeTab, setActiveTab] = useState<'tabela' | 'alertas'>('tabela');
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [catFilter, setCatFilter] = useState<string>('TODOS');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFile = useCallback(async (file: File) => {
@@ -345,7 +360,7 @@ export function PainelNutricao() {
     try {
       const result = await parseNutricaoCSV(file);
       if (result.length === 0) {
-        setError('Nenhum produto encontrado no arquivo. Verifique o formato do CSV.');
+        setError('Nenhum produto encontrado. Verifique o formato do CSV.');
       } else {
         setDados(result);
         setShowUpload(false);
@@ -369,80 +384,43 @@ export function PainelNutricao() {
     if (file) handleFile(file);
   }, [handleFile]);
 
-  const toggleExpand = (id: string) => {
-    setExpandedIds(prev => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  };
-
-  const toggleSort = (field: typeof sortField) => {
-    if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    else { setSortField(field); setSortDir('asc'); }
-  };
-
+  // KPIs
   const kpis = useMemo(() => ({
     total: dados.length,
-    urgente: dados.filter(p => p.menorDias <= 30).length,
-    atencao: dados.filter(p => p.menorDias > 30 && p.menorDias <= 60).length,
+    urgente30: dados.filter(p => p.menorDias <= 30).length,
     estoqueTotal: dados.reduce((s, p) => s + p.estoqueAtual, 0),
   }), [dados]);
 
-  const displayData = useMemo(() => {
+  // Próximos a vencer ≤ 30 dias, ordem alfabética
+  const proxVencer = useMemo(() =>
+    [...dados]
+      .filter(p => p.menorDias <= 30)
+      .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')),
+    [dados]
+  );
+
+  // Lista geral filtrada, ordem alfabética
+  const categorias = useMemo(() => {
+    const cats = new Set(dados.map(p => p.categoria));
+    return ['TODOS', ...Array.from(cats).sort()];
+  }, [dados]);
+
+  const listaGeral = useMemo(() => {
     let d = [...dados];
-    if (statusFilter !== 'TODOS') d = d.filter(p => p.status === statusFilter);
+    if (catFilter !== 'TODOS') d = d.filter(p => p.categoria === catFilter);
     if (searchTerm.trim()) {
       const q = searchTerm.trim().toLowerCase();
       d = d.filter(p => p.nome.toLowerCase().includes(q) || p.produtoId.includes(q));
     }
-    d.sort((a, b) => {
-      let cmp = 0;
-      if (sortField === 'nome') cmp = a.nome.localeCompare(b.nome, 'pt-BR');
-      else if (sortField === 'menorDias') cmp = a.menorDias - b.menorDias;
-      else cmp = b.estoqueAtual - a.estoqueAtual;
-      return sortDir === 'asc' ? cmp : -cmp;
-    });
-    return d;
-  }, [dados, searchTerm, statusFilter, sortField, sortDir]);
-
-  const alertasData = useMemo(() =>
-    [...dados]
-      .filter(p => p.menorDias <= 60)
-      .sort((a, b) => a.menorDias - b.menorDias),
-    [dados]);
-
-  const groupProds = useCallback((prodsList: NutricaoProduto[]) => {
-    const groups = new Map<string, NutricaoProduto[]>();
-    prodsList.forEach(p => {
-      if (!groups.has(p.categoria)) groups.set(p.categoria, []);
-      groups.get(p.categoria)!.push(p);
-    });
-    return Array.from(groups.entries()).sort((a, b) => {
-      const order = ['Dietas Enterais', 'Suplementos', 'Fórmulas Infantis', 'Módulos e Espessantes', 'Outros / Diversos'];
-      const idxA = order.indexOf(a[0]);
-      const idxB = order.indexOf(b[0]);
-      return (idxA !== -1 ? idxA : 99) - (idxB !== -1 ? idxB : 99);
-    });
-  }, []);
-
-  const groupedData = useMemo(() => groupProds(displayData), [displayData, groupProds]);
-  const groupedAlertas = useMemo(() => groupProds(alertasData), [alertasData, groupProds]);
-
-  const handleExportPDF = () => {
-    exportNutricaoPDF(dados, kpis);
-  };
-
-  const SortIcon = ({ field }: { field: typeof sortField }) => {
-    if (sortField !== field) return <ChevronDown className="w-3 h-3 opacity-30" />;
-    return sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />;
-  };
+    return d.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  }, [dados, catFilter, searchTerm]);
 
   const showUploadZone = dados.length === 0 || showUpload;
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+
+      {/* ── Header ── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="p-2.5 rounded-xl bg-emerald-100">
@@ -463,7 +441,7 @@ export function PainelNutricao() {
               {showUpload ? 'Cancelar' : 'Substituir dados'}
             </button>
             <button
-              onClick={handleExportPDF}
+              onClick={() => exportNutricaoPDF(dados, kpis)}
               className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors font-medium"
             >
               <Download className="w-4 h-4" />
@@ -473,7 +451,7 @@ export function PainelNutricao() {
         )}
       </div>
 
-      {/* Upload zone */}
+      {/* ── Upload zone ── */}
       <AnimatePresence>
         {showUploadZone && (
           <motion.div
@@ -485,16 +463,10 @@ export function PainelNutricao() {
             <div
               onDragOver={e => e.preventDefault()}
               onDrop={handleDrop}
-              className="border-2 border-dashed border-emerald-300 rounded-xl bg-emerald-50 p-10 text-center cursor-pointer hover:bg-emerald-100 transition-colors"
+              className="border-2 border-dashed border-emerald-300 rounded-2xl bg-emerald-50 p-12 text-center cursor-pointer hover:bg-emerald-100 transition-colors"
               onClick={() => fileInputRef.current?.click()}
             >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".csv"
-                className="hidden"
-                onChange={handleInputChange}
-              />
+              <input ref={fileInputRef} type="file" accept=".csv" className="hidden" onChange={handleInputChange} />
               {loading ? (
                 <div className="flex flex-col items-center gap-3">
                   <div className="w-10 h-10 border-4 border-emerald-400 border-t-transparent rounded-full animate-spin" />
@@ -502,321 +474,195 @@ export function PainelNutricao() {
                 </div>
               ) : (
                 <div className="flex flex-col items-center gap-3">
-                  <Upload className="w-10 h-10 text-emerald-500" />
+                  <Upload className="w-12 h-12 text-emerald-400" />
                   <div>
-                    <p className="font-semibold text-emerald-800">Clique ou arraste o arquivo CSV</p>
+                    <p className="font-bold text-emerald-800 text-lg">Clique ou arraste o arquivo CSV</p>
                     <p className="text-sm text-emerald-600 mt-1">conf lote dieta.csv</p>
                   </div>
                 </div>
               )}
             </div>
             {error && (
-              <div className="mt-3 flex items-start gap-2 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
-                <X className="w-4 h-4 mt-0.5 shrink-0" />
-                {error}
+              <div className="mt-3 flex items-start gap-2 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm">
+                <X className="w-4 h-4 mt-0.5 shrink-0" /> {error}
               </div>
             )}
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* KPI Cards */}
-      {dados.length > 0 && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <KPICard label="Total de produtos" value={kpis.total} color="emerald" />
-          <KPICard label="Vencendo em ≤30 dias" value={kpis.urgente} color="red" sub="Ação imediata" />
-          <KPICard label="Vencendo em ≤60 dias" value={kpis.atencao} color="amber" sub="Monitorar" />
-          <KPICard label="Estoque total" value={kpis.estoqueTotal.toLocaleString('pt-BR')} color="slate" sub="unidades" />
-        </div>
-      )}
-
-      {/* Sub-tabs */}
       {dados.length > 0 && (
         <>
-          <div className="flex gap-1 border-b border-slate-200">
-            {(['tabela', 'alertas'] as const).map(tab => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === tab
-                    ? 'border-emerald-600 text-emerald-700'
-                    : 'border-transparent text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                {tab === 'tabela' ? 'Tabela Geral' : `Alertas de Vencimento${alertasData.length > 0 ? ` (${alertasData.length})` : ''}`}
-              </button>
-            ))}
+          {/* ── KPIs ── */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <KPICard
+              label="Total de produtos"
+              value={kpis.total}
+              color="emerald"
+              icon={<Package className="w-6 h-6 text-emerald-600" />}
+            />
+            <KPICard
+              label="Vencendo em ≤ 30 dias"
+              value={kpis.urgente30}
+              sub="Ação imediata necessária"
+              color="red"
+              icon={<ShieldAlert className="w-6 h-6 text-red-500" />}
+            />
+            <KPICard
+              label="Estoque total"
+              value={kpis.estoqueTotal.toLocaleString('pt-BR')}
+              sub="unidades"
+              color="slate"
+              icon={<Clock className="w-6 h-6 text-slate-400" />}
+            />
           </div>
 
-          {/* ── TABELA ── */}
-          {activeTab === 'tabela' && (
-            <div className="space-y-4">
-              {/* Search + filters */}
-              <div className="flex gap-3 flex-wrap items-center">
-                <div className="relative flex-1 min-w-48">
+          {/* ── Próximos a Vencer (30 dias) ── */}
+          {proxVencer.length > 0 && (
+            <div className="bg-red-50 border border-red-200 rounded-2xl p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <AlertTriangle className="w-5 h-5 text-red-600" />
+                <h2 className="font-bold text-red-800 text-base">
+                  Próximos a Vencer — 30 dias
+                  <span className="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-red-200 text-red-700">
+                    {proxVencer.length} item{proxVencer.length !== 1 ? 's' : ''}
+                  </span>
+                </h2>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                {proxVencer.map((p, i) => (
+                  <AlertCard key={p.produtoId} p={p} i={i} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {proxVencer.length === 0 && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-6 flex items-center gap-4">
+              <CheckCircle className="w-10 h-10 text-emerald-500 shrink-0" />
+              <div>
+                <p className="font-bold text-emerald-800">Tudo em dia!</p>
+                <p className="text-sm text-emerald-600">Nenhum produto vencendo nos próximos 30 dias.</p>
+              </div>
+            </div>
+          )}
+
+          {/* ── Lista Geral ── */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+              <h2 className="font-bold text-slate-800 flex items-center gap-2">
+                <Package className="w-5 h-5 text-emerald-600" />
+                Lista Geral de Produtos
+              </h2>
+              <div className="flex gap-2 flex-wrap">
+                {/* Search */}
+                <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <input
                     type="text"
                     placeholder="Buscar produto…"
                     value={searchTerm}
                     onChange={e => setSearchTerm(e.target.value)}
-                    className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                    className="pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-400 w-52"
                   />
                 </div>
-                {/* Status filter chips */}
-                <div className="flex gap-1.5 flex-wrap">
-                  {([
-                    { key: 'TODOS', label: 'Todos', cls: 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200' },
-                    { key: 'URGENTE', label: 'Urgente', cls: 'bg-red-100 text-red-700 border-red-200 hover:bg-red-200' },
-                    { key: 'ATENCAO', label: 'Atenção', cls: 'bg-amber-100 text-amber-700 border-amber-200 hover:bg-amber-200' },
-                    { key: 'OK', label: 'OK', cls: 'bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-200' },
-                  ] as const).map(f => (
-                    <button
-                      key={f.key}
-                      onClick={() => setStatusFilter(f.key)}
-                      className={`px-3 py-1.5 text-xs font-semibold rounded-full border transition-colors ${f.cls} ${
-                        statusFilter === f.key ? 'ring-2 ring-offset-1 ring-current' : ''
-                      }`}
-                    >
-                      {f.label}
-                      {f.key !== 'TODOS' && (
-                        <span className="ml-1 opacity-60">
-                          ({dados.filter(p => p.status === f.key).length})
-                        </span>
-                      )}
-                    </button>
+                {/* Category filter */}
+                <select
+                  value={catFilter}
+                  onChange={e => setCatFilter(e.target.value)}
+                  className="px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-400 bg-white"
+                >
+                  {categorias.map(c => (
+                    <option key={c} value={c}>{c === 'TODOS' ? 'Todas as categorias' : c}</option>
                   ))}
-                </div>
-              </div>
-
-              {/* Table */}
-              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-slate-50 border-b border-slate-200 text-slate-600">
-                        <th
-                          className="text-left px-4 py-3 font-semibold cursor-pointer select-none hover:text-emerald-700"
-                          onClick={() => toggleSort('nome')}
-                        >
-                          <span className="flex items-center gap-1">
-                            Produto <SortIcon field="nome" />
-                          </span>
-                        </th>
-                        <th className="text-center px-3 py-3 font-semibold">Unidade</th>
-                        <th
-                          className="text-right px-3 py-3 font-semibold cursor-pointer select-none hover:text-emerald-700"
-                          onClick={() => toggleSort('estoqueAtual')}
-                        >
-                          <span className="flex items-center justify-end gap-1">
-                            Estoque <SortIcon field="estoqueAtual" />
-                          </span>
-                        </th>
-                        <th className="text-center px-3 py-3 font-semibold">Validade mais próxima</th>
-                        <th
-                          className="text-center px-3 py-3 font-semibold cursor-pointer select-none hover:text-emerald-700"
-                          onClick={() => toggleSort('menorDias')}
-                        >
-                          <span className="flex items-center justify-center gap-1">
-                            Dias <SortIcon field="menorDias" />
-                          </span>
-                        </th>
-                        <th className="text-center px-3 py-3 font-semibold">Status</th>
-                        <th className="text-center px-3 py-3 font-semibold">Lotes</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {groupedData.flatMap(([catName, prods]) => {
-                        const catHeader = (
-                          <tr key={`cat-${catName}`} className="bg-slate-100/80 border-y border-slate-200">
-                            <td colSpan={7} className="px-4 py-2 font-bold text-emerald-800 uppercase text-xs tracking-widest bg-emerald-50/50">
-                              {catName} <span className="opacity-70 ml-1 font-semibold">({prods.length})</span>
-                            </td>
-                          </tr>
-                        );
-
-                        const productRows = prods.map((p, i) => {
-                          const expanded = expandedIds.has(p.produtoId);
-                          return (
-                            <React.Fragment key={p.produtoId}>
-                            <motion.tr
-                              initial={{ opacity: 0 }}
-                              animate={{ opacity: 1 }}
-                              transition={{ delay: i * 0.02 }}
-                              className={`border-b border-slate-100 hover:bg-slate-50 transition-colors ${
-                                p.status === 'URGENTE' ? 'bg-red-50/40' :
-                                p.status === 'ATENCAO' ? 'bg-amber-50/40' : ''
-                              }`}
-                            >
-                              <td className="px-4 py-3 font-medium text-slate-900 max-w-xs">
-                                <div className="flex flex-col">
-                                  <span>{p.nome}</span>
-                                  <span className="text-xs text-slate-400 font-normal">#{p.produtoId}</span>
-                                </div>
-                              </td>
-                              <td className="px-3 py-3 text-center text-slate-600">{p.unidade}</td>
-                              <td className="px-3 py-3 text-right font-semibold text-slate-800">
-                                {p.estoqueAtual.toLocaleString('pt-BR')}
-                              </td>
-                              <td className="px-3 py-3 text-center text-slate-700">
-                                <div className="flex items-center justify-center gap-1">
-                                  <Clock className="w-3.5 h-3.5 text-slate-400" />
-                                  {p.menorValidade || '—'}
-                                </div>
-                              </td>
-                              <td className="px-3 py-3 text-center">
-                                <DiasCell dias={p.menorDias} />
-                              </td>
-                              <td className="px-3 py-3 text-center">
-                                <StatusBadge status={p.status} />
-                              </td>
-                              <td className="px-3 py-3 text-center">
-                                <button
-                                  onClick={() => toggleExpand(p.produtoId)}
-                                  className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 transition-colors"
-                                >
-                                  <Package className="w-3 h-3" />
-                                  {p.lotes.length}
-                                  {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                                </button>
-                              </td>
-                            </motion.tr>
-
-                            {/* Expanded lotes */}
-                            <AnimatePresence>
-                              {expanded && (
-                                <motion.tr
-                                  initial={{ opacity: 0 }}
-                                  animate={{ opacity: 1 }}
-                                  exit={{ opacity: 0 }}
-                                >
-                                  <td colSpan={7} className="px-6 pb-3 pt-0 bg-slate-50/70">
-                                    <div className="rounded-lg border border-slate-200 overflow-hidden">
-                                      <table className="w-full text-xs">
-                                        <thead>
-                                          <tr className="bg-slate-100 text-slate-500">
-                                            <th className="text-left px-3 py-2 font-semibold">Lote</th>
-                                            <th className="text-center px-3 py-2 font-semibold">Validade</th>
-                                            <th className="text-center px-3 py-2 font-semibold">Dias</th>
-                                            <th className="text-center px-3 py-2 font-semibold">Endereço</th>
-                                            <th className="text-right px-3 py-2 font-semibold">Qtd.</th>
-                                          </tr>
-                                        </thead>
-                                        <tbody>
-                                          {p.lotes
-                                            .slice()
-                                            .sort((a, b) => a.diasParaVencer - b.diasParaVencer)
-                                            .map((l, li) => (
-                                              <tr key={li} className="border-t border-slate-200">
-                                                <td className="px-3 py-1.5 font-mono text-slate-700">{l.lote}</td>
-                                                <td className="px-3 py-1.5 text-center text-slate-600">{l.validade}</td>
-                                                <td className="px-3 py-1.5 text-center">
-                                                  <DiasCell dias={l.diasParaVencer} />
-                                                </td>
-                                                <td className="px-3 py-1.5 text-center text-slate-600">{l.endereco || '—'}</td>
-                                                <td className="px-3 py-1.5 text-right font-medium text-slate-800">
-                                                  {l.quantidade.toLocaleString('pt-BR')}
-                                                </td>
-                                              </tr>
-                                            ))}
-                                        </tbody>
-                                      </table>
-                                    </div>
-                                  </td>
-                                </motion.tr>
-                              )}
-                            </AnimatePresence>
-                          </React.Fragment>
-                        );
-                      });
-                      return [catHeader, ...productRows];
-                    })}
-                    {displayData.length === 0 && (
-                        <tr>
-                          <td colSpan={7} className="px-4 py-10 text-center text-slate-400">
-                            Nenhum produto encontrado.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="px-4 py-2 border-t border-slate-100 bg-slate-50 text-xs text-slate-500">
-                  {displayData.length} produto{displayData.length !== 1 ? 's' : ''} exibido{displayData.length !== 1 ? 's' : ''}
-                </div>
+                </select>
               </div>
             </div>
-          )}
 
-          {/* ── ALERTAS ── */}
-          {activeTab === 'alertas' && (
-            <div className="space-y-3">
-              {alertasData.length === 0 ? (
-                <div className="text-center py-16 text-slate-400">
-                  <CheckCircle className="w-12 h-12 mx-auto mb-3 text-emerald-400" />
-                  <p className="font-medium">Nenhum produto vencendo nos próximos 60 dias.</p>
-                </div>
-              ) : (
-                groupedAlertas.map(([catName, prods]) => (
-                  <div key={`alerta-cat-${catName}`} className="mb-6 space-y-3">
-                    <h3 className="font-bold text-slate-700 text-sm flex items-center gap-2 pb-1 border-b border-slate-200">
-                      {catName} <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{prods.length}</span>
-                    </h3>
-                    {prods.map((p, i) => (
-                      <motion.div
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-slate-500">
+                    <th className="text-left px-5 py-3 font-semibold">Descrição</th>
+                    <th className="text-left px-3 py-3 font-semibold">Categoria</th>
+                    <th className="text-center px-3 py-3 font-semibold">Unidade</th>
+                    <th className="text-right px-3 py-3 font-semibold">Estoque</th>
+                    <th className="text-center px-3 py-3 font-semibold">Validade</th>
+                    <th className="text-center px-5 py-3 font-semibold">Situação</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {listaGeral.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-5 py-12 text-center text-slate-400">
+                        Nenhum produto encontrado.
+                      </td>
+                    </tr>
+                  ) : listaGeral.map((p, i) => {
+                    const isUrgente = p.menorDias <= 30;
+                    const isAtencao = p.menorDias > 30 && p.menorDias <= 60;
+                    return (
+                      <motion.tr
                         key={p.produtoId}
-                        initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: i * 0.04 }}
-                    className={`rounded-xl border p-4 ${
-                      p.status === 'URGENTE'
-                        ? 'bg-red-50 border-red-200'
-                        : 'bg-amber-50 border-amber-200'
-                    }`}
-                  >
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                      <div>
-                        <p className={`font-semibold ${p.status === 'URGENTE' ? 'text-red-900' : 'text-amber-900'}`}>
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ delay: Math.min(i * 0.015, 0.3) }}
+                        className={`border-b border-slate-100 transition-colors ${
+                          isUrgente ? 'bg-red-50/50 hover:bg-red-50' :
+                          isAtencao ? 'bg-amber-50/40 hover:bg-amber-50' :
+                          'hover:bg-slate-50'
+                        }`}
+                      >
+                        <td className="px-5 py-3 font-medium text-slate-900">
                           {p.nome}
-                        </p>
-                        <p className="text-xs text-slate-500 mt-0.5">#{p.produtoId} · {p.unidade} · Estoque: {p.estoqueAtual.toLocaleString('pt-BR')}</p>
-                      </div>
-                      <div className="flex items-center gap-3 shrink-0">
-                        <div className="text-right">
-                          <p className={`text-2xl font-bold ${p.status === 'URGENTE' ? 'text-red-700' : 'text-amber-700'}`}>
-                            {p.menorDias <= 0 ? 'Vencido' : `${p.menorDias}d`}
-                          </p>
-                          <p className="text-xs text-slate-500">Validade: {p.menorValidade}</p>
-                        </div>
-                        <StatusBadge status={p.status} />
-                      </div>
-                    </div>
-                    {/* Lotes list */}
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {p.lotes
-                        .slice()
-                        .sort((a, b) => a.diasParaVencer - b.diasParaVencer)
-                        .map((l, li) => (
-                          <span
-                            key={li}
-                            className={`text-xs px-2 py-1 rounded-md font-mono ${
-                              l.diasParaVencer <= 30
-                                ? 'bg-red-100 text-red-700'
-                                : 'bg-amber-100 text-amber-700'
-                            }`}
-                          >
-                            {l.lote} · {l.validade} · {l.quantidade.toLocaleString('pt-BR')} un.
+                        </td>
+                        <td className="px-3 py-3 text-slate-500 text-xs">
+                          <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium">
+                            {p.categoria}
                           </span>
-                        ))}
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-            ))
-          )}
-        </div>
-          )}
+                        </td>
+                        <td className="px-3 py-3 text-center text-slate-600">{p.unidade}</td>
+                        <td className="px-3 py-3 text-right font-semibold text-slate-800">
+                          {p.estoqueAtual.toLocaleString('pt-BR')}
+                        </td>
+                        <td className="px-3 py-3 text-center">
+                          <span className={`font-medium ${
+                            isUrgente ? 'text-red-700' :
+                            isAtencao ? 'text-amber-700' :
+                            'text-slate-600'
+                          }`}>
+                            {p.menorValidade || '—'}
+                          </span>
+                        </td>
+                        <td className="px-5 py-3 text-center">
+                          {isUrgente ? (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700 border border-red-200">
+                              <ShieldAlert className="w-3 h-3" />
+                              {p.menorDias <= 0 ? 'Vencido' : `${p.menorDias}d`}
+                            </span>
+                          ) : isAtencao ? (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700 border border-amber-200">
+                              <AlertTriangle className="w-3 h-3" />
+                              {p.menorDias}d
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">
+                              <CheckCircle className="w-3 h-3" />
+                              OK
+                            </span>
+                          )}
+                        </td>
+                      </motion.tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 text-xs text-slate-500">
+              {listaGeral.length} produto{listaGeral.length !== 1 ? 's' : ''} · ordenado por descrição
+            </div>
+          </div>
         </>
       )}
     </div>
