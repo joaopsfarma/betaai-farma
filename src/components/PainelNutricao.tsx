@@ -586,20 +586,30 @@ export function PainelNutricao() {
                     <th className="text-left px-5 py-3 font-semibold">Descrição</th>
                     <th className="text-left px-3 py-3 font-semibold">Categoria</th>
                     <th className="text-center px-3 py-3 font-semibold">Unidade</th>
-                    <th className="text-right px-5 py-3 font-semibold">Estoque</th>
+                    <th className="text-center px-5 py-3 font-semibold">Estoque</th>
                     <th className="text-center px-3 py-3 font-semibold">Validade</th>
+                    <th className="text-center px-4 py-3 font-semibold">Nível</th>
                   </tr>
                 </thead>
                 <tbody>
                   {listaGeral.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="px-5 py-12 text-center text-slate-400">
+                      <td colSpan={6} className="px-5 py-12 text-center text-slate-400">
                         Nenhum produto encontrado.
                       </td>
                     </tr>
                   ) : listaGeral.map((p, i) => {
                     const isUrgente = p.menorDias <= 30;
                     const isAtencao = p.menorDias > 30 && p.menorDias <= 60;
+
+                    // Nível de estoque
+                    const nivel = p.estoqueAtual <= 5 ? 'BAIXO' : p.estoqueAtual <= 20 ? 'MÉDIO' : 'ALTO';
+                    const nivelCfg = {
+                      BAIXO: { bar: 'w-1/3',  bg: 'bg-red-500',    pill: 'bg-red-100 text-red-700 border-red-200',    dot: 'bg-red-500'    },
+                      MÉDIO: { bar: 'w-2/3',  bg: 'bg-amber-400',  pill: 'bg-amber-100 text-amber-700 border-amber-200', dot: 'bg-amber-400' },
+                      ALTO:  { bar: 'w-full', bg: 'bg-emerald-500', pill: 'bg-emerald-100 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500' },
+                    }[nivel];
+
                     return (
                       <motion.tr
                         key={p.produtoId}
@@ -621,11 +631,24 @@ export function PainelNutricao() {
                           </span>
                         </td>
                         <td className="px-3 py-3 text-center text-slate-600">{p.unidade}</td>
-                        <td className="px-5 py-3 text-right">
-                          <span className="text-xl font-black text-slate-800">
-                            {p.estoqueAtual.toLocaleString('pt-BR')}
-                          </span>
+
+                        {/* Estoque em destaque */}
+                        <td className="px-5 py-2 text-center">
+                          <div className="inline-flex flex-col items-center gap-1">
+                            <span className={`text-2xl font-black leading-none ${
+                              nivel === 'BAIXO' ? 'text-red-600' :
+                              nivel === 'MÉDIO' ? 'text-amber-600' :
+                              'text-emerald-700'
+                            }`}>
+                              {p.estoqueAtual.toLocaleString('pt-BR')}
+                            </span>
+                            {/* Barra de nível */}
+                            <div className="w-14 h-1.5 rounded-full bg-slate-200">
+                              <div className={`h-1.5 rounded-full ${nivelCfg.bar} ${nivelCfg.bg}`} />
+                            </div>
+                          </div>
                         </td>
+
                         <td className="px-3 py-3 text-center">
                           <span className={`font-medium ${
                             isUrgente ? 'text-red-700' :
@@ -633,6 +656,14 @@ export function PainelNutricao() {
                             'text-slate-600'
                           }`}>
                             {p.menorValidade || '—'}
+                          </span>
+                        </td>
+
+                        {/* Sinalizador de nível */}
+                        <td className="px-4 py-3 text-center">
+                          <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${nivelCfg.pill}`}>
+                            <span className={`w-2 h-2 rounded-full ${nivelCfg.dot}`} />
+                            {nivel}
                           </span>
                         </td>
                       </motion.tr>
