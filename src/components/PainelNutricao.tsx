@@ -586,15 +586,14 @@ export function PainelNutricao() {
                     <th className="text-left px-5 py-3 font-semibold">Descrição</th>
                     <th className="text-left px-3 py-3 font-semibold">Categoria</th>
                     <th className="text-center px-3 py-3 font-semibold">Unidade</th>
-                    <th className="text-right px-3 py-3 font-semibold">Estoque</th>
+                    <th className="text-right px-5 py-3 font-semibold">Estoque</th>
                     <th className="text-center px-3 py-3 font-semibold">Validade</th>
-                    <th className="text-center px-5 py-3 font-semibold">Situação</th>
                   </tr>
                 </thead>
                 <tbody>
                   {listaGeral.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-5 py-12 text-center text-slate-400">
+                      <td colSpan={5} className="px-5 py-12 text-center text-slate-400">
                         Nenhum produto encontrado.
                       </td>
                     </tr>
@@ -622,8 +621,10 @@ export function PainelNutricao() {
                           </span>
                         </td>
                         <td className="px-3 py-3 text-center text-slate-600">{p.unidade}</td>
-                        <td className="px-3 py-3 text-right font-semibold text-slate-800">
-                          {p.estoqueAtual.toLocaleString('pt-BR')}
+                        <td className="px-5 py-3 text-right">
+                          <span className="text-xl font-black text-slate-800">
+                            {p.estoqueAtual.toLocaleString('pt-BR')}
+                          </span>
                         </td>
                         <td className="px-3 py-3 text-center">
                           <span className={`font-medium ${
@@ -633,24 +634,6 @@ export function PainelNutricao() {
                           }`}>
                             {p.menorValidade || '—'}
                           </span>
-                        </td>
-                        <td className="px-5 py-3 text-center">
-                          {isUrgente ? (
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700 border border-red-200">
-                              <ShieldAlert className="w-3 h-3" />
-                              {p.menorDias <= 0 ? 'Vencido' : `${p.menorDias}d`}
-                            </span>
-                          ) : isAtencao ? (
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700 border border-amber-200">
-                              <AlertTriangle className="w-3 h-3" />
-                              {p.menorDias}d
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">
-                              <CheckCircle className="w-3 h-3" />
-                              OK
-                            </span>
-                          )}
                         </td>
                       </motion.tr>
                     );
