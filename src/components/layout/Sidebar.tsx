@@ -36,6 +36,7 @@ export type TabId =
   | 'abastecimento-farmaceutico'
   | 'painel_tv_abastecimento'
   | 'sinalizador'
+  | 'planejamento_kits'
   | 'painel_farma_tv';
 
 export interface NavItem {

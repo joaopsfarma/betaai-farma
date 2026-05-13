@@ -14,7 +14,7 @@ import { TransferRequest } from './components/TransferRequest';
 import { VBACodeDisplay } from './components/VBACodeDisplay';
 import { CsvUploader } from './components/CsvUploader';
 import { ValidityUploader } from './components/ValidityUploader';
-import { LayoutDashboard, FileSpreadsheet, Code, Pill, Database, Filter, AlertCircle, PieChart, Download, Activity, ClipboardList, Menu, X, ChevronRight, Clock, Ban, Package, Calculator, BarChart2, ShieldAlert, AlertTriangle, ShoppingCart, XCircle, ShieldCheck, TrendingDown, MonitorPlay, ArrowLeftRight, Utensils } from 'lucide-react';
+import { LayoutDashboard, FileSpreadsheet, Code, Pill, Database, Filter, AlertCircle, PieChart, Download, Activity, ClipboardList, Menu, X, ChevronRight, Clock, Ban, Package, Calculator, BarChart2, ShieldAlert, AlertTriangle, ShoppingCart, XCircle, ShieldCheck, TrendingDown, MonitorPlay, ArrowLeftRight, Utensils, Scissors } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Dashboard } from './components/Dashboard';
 import { Product, UnitType, ProductCategory, AlertStatus, FollowUpItem } from './types';
@@ -47,6 +47,7 @@ import { Sinalizador } from './components/Sinalizador';
 import { PainelTVAbastecimento } from './components/PainelTVAbastecimento';
 import { AnaliseOperacional } from './components/AnaliseOperacional';
 import PainelFarmaTV from './components/PainelFarmaTV';
+import { PlanejamentoKitsCirurgicos } from './components/PlanejamentoKitsCirurgicos';
 import { HomeScreen } from './components/HomeScreen';
 import { MobileHeader } from './components/layout/MobileHeader';
 import { Sidebar, NavItem, NavGroup, TabId } from './components/layout/Sidebar';
@@ -236,6 +237,7 @@ function App() {
         { id: 'criticidade',     label: 'Criticidade',     icon: <ShieldAlert className="w-5 h-5" />,  classes: G },
         { id: 'equivalencia',    label: 'Equivalência',    icon: <Database className="w-5 h-5" />,     classes: G },
         { id: 'painel_nutricao', label: 'Painel Nutrição', icon: <Utensils className="w-5 h-5" />,    classes: G },
+        { id: 'planejamento_kits', label: 'Kits Cirúrgicos', icon: <Scissors className="w-5 h-5" />, classes: V },
       ],
     },
     {
@@ -493,6 +495,11 @@ function App() {
         {activeTab === 'painel_tv_abastecimento' && (
           <div className="w-full -mx-4 sm:-mx-6 lg:-mx-8 -mt-8 md:-mt-10">
             <PainelTVAbastecimento onBack={() => setActiveTab('abastecimento-farmaceutico')} followUpData={followUpData} />
+          </div>
+        )}
+        {activeTab === 'planejamento_kits' && (
+          <div className="max-w-7xl mx-auto">
+            <PlanejamentoKitsCirurgicos />
           </div>
         )}
         {activeTab === 'painel_farma_tv' && (
