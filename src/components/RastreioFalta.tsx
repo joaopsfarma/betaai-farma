@@ -9,6 +9,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from 'recharts';
+import { getRiscoAssistencial } from '../utils/riscoAssistencial';
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
 interface TrackingRow {
@@ -163,14 +164,19 @@ export function RastreioFalta() {
   const [aiInsight, setAiInsight] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
+  const hasRiscoAssistencial = useCallback((r: TrackingRow) => {
+    const nivel = getRiscoAssistencial(r.descricao).level;
+    return nivel === 'CRITICO' || nivel === 'ALTO';
+  }, []);
+
   const handleAiAnalysis = useCallback(async () => {
     if (!data?.rows.length) return;
     setIsAnalyzing(true);
     setAiInsight('');
     try {
-      const criticos = data.rows.filter(r => r.nivel === 'critico').sort((a, b) => a.projecao - b.projecao);
-      const alertas  = data.rows.filter(r => r.nivel === 'alerta').sort((a, b) => a.projecao - b.projecao);
-      const atencao  = data.rows.filter(r => r.nivel === 'atencao').length;
+      const criticos = data.rows.filter(r => r.nivel === 'critico' && hasRiscoAssistencial(r)).sort((a, b) => a.projecao - b.projecao);
+      const alertas  = data.rows.filter(r => r.nivel === 'alerta'  && hasRiscoAssistencial(r)).sort((a, b) => a.projecao - b.projecao);
+      const atencao  = data.rows.filter(r => r.nivel === 'atencao' && hasRiscoAssistencial(r)).length;
 
       const linhas = [...criticos, ...alertas].slice(0, 20).map(r => {
         const proj = r.projecao <= 0 ? 'SEM ESTOQUE' : `${r.projecao.toFixed(0)}d`;
@@ -179,11 +185,11 @@ export function RastreioFalta() {
 
       const prompt = `Você é um farmacêutico hospitalar especialista em gestão de estoques. Analise o rastreio de falta abaixo e forneça 5 ações prioritárias e práticas.
 
-=== RESUMO ===
+=== RESUMO (somente itens com risco assistencial direto — CRITICO ou ALTO) ===
 Total monitorado: ${data.rows.length} produtos
-Críticos (≤7 dias): ${criticos.length}
-Alerta (8–15 dias): ${alertas.length}
-Atenção (16–30 dias): ${atencao}
+Críticos com risco assistencial (≤7 dias): ${criticos.length}
+Alerta com risco assistencial (8–15 dias): ${alertas.length}
+Atenção com risco assistencial (16–30 dias): ${atencao}
 
 === ITENS CRÍTICOS E ALERTA ===
 ${linhas || 'Nenhum item em situação crítica ou alerta.'}
@@ -237,7 +243,11 @@ Forneça 5 pontos de ação priorizados por urgência. Seja direto e prático. U
       try {
         const result = parseTracking(e.target?.result as string);
         setData(result);
-        autoSendWhatsApp(result.rows, result.diaLabels);
+        const comRiscoAssistencial = result.rows.filter(r => {
+          const nivel = getRiscoAssistencial(r.descricao).level;
+          return nivel === 'CRITICO' || nivel === 'ALTO';
+        });
+        autoSendWhatsApp(comRiscoAssistencial, result.diaLabels);
       } catch (err) {
         console.error('Erro ao processar CSV:', err);
       } finally {
