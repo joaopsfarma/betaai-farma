@@ -19,6 +19,16 @@ const MAX_ALERTAS  = 5;
 
 const DIV = '━━━━━━━━━━━━━━━━━━━━';
 
+// Produtos excluídos dos alertas WhatsApp (gerenciados por fluxo próprio)
+const EXCLUIR_DO_ALERTA = [
+  /dieta\s+parenteral/i,
+  /nutri[çc][aã]o\s+parenteral/i,
+];
+
+function excluirDoAlerta(comercial: string): boolean {
+  return EXCLUIR_DO_ALERTA.some(re => re.test(comercial));
+}
+
 function tendLabel(t?: string): string {
   if (t === 'alta')  return 'consumo crescente';
   if (t === 'queda') return 'consumo em queda';
@@ -28,6 +38,10 @@ function tendLabel(t?: string): string {
 function buildMessage(rows: TrackingRow[]): string {
   const date = new Date().toLocaleDateString('pt-BR');
   const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+  // Remove itens gerenciados por fluxo próprio (ex: Dietas Parenterais / CMIV)
+  const excluidos = rows.filter(r => excluirDoAlerta(r.comercial)).length;
+  rows = rows.filter(r => !excluirDoAlerta(r.comercial));
 
   const zerados  = rows
     .filter(r => r.nivel === 'critico' && r.projecao <= 0)
@@ -104,6 +118,9 @@ function buildMessage(rows: TrackingRow[]): string {
   }
 
   // ── Rodapé com comandos do bot ─────────────────────────────────────────────
+  if (excluidos > 0) {
+    msg += `\n_⚗️ ${excluidos} Dieta${excluidos > 1 ? 's' : ''} Parenteral excluída${excluidos > 1 ? 's' : ''} — gerenciada${excluidos > 1 ? 's' : ''} pela CMIV_\n`;
+  }
   msg += `\n${DIV}\n💬 *Comandos do bot:*\n`;
   msg += `• *crítico* → lista completa de críticos\n`;
   msg += `• *alerta* → lista completa de alertas\n`;
