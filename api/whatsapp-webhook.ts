@@ -960,21 +960,30 @@ export default async function handler(req: Request): Promise<Response> {
   // Evolution API pode enviar: "messages.upsert", "message.upsert", "MESSAGES_UPSERT", etc.
   const rawEvent = (payload.event ?? payload.type ?? payload.name ?? '').toString();
   const event = rawEvent.toLowerCase().replace(/_/g, '.');
-  console.log('[WH] event:', rawEvent, '→', event, '| keys:', Object.keys(payload));
+  console.log('[WH] event:', rawEvent, '→', event, '| keys:', JSON.stringify(Object.keys(payload)));
   if (event !== 'messages.upsert' && event !== 'message.upsert') {
     return new Response('OK', { status: 200 });
   }
 
-  const data      = payload.data;
+  // Evolution API v1 envia data como objeto; v2 pode enviar como array — normaliza
+  const rawData = payload.data;
+  const data    = Array.isArray(rawData) ? rawData[0] : rawData;
+
+  console.log('[WH] data keys:', JSON.stringify(Object.keys(data ?? {})));
+
   const key       = data?.key;
   const remoteJid = key?.remoteJid as string | undefined;
+
+  console.log('[WH] remoteJid:', remoteJid, '| fromMe:', key?.fromMe);
 
   // Ignora mensagens enviadas pelo próprio bot
   if (!remoteJid || key?.fromMe) return new Response('OK', { status: 200 });
 
   const msg            = data?.message ?? {};
-  const text: string   = msg.conversation ?? msg.extendedTextMessage?.text ?? '';
+  const text: string   = msg.conversation ?? msg.extendedTextMessage?.text ?? msg.imageMessage?.caption ?? '';
   const mentionedJids: string[] = msg.extendedTextMessage?.contextInfo?.mentionedJid ?? [];
+
+  console.log('[WH] text:', JSON.stringify(text.slice(0, 100)), '| mentionedJids:', JSON.stringify(mentionedJids));
   // Nome do remetente (vindo da Evolution API como pushName)
   const pushName: string = (data?.pushName ?? data?.senderName ?? '').split(' ')[0];
 
