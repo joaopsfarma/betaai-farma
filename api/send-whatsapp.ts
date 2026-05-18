@@ -218,7 +218,12 @@ export default async function handler(req: Request): Promise<Response> {
           const isSessionError =
             errorBody.includes('SessionError') ||
             errorBody.includes('No sessions') ||
-            errorBody.includes('session');
+            errorBody.includes('session') ||
+            errorBody.includes('Connection Closed') ||
+            errorBody.includes('Connection closed') ||
+            errorBody.includes('connection') ||
+            errorBody.includes('Unauthorized') ||
+            errorBody.includes('not-authorized');
           const err = new Error(`HTTP ${r.status}${errorBody ? ': ' + errorBody.slice(0, 200) : ''}`) as Error & { sessionError?: boolean };
           err.sessionError = isSessionError;
           throw err;
