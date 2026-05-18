@@ -17,67 +17,99 @@ interface TrackingRow {
 const MAX_CRITICOS = 8;
 const MAX_ALERTAS  = 5;
 
-function tendEmoji(t?: string) {
-  if (t === 'alta')  return '↑';
-  if (t === 'queda') return '↓';
-  return '→';
+const DIV = '━━━━━━━━━━━━━━━━━━━━';
+
+function tendLabel(t?: string): string {
+  if (t === 'alta')  return 'consumo crescente';
+  if (t === 'queda') return 'consumo em queda';
+  return 'estável';
 }
 
 function buildMessage(rows: TrackingRow[]): string {
   const date = new Date().toLocaleDateString('pt-BR');
   const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
-  // Ordena por projeção crescente (zerados primeiro, depois menos dias)
+  const zerados  = rows
+    .filter(r => r.nivel === 'critico' && r.projecao <= 0)
+    .sort((a, b) => a.saldo - b.saldo);
   const criticos = rows
-    .filter(r => r.nivel === 'critico')
+    .filter(r => r.nivel === 'critico' && r.projecao > 0)
     .sort((a, b) => a.projecao - b.projecao);
-  const alertas = rows
+  const alertas  = rows
     .filter(r => r.nivel === 'alerta')
     .sort((a, b) => a.projecao - b.projecao);
+  const atencao  = rows.filter(r => r.nivel === 'atencao').length;
 
-  const zerados   = criticos.filter(r => r.projecao <= 0).length;
-  const atencao   = rows.filter(r => r.nivel === 'atencao').length;
-
-  let msg = `🚨 *RASTREIO DE FALTA — ${date} ${hora}*\n`;
-  msg += `📊 ${rows.length} monitorados`;
-  if (zerados)         msg += ` · ⛔ ${zerados} zerado${zerados > 1 ? 's' : ''}`;
+  // ── Cabeçalho ──────────────────────────────────────────────────────────────
+  let msg = `🏥 *RASTREIO DE FALTA — ${date} ${hora}*\n${DIV}\n`;
+  msg += `📦 ${rows.length} monitorados`;
+  if (zerados.length)  msg += ` · ⛔ ${zerados.length} zerado${zerados.length > 1 ? 's' : ''}`;
   if (criticos.length) msg += ` · 🔴 ${criticos.length} crítico${criticos.length > 1 ? 's' : ''}`;
   if (alertas.length)  msg += ` · 🟡 ${alertas.length} alerta${alertas.length > 1 ? 's' : ''}`;
   if (atencao)         msg += ` · 🔵 ${atencao} atenção`;
   msg += '\n';
 
-  if (criticos.length) {
-    msg += `\n🔴 *CRÍTICO — ${criticos.length} iten${criticos.length > 1 ? 's' : ''} (≤7 dias)*\n`;
-    const exibir = criticos.slice(0, MAX_CRITICOS);
-    exibir.forEach(r => {
-      const proj  = r.projecao <= 0 ? '⛔ *SEM ESTOQUE*' : `⏳ *${Math.round(r.projecao)}d*`;
+  // ── Zerados — seção prioritária ────────────────────────────────────────────
+  if (zerados.length) {
+    msg += `\n⛔ *ZERADOS — PROVIDENCIAR AGORA*\n`;
+    zerados.forEach((r, i) => {
       const media = r.media != null && r.media > 0
-        ? ` · med: ${r.media.toFixed(1)}/${r.unidade}`
+        ? ` · Média: ${r.media.toFixed(1)}/${r.unidade}`
         : '';
-      const tend  = r.tendencia ? ` ${tendEmoji(r.tendencia)}` : '';
-      msg += `• *${r.codigo}* – ${r.comercial}\n`;
-      msg += `  Saldo: ${r.saldo.toLocaleString('pt-BR')} ${r.unidade} | ${proj}${media}${tend}\n`;
+      msg += `${i + 1}. *${r.comercial}* (${r.codigo}) ⚠️ Risco Assistencial\n`;
+      msg += `   Saldo: 0 ${r.unidade}${media}\n`;
+    });
+  }
+
+  // ── Críticos ───────────────────────────────────────────────────────────────
+  if (criticos.length) {
+    const exibidos = criticos.length > MAX_CRITICOS
+      ? `${MAX_CRITICOS} de ${criticos.length} exibidos`
+      : `${criticos.length} iten${criticos.length > 1 ? 's' : ''}`;
+    msg += `\n${DIV}\n🔴 *CRÍTICO ≤7 DIAS* — ${exibidos}\n\n`;
+    criticos.slice(0, MAX_CRITICOS).forEach((r, i) => {
+      const media = r.media != null && r.media > 0
+        ? ` · Média: ${r.media.toFixed(1)}/${r.unidade}`
+        : '';
+      const tend = r.tendencia ? ` · ${tendLabel(r.tendencia)}` : '';
+      msg += `${i + 1}. *${r.comercial}* (${r.codigo}) ⚠️ Risco Assistencial\n`;
+      msg += `   Saldo: ${r.saldo.toLocaleString('pt-BR')} ${r.unidade} · ⏳ ${Math.round(r.projecao)}d${media}${tend}\n`;
     });
     if (criticos.length > MAX_CRITICOS) {
-      msg += `_+ ${criticos.length - MAX_CRITICOS} outros críticos — pergunte *crítico* ao bot_\n`;
+      msg += `_+ ${criticos.length - MAX_CRITICOS} outros → envie *crítico* ao bot_\n`;
     }
   }
 
+  // ── Alertas ────────────────────────────────────────────────────────────────
   if (alertas.length) {
-    msg += `\n🟡 *ALERTA — ${alertas.length} iten${alertas.length > 1 ? 's' : ''} (8–15 dias)*\n`;
-    const exibir = alertas.slice(0, MAX_ALERTAS);
-    exibir.forEach(r => {
-      const tend = r.tendencia ? ` ${tendEmoji(r.tendencia)}` : '';
-      msg += `• *${r.codigo}* – ${r.comercial} | ⏳ ${Math.round(r.projecao)}d${tend}\n`;
+    const exibidos = alertas.length > MAX_ALERTAS
+      ? `${MAX_ALERTAS} de ${alertas.length} exibidos`
+      : `${alertas.length} iten${alertas.length > 1 ? 's' : ''}`;
+    msg += `\n${DIV}\n🟡 *ALERTA 8–15 DIAS* — ${exibidos}\n\n`;
+    alertas.slice(0, MAX_ALERTAS).forEach((r, i) => {
+      const media = r.media != null && r.media > 0
+        ? ` · Média: ${r.media.toFixed(1)}/${r.unidade}`
+        : '';
+      const tend = r.tendencia ? ` · ${tendLabel(r.tendencia)}` : '';
+      msg += `${i + 1}. *${r.comercial}* (${r.codigo}) ⚠️ Risco Assistencial\n`;
+      msg += `   Saldo: ${r.saldo.toLocaleString('pt-BR')} ${r.unidade} · ⏳ ${Math.round(r.projecao)}d${media}${tend}\n`;
     });
     if (alertas.length > MAX_ALERTAS) {
-      msg += `_+ ${alertas.length - MAX_ALERTAS} outros alertas — pergunte *alerta* ao bot_\n`;
+      msg += `_+ ${alertas.length - MAX_ALERTAS} outros → envie *alerta* ao bot_\n`;
     }
   }
 
-  if (!criticos.length && !alertas.length) {
-    msg += '\n✅ Nenhum item em nível Crítico ou Alerta no momento.';
+  if (!zerados.length && !criticos.length && !alertas.length) {
+    msg += '\n✅ Nenhum item em nível Crítico ou Alerta com risco assistencial no momento.';
   }
+
+  // ── Rodapé com comandos do bot ─────────────────────────────────────────────
+  msg += `\n${DIV}\n💬 *Comandos do bot:*\n`;
+  msg += `• *crítico* → lista completa de críticos\n`;
+  msg += `• *alerta* → lista completa de alertas\n`;
+  msg += `• *zerado* → apenas itens sem estoque\n`;
+  msg += `• *risco* → somente com risco assistencial\n`;
+  msg += `_FarmaIA · Rastreio Automatizado_`;
 
   return msg;
 }
