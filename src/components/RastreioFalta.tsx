@@ -148,7 +148,7 @@ function ProjecaoBar({ dias, max = 30 }: { dias: number; max?: number }) {
 }
 
 // ─── COMPONENT ───────────────────────────────────────────────────────────────
-type WhatsAppStatus = 'idle' | 'sending' | 'ok' | 'error' | 'unconfigured';
+type WhatsAppStatus = 'idle' | 'sending' | 'ok' | 'error' | 'unconfigured' | 'session_error';
 
 export function RastreioFalta() {
   const [data, setData] = useState<TrackingData | null>(null);
@@ -223,6 +223,8 @@ Forneça 5 pontos de ação priorizados por urgência. Seja direto e prático. U
       const data = await res.json().catch(() => null);
       if (res.status === 503) {
         setWaStatus('unconfigured');
+      } else if (res.status === 401 || data?.sessionError) {
+        setWaStatus('session_error');
       } else if (res.ok) {
         setWaStatus('ok');
       } else {
@@ -728,6 +730,26 @@ Forneça 5 pontos de ação priorizados por urgência. Seja direto e prático. U
             Falha ao enviar WhatsApp — verifique a Evolution API ou use o botão manual.
             {waError && <div className="mt-0.5 font-normal opacity-80">{waError}</div>}
           </div>
+        </div>
+      )}
+      {waStatus === 'session_error' && (
+        <div className="flex items-start gap-2 bg-amber-50 border border-amber-300 rounded-lg px-4 py-3 text-xs text-amber-800">
+          <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="font-bold">WhatsApp desconectado — sessão expirada</p>
+            <p className="font-normal mt-0.5 opacity-90">
+              A instância da Evolution API não possui sessão ativa. Acesse o painel da Evolution API, escaneie o QR code para reconectar e tente novamente.
+            </p>
+          </div>
+          <button
+            onClick={() => data && autoSendWhatsApp(
+              data.rows.filter(r => { const n = getRiscoAssistencial(r.descricao).level; return n === 'CRITICO' || n === 'ALTO'; }),
+              data.diaLabels
+            )}
+            className="ml-2 shrink-0 bg-amber-500 hover:bg-amber-600 text-white font-bold px-3 py-1.5 rounded-lg transition-colors"
+          >
+            Tentar novamente
+          </button>
         </div>
       )}
       {waStatus === 'unconfigured' && (

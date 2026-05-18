@@ -183,7 +183,13 @@ export default async function handler(req: Request): Promise<Response> {
       }).then(async r => {
         if (!r.ok) {
           const errorBody = await r.text().catch(() => '');
-          throw new Error(`HTTP ${r.status}${errorBody ? ': ' + errorBody.slice(0, 200) : ''}`);
+          const isSessionError =
+            errorBody.includes('SessionError') ||
+            errorBody.includes('No sessions') ||
+            errorBody.includes('session');
+          const err = new Error(`HTTP ${r.status}${errorBody ? ': ' + errorBody.slice(0, 200) : ''}`) as Error & { sessionError?: boolean };
+          err.sessionError = isSessionError;
+          throw err;
         }
         return r.json();
       })
@@ -195,11 +201,14 @@ export default async function handler(req: Request): Promise<Response> {
   const errors  = results
     .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
     .map(r => r.reason?.message ?? 'Erro desconhecido');
+  const sessionError = results
+    .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+    .some(r => (r.reason as any)?.sessionError === true);
 
   return new Response(
-    JSON.stringify({ sent, failed, errors: errors.length ? errors : undefined }),
+    JSON.stringify({ sent, failed, errors: errors.length ? errors : undefined, sessionError: sessionError || undefined }),
     {
-      status: failed === numbers.length ? 502 : 200,
+      status: failed === numbers.length ? (sessionError ? 401 : 502) : 200,
       headers: {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
