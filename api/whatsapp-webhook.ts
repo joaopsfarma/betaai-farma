@@ -994,8 +994,9 @@ export default async function handler(req: Request): Promise<Response> {
   });
 
   // Responde se o bot foi explicitamente mencionado.
-  // Evita interagir se outro membro do grupo for mencionado ao invés do próprio bot.
-  const checkFallback = (!botNumber && !botLid && mentionedJids.length > 0);
+  // checkFallback: se BOT_NUMBER está configurado mas nenhum JID bateu (WhatsApp usa LID moderno),
+  // aceita qualquer menção no grupo para não deixar o bot mudo.
+  const checkFallback = (mentionedJids.length > 0 && !mentionMatch);
   const checkText = botNumber ? text.includes(`@${botNumber}`) : false;
 
   const botMentioned = mentionMatch || checkText || checkFallback;
